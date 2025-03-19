@@ -16,30 +16,24 @@
 
 #define LOGGER_NAME "logger"
 #define LOGGER_FILE "RaMA-G.log"
-
 #define VERSION "1.0.0"
 
-// 自定义 Formatter，让 option 格式统一为 [OPTION]，更美观
+// Custom formatter for CLI11, unify option display style
 class CustomFormatter : public CLI::Formatter {
 public:
 	CustomFormatter() : Formatter() {}
 
-	// 统一每个 option 参数格式为 [VALUE]，去掉 CLI11 自带的 "TEXT REQUIRED"
+	// Display option format as [VALUE], remove "TEXT REQUIRED" style
 	std::string make_option_opts(const CLI::Option* opt) const override {
-		if (opt->get_type_size() == 0) return "";  // flag 类型不显示
-
+		if (opt->get_type_size() == 0) return "";  // No display for flag options
 		std::ostringstream out;
-		out << " " << opt->get_type_name();  // 自动读取 <path> 或 <int>
-
+		out << " " << opt->get_type_name();  // Automatically display <path> or <int>
 		if (!opt->get_default_str().empty())
 			out << " (default: " << opt->get_default_str() << ")";
-		//if (!opt->get_envname().empty())
-		//	out << " (env: " << opt->get_envname() << ")";
 		return out.str();
 	}
 
-
-	// 去掉默认的 executable 路径 usage 输出（美观）
+	// Customize usage example for better readability
 	std::string make_usage(const CLI::App* app, std::string name) const override {
 		std::ostringstream out;
 		out << "Usage:\n"
@@ -48,114 +42,155 @@ public:
 			<< "  ./RaMA-G -r ref.fa -q query.fa -o output/ -t 8\n\n";
 		return out.str();
 	}
-
 };
-// Structure for common command-line arguments
+
+// Whitespace trimming validator for CLI11
+inline CLI::Validator trim_whitespace = CLI::Validator(
+	[](std::string& s) {
+		auto start = s.find_first_not_of(" \t\n\r");
+		auto end = s.find_last_not_of(" \t\n\r");
+		s = (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
+		return std::string();  // empty means valid
+	}, ""
+);
+
+// Enum for output format types
+enum class OutputFormat {
+	SAM,
+	MAF,
+	PAF,
+	UNKNOWN
+};
+
+// Auto detect output format based on file extension
+inline OutputFormat detectOutputFormat(const std::filesystem::path& output_path) {
+	std::string ext = output_path.extension().string();
+	if (ext == ".sam") return OutputFormat::SAM;
+	if (ext == ".maf") return OutputFormat::MAF;
+	if (ext == ".paf") return OutputFormat::PAF;
+	return OutputFormat::UNKNOWN;
+}
+
+// Structure to store common command-line arguments
 struct CommonArgs {
 	std::filesystem::path reference_path = "";
 	std::filesystem::path query_path = "";
 	std::filesystem::path output_path = "";
-
-	int thread_num = std::thread::hardware_concurrency();  // Default to system hardware concurrency
+	std::filesystem::path work_dir_path = "";
+	bool restart = false;
+	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
+	OutputFormat output_format = OutputFormat::UNKNOWN;
 };
 
-void addCommonOptions(CLI::App* cmd, CommonArgs& args) {
+// Setup CLI11 common options
+inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 	auto fmt = std::make_shared<CustomFormatter>();
 	fmt->column_width(50);
 	cmd->formatter(fmt);
 
 	cmd->set_version_flag("-v,--version", std::string("RaMA-G version ") + VERSION);
 
-	cmd->add_option("-r,--reference", args.reference_path,
+	auto* ref_opt = cmd->add_option("-r,--reference", args.reference_path,
 		"Path to the reference genome file (FASTA format).")
-		->required()->group("Input Files")
-		->check(CLI::ExistingFile)
-		->type_name("<path>");
+		->group("Input Files")->check(CLI::ExistingFile)
+		->type_name("<path>")->transform(trim_whitespace);
 
-	cmd->add_option("-q,--query", args.query_path,
+	auto* qry_opt = cmd->add_option("-q,--query", args.query_path,
 		"Path to the query genome file (FASTA format).")
-		->required()->group("Input Files")
-		->check(CLI::ExistingFile)
-		->type_name("<path>");
+		->group("Input Files")->check(CLI::ExistingFile)
+		->type_name("<path>")->transform(trim_whitespace);
 
-	cmd->add_option("-o,--output", args.output_path,
+	auto* output_opt = cmd->add_option("-o,--output", args.output_path,
 		"Path to save alignment results.")
-		->required()->group("Output")
-		->type_name("<path>");
+		->group("Output")->type_name("<path>")
+		->transform(trim_whitespace);
 
-	cmd->add_option("-t,--threads", args.thread_num,
+	auto* workspace_opt = cmd->add_option("-w,--workdir", args.work_dir_path,
+		"Path to the working directory for temporary files.")
+		->group("Output")->type_name("<path>")
+		->transform(trim_whitespace);
+
+	auto* threads_opt = cmd->add_option("-t,--threads", args.thread_num,
 		"Number of threads to use for parallel processing (default: system cores).")
 		->default_val(std::thread::hardware_concurrency())
 		->envname("RAMA_G_THREADS")
 		->capture_default_str()
 		->group("Performance")
 		->check(CLI::Range(2, std::numeric_limits<int>::max()))
-		->type_name("<int>");
+		->type_name("<int>")->transform(trim_whitespace);
 
+	auto* restart_flag = cmd->add_flag("--restart", args.restart,
+		"Restart the alignment process by skipping the existing index files.")
+		->group("Performance");
+
+	// Set dependencies and exclusions
+	restart_flag->needs(workspace_opt);
+	restart_flag->excludes(ref_opt, qry_opt, output_opt, threads_opt);
 }
 
-
-// Function to set up the logger
-void setupLoggerWithFile(std::filesystem::path log_dir) {
-	// Create console log sink (supports multi-threading + colored output)
+// Setup logger with optional file output
+inline void setupLoggerWithFile(std::filesystem::path log_dir) {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [%l] %v%$");
 
-	// Set the format of console log, including line color
-	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [thread %t] [%l] %v%$");
-
-	// Define the path for the log file
 	std::filesystem::path log_file = log_dir / LOGGER_FILE;
-
-	// Create file log sink (without color)
 	auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file.string(), true);
-	file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [thread %t] [%l] %v");
+	file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
 
-	// Create multi-target logger
 	spdlog::sinks_init_list sinks = { console_sink, file_sink };
 	auto logger = std::make_shared<spdlog::async_logger>(
 		LOGGER_NAME, sinks.begin(), sinks.end(), spdlog::thread_pool(), spdlog::async_overflow_policy::block);
 
-	// Set the logger as default
 	spdlog::set_default_logger(logger);
-
-	// Set global log level
-	// TODO change to info
 	spdlog::set_level(spdlog::level::trace);
-
-	// Periodically flush logs every 3 seconds
 	spdlog::flush_every(std::chrono::seconds(3));
 }
 
-// Function to set up the logger (console only)
-void setupLogger() {
-	// Create console log sink (multi-thread + colored output)
+// Setup console-only logger
+inline void setupLogger() {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [%l] %v%$");
 
-	// Set the format of console log
-	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [thread %t] [%l] %v%$");
-
-	// Create async logger with only console sink
 	spdlog::sinks_init_list sinks = { console_sink };
 	auto logger = std::make_shared<spdlog::async_logger>(
 		LOGGER_NAME, sinks.begin(), sinks.end(), spdlog::thread_pool(), spdlog::async_overflow_policy::block);
 
-	// Set as default logger
 	spdlog::set_default_logger(logger);
-
-	// Set global log level (你可以改成 info）
 	spdlog::set_level(spdlog::level::trace);
-
-	// Flush every 3 seconds
 	spdlog::flush_every(std::chrono::seconds(3));
 }
 
-// Function to trim whitespace and newline characters from the start and end of a string
-std::string trim(const std::string& str) {
-	auto start = str.find_first_not_of(" \t\r\n");
-	auto end = str.find_last_not_of(" \t\r\n");
-	return (start == std::string::npos || end == std::string::npos) ? "" : str.substr(start, end - start + 1);
+// Get human-readable file size (auto convert to KB/MB/GB)
+inline std::string getReadableFileSize(const std::filesystem::path& filePath) {
+	try {
+		auto size = std::filesystem::file_size(filePath);
+		const char* units[] = { "B", "KB", "MB", "GB", "TB" };
+		int unit_index = 0;
+		double display_size = static_cast<double>(size);
+
+		while (display_size >= 1024 && unit_index < 4) {
+			display_size /= 1024;
+			++unit_index;
+		}
+
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%.2f %s", display_size, units[unit_index]);
+		return std::string(buf);
+	}
+	catch (const std::filesystem::filesystem_error& e) {
+		spdlog::error("Failed to get file size for {}: {}", filePath.string(), e.what());
+		return "0 B";
+	}
 }
 
+// Get full command-line string for logging and reproducibility
+inline std::string getCommandLine(int argc, char** argv) {
+	std::ostringstream cmd;
+	for (int i = 0; i < argc; ++i) {
+		cmd << argv[i];
+		if (i != argc - 1) cmd << " ";
+	}
+	return cmd.str();
+}
 
-
-#endif // !CONFIF_HPP
+#endif // CONFIG_HPP
