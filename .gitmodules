@@ -4,3 +4,6 @@
 [submodule "src/utils/spdlog"]
 	path = src/utils/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "src/utils/CLI11"]
+	path = src/utils/CLI11
+	url = https://github.com/CLIUtils/CLI11.git

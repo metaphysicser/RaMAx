@@ -11,11 +11,36 @@ endif()
 
 project ("RaMA-G")
 
+set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(UTILS_DIR ${SOURCE_DIR}/utils)
+
+add_subdirectory(${UTILS_DIR}/spdlog)
+add_subdirectory(${UTILS_DIR}/CLI11)
+
 # 将源代码添加到此项目的可执行文件。
-add_executable (RaMA-G "RaMA-G.cpp" )
+add_executable(RaMA-G ${SOURCE_DIR}/RaMA-G.cpp ${UTILS_DIR}/config.hpp)
+
+
+# Include directories for header files
+target_include_directories(RaMA-G PRIVATE
+    ${UTILS_DIR}
+    ${UTILS_DIR}/spdlog/include/spdlog
+    ${UTILS_DIR}/CLI11/include/CLI
+
+)
+
+target_link_libraries(RaMA-G PRIVATE
+    spdlog::spdlog
+    CLI11::CLI11
+)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET RaMA-G PROPERTY CXX_STANDARD 20)
+  set_target_properties(RaMA-G PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+
 endif()
 
 # TODO: 如有需要，请添加测试并安装目标。
