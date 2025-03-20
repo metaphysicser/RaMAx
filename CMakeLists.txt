@@ -13,12 +13,20 @@ project ("RaMA-G")
 
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(UTILS_DIR ${SOURCE_DIR}/utils)
+set(PREPROCESS_DIR ${SOURCE_DIR}/preprocess)
 
 add_subdirectory(${UTILS_DIR}/spdlog)
 add_subdirectory(${UTILS_DIR}/CLI11)
 
+# 查找 curl 和 zlib 库
+# Find and configure required libraries
+find_package(CURL REQUIRED)
+find_package(ZLIB REQUIRED STATIC)
+
 # 将源代码添加到此项目的可执行文件。
-add_executable(RaMA-G ${SOURCE_DIR}/RaMA-G.cpp ${UTILS_DIR}/config.hpp)
+add_executable(RaMA-G 
+${SOURCE_DIR}/RaMA-G.cpp
+)
 
 
 # Include directories for header files
@@ -26,12 +34,14 @@ target_include_directories(RaMA-G PRIVATE
     ${UTILS_DIR}
     ${UTILS_DIR}/spdlog/include/spdlog
     ${UTILS_DIR}/CLI11/include/CLI
-
+    ${PREPROCESS_DIR}
 )
 
 target_link_libraries(RaMA-G PRIVATE
     spdlog::spdlog
     CLI11::CLI11
+    ZLIB::ZLIB
+    CURL::libcurl
 )
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
@@ -40,7 +50,12 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
+endif()
 
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(RaMA-G PRIVATE _DEBUG_)
 endif()
 
 # TODO: 如有需要，请添加测试并安装目标。

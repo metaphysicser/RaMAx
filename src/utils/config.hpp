@@ -14,9 +14,14 @@
 #include <memory>
 #include <filesystem>
 
+#define VERSION "1.0.0"
+
 #define LOGGER_NAME "logger"
 #define LOGGER_FILE "RaMA-G.log"
-#define VERSION "1.0.0"
+
+#define DATA_DIR "data"	
+#define RAW_DATA_DIR "raw_data"
+#define CLEAN_DATA "clean_data"
 
 // Custom formatter for CLI11, unify option display style
 class CustomFormatter : public CLI::Formatter {
@@ -92,12 +97,12 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 
 	auto* ref_opt = cmd->add_option("-r,--reference", args.reference_path,
 		"Path to the reference genome file (FASTA format).")
-		->group("Input Files")->check(CLI::ExistingFile)
+		->group("Input Files")
 		->type_name("<path>")->transform(trim_whitespace);
 
 	auto* qry_opt = cmd->add_option("-q,--query", args.query_path,
 		"Path to the query genome file (FASTA format).")
-		->group("Input Files")->check(CLI::ExistingFile)
+		->group("Input Files")
 		->type_name("<path>")->transform(trim_whitespace);
 
 	auto* output_opt = cmd->add_option("-o,--output", args.output_path,
@@ -158,29 +163,6 @@ inline void setupLogger() {
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::trace);
 	spdlog::flush_every(std::chrono::seconds(3));
-}
-
-// Get human-readable file size (auto convert to KB/MB/GB)
-inline std::string getReadableFileSize(const std::filesystem::path& filePath) {
-	try {
-		auto size = std::filesystem::file_size(filePath);
-		const char* units[] = { "B", "KB", "MB", "GB", "TB" };
-		int unit_index = 0;
-		double display_size = static_cast<double>(size);
-
-		while (display_size >= 1024 && unit_index < 4) {
-			display_size /= 1024;
-			++unit_index;
-		}
-
-		char buf[64];
-		snprintf(buf, sizeof(buf), "%.2f %s", display_size, units[unit_index]);
-		return std::string(buf);
-	}
-	catch (const std::filesystem::filesystem_error& e) {
-		spdlog::error("Failed to get file size for {}: {}", filePath.string(), e.what());
-		return "0 B";
-	}
 }
 
 // Get full command-line string for logging and reproducibility
