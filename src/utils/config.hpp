@@ -21,7 +21,9 @@
 
 #define DATA_DIR "data"	
 #define RAW_DATA_DIR "raw_data"
-#define CLEAN_DATA "clean_data"
+#define CLEAN_DATA_DIR "clean_data"
+#define SPLIT_CHR_DIR "split_chr"
+
 
 // Custom formatter for CLI11, unify option display style
 class CustomFormatter : public CLI::Formatter {

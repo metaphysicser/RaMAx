@@ -1,7 +1,7 @@
 ﻿// RaMA-G.cpp: 定义应用程序的入口点。
 //
 
-#include "raw_data_process.hpp"
+#include "data_process.h"
 #include "config.hpp"
 
 int main(int argc, char** argv) {
@@ -118,14 +118,13 @@ int main(int argc, char** argv) {
 	spdlog::info("Work directory: {}", common_args.work_dir_path.string());
 	spdlog::info("Threads: {}", common_args.thread_num);
 
-	std::unordered_map<std::string, std::filesystem::path> species_path_map;
+	SpeciesPathMap species_path_map;
 	species_path_map["reference"] = common_args.reference_path;
 	species_path_map["query"] = common_args.query_path;
 
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
+	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-	std::filesystem::path ref_clean_data_path = cleanRawData(common_args.work_dir_path, species_path_map["reference"]);
-	std::filesystem::path qry_clean_data_path = cleanRawData(common_args.work_dir_path, species_path_map["query"]);
 
 	return 0;
 }

@@ -26,6 +26,8 @@ find_package(ZLIB REQUIRED STATIC)
 # 将源代码添加到此项目的可执行文件。
 add_executable(RaMA-G 
 ${SOURCE_DIR}/RaMA-G.cpp
+${PREPROCESS_DIR}/raw_data_process.cpp
+${PREPROCESS_DIR}/split_data.cpp
 )
 
 
