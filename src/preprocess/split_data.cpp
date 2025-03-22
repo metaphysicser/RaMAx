@@ -103,4 +103,134 @@ bool splitRawDataToChr(const FilePath workdir_path,
 	}
 }
 
+bool splitChrToChunk(FilePath work_dir,
+	SpeciesChrPathMap& species_chr_path_map,
+	SpeciesChunkInfoMap& species_chunk_info_map,
+	size_t chunk_length,
+	size_t overlap_length,
+	int thread_num) {
+	ThreadPool pool(thread_num);
+
+	// Iterate over each species in the species_chr_path_map
+	// (Assuming SpeciesChrPathMap maps from Species to ChrPathMap)
+	for (auto species_it = species_chr_path_map.begin(); species_it != species_chr_path_map.end(); ++species_it) {
+		Species species = species_it->first;
+		ChrPathMap& chr_map = species_it->second;
+
+		// Iterate over each chromosome in the ChrPathMap
+		for (auto chr_it = chr_map.begin(); chr_it != chr_map.end(); ++chr_it) {
+			Chr chr = chr_it->first;
+			FilePath chr_file = chr_it->second;
+
+			// Enqueue a task to split the chromosome file into chunks
+			pool.enqueue([species, chr, chr_file, &species_chunk_info_map, work_dir, chunk_length, overlap_length]() {
+				// Create output directory for chunks: work_dir/CHUNK_DIR/<species>/<chr>
+				FilePath out_dir = work_dir / DATA_DIR / CHUNK_DIR / species / chr;
+				if (!std::filesystem::exists(out_dir)) {
+					std::filesystem::create_directories(out_dir);
+				}
+
+				// Open the chromosome file using kseq (supports gzipped FASTA)
+				gzFile fp = gzopen(chr_file.string().c_str(), "r");
+				if (!fp) {
+					spdlog::error("Failed to open chromosome file: {}", chr_file.string());
+					return;
+				}
+				kseq_t* seq = kseq_init(fp);
+				size_t l = kseq_read(seq);
+				if (l < 0) {
+					spdlog::error("Failed to read sequence from file: {}", chr_file.string());
+					kseq_destroy(seq);
+					gzclose(fp);
+					return;
+				}
+				// Assume each chromosome file contains a single FASTA record
+				std::string sequence(seq->seq.s, seq->seq.l);
+				kseq_destroy(seq);
+				gzclose(fp);
+
+				size_t seq_length = sequence.size();
+				ChunkInfoVec chunks;
+				int chunk_index = 0;
+
+				// Slide through the sequence to generate chunks
+				for (size_t start = 0; start < seq_length; ) {
+					size_t end = start + chunk_length;
+					if (end > seq_length)
+						end = seq_length;
+					size_t length = end - start;
+
+					std::string filename = chr + "_chunk_" + std::to_string(chunk_index) + ".fasta";
+					FilePath chunk_file = out_dir / filename;
+
+					// If target chunk file does not exist, create it via a temporary file
+					if (!std::filesystem::exists(chunk_file)) {
+						// Construct temporary file path: add "_in_process" before extension
+						FilePath temp_chunk_file;
+						if (chunk_file.has_extension()) {
+							std::string stem = chunk_file.stem().string();
+							std::string extension = chunk_file.extension().string();
+							temp_chunk_file = chunk_file.parent_path() / (stem + "_in_process" + extension);
+						}
+						else {
+							temp_chunk_file = chunk_file.parent_path() / (chunk_file.filename().string() + "_in_process");
+						}
+
+						// If temporary file exists, remove it
+						if (std::filesystem::exists(temp_chunk_file)) {
+							spdlog::warn("Temporary chunk file exists, removing: {}", temp_chunk_file.string());
+							std::filesystem::remove(temp_chunk_file);
+						}
+
+						// Write the chunk to the temporary FASTA file
+						std::ofstream ofs(temp_chunk_file);
+						if (!ofs) {
+							spdlog::error("Failed to write temporary chunk file: {}", temp_chunk_file.string());
+							// Continue with next chunk even if one fails
+							start = (end == seq_length) ? seq_length : start + (chunk_length - overlap_length);
+							++chunk_index;
+							continue;
+						}
+						ofs << ">" << chr << "_chunk_" << chunk_index
+							<< "_start_" << start << "_end_" << end << "\n";
+						ofs << sequence.substr(start, end - start) << "\n";
+						ofs.close();
+
+						// Rename temporary file to target chunk file
+						std::filesystem::rename(temp_chunk_file, chunk_file);
+					}
+					// Else, if the target file already exists, skip writing
+
+					// Record the chunk information
+					ChunkInfo info;
+					info.file_path = chunk_file;
+					info.species = species;
+					info.chunk_index = chunk_index;
+					info.chr = chr;
+					info.start = start;
+					info.end = end;
+					info.length = length;
+					chunks.push_back(info);
+
+					// Compute next start: move forward by (chunk_length - overlap_length)
+					if (end == seq_length)
+						break;
+					start = start + (chunk_length - overlap_length);
+					++chunk_index;
+				}
+
+				// Save generated chunks into the shared species_chunk_info_map
+				species_chunk_info_map[species][chr] = chunks;
+				spdlog::info("Species {}: {} chunks generated for chromosome {}", species, chunks.size(), chr);
+				});
+		}
+	}
+
+	// Wait for all tasks to complete
+	pool.waitAllTasksDone();
+	return true;
+}
+
+
+
 #endif

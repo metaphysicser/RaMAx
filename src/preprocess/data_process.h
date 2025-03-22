@@ -18,8 +18,26 @@ KSEQ_INIT(gzFile, gzread)
 
 // Type alias for mapping species names to file paths
 using FilePath = std::filesystem::path;
-using SpeciesPathMap = std::unordered_map<std::string, FilePath>;
-using SpeciesChrPathMap = std::unordered_map<std::string, std::unordered_map<std::string, FilePath>>;
+using Species = std::string;
+using Chr = std::string;
+
+struct ChunkInfo {
+	FilePath file_path;
+	int chunk_index;
+	std::string species;
+	std::string chr;
+	size_t start;
+	size_t end;
+	size_t length;
+};
+
+
+using SpeciesPathMap = std::unordered_map<Species, FilePath>;
+using ChrPathMap = std::unordered_map<Chr, FilePath>;
+using SpeciesChrPathMap = std::unordered_map<Chr, ChrPathMap>;
+using ChunkInfoVec = std::vector<ChunkInfo>;
+using ChrChunkInfoMap = std::unordered_map<Chr, ChunkInfoVec>;
+using SpeciesChunkInfoMap = std::unordered_map<Species, ChrChunkInfoMap>;
 
 
 // Check if a string is a URL
@@ -56,4 +74,8 @@ FilePath cleanRawData(const FilePath workdir_path, const FilePath raw_data_path)
 // Get human-readable file size (auto convert to KB/MB/GB). Supports both local files and URLs.
 std::string getReadableFileSize(const FilePath& filePath);
 
+bool splitRawDataToChr(const FilePath workdir_path, SpeciesPathMap& species_path_map, SpeciesChrPathMap& species_chr_path_map, int thread_num);
+
+
+bool splitChrToChunk(FilePath work_dir, SpeciesChrPathMap& species_chr_path_map, SpeciesChunkInfoMap& species_chunk_info_map, size_t chunk_length, size_t overlap_length, int thread_num);
 #endif // RAW_DATA_PROCESS_HPP

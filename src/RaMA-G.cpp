@@ -93,6 +93,11 @@ int main(int argc, char** argv) {
 			if (common_args.output_format == OutputFormat::UNKNOWN) {
 				throw std::runtime_error("Invalid output file extension. Supported: .sam, .maf, .paf");
 			}
+
+			// overlap should be less than chunk_size
+			if (common_args.overlap_size >= common_args.chunk_size) {
+				throw std::runtime_error("Overlap size must be less than chunk size.");
+			}
 		}
 	}
 	catch (const std::runtime_error& e) {
@@ -119,12 +124,18 @@ int main(int argc, char** argv) {
 	spdlog::info("Threads: {}", common_args.thread_num);
 
 	SpeciesPathMap species_path_map;
+	SpeciesChrPathMap species_chr_path_map;
+	SpeciesChunkInfoMap species_chunk_info_map;
 	species_path_map["reference"] = common_args.reference_path;
 	species_path_map["query"] = common_args.query_path;
 
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
+	splitRawDataToChr(common_args.work_dir_path, species_path_map, species_chr_path_map, common_args.thread_num);
 
-
+	SpeciesChrPathMap tmp_species_chr_path_map = species_chr_path_map;
+	// remove reference
+	tmp_species_chr_path_map.erase("reference");
+	splitChrToChunk(common_args.work_dir_path, tmp_species_chr_path_map, species_chunk_info_map, common_args.chunk_size, common_args.overlap_size, common_args.thread_num);
 	return 0;
 }

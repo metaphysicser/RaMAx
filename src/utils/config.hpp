@@ -23,7 +23,7 @@
 #define RAW_DATA_DIR "raw_data"
 #define CLEAN_DATA_DIR "clean_data"
 #define SPLIT_CHR_DIR "split_chr"
-
+#define CHUNK_DIR "chunk"
 
 // Custom formatter for CLI11, unify option display style
 class CustomFormatter : public CLI::Formatter {
@@ -84,6 +84,9 @@ struct CommonArgs {
 	std::filesystem::path query_path = "";
 	std::filesystem::path output_path = "";
 	std::filesystem::path work_dir_path = "";
+
+	size_t chunk_size = 10000000;
+	size_t overlap_size = 100000;
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
 	OutputFormat output_format = OutputFormat::UNKNOWN;
@@ -115,6 +118,24 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 	auto* workspace_opt = cmd->add_option("-w,--workdir", args.work_dir_path,
 		"Path to the working directory for temporary files.")
 		->group("Output")->type_name("<path>")
+		->transform(trim_whitespace);
+
+	auto* chunk_size_opt = cmd->add_option("--chunk_size", args.chunk_size,
+		"Size of each chunk for parallel processing (default: 10000000).")
+		->default_val(10000000)
+		->capture_default_str()
+		->group("Software Parameters")
+		->check(CLI::Range(1000000, std::numeric_limits<int>::max()))
+		->type_name("<int>")
+		->transform(trim_whitespace);
+
+	auto* overlap_size_opt = cmd->add_option("--overlap_size", args.overlap_size,
+		"Size of overlap between chunks (default: 100000).")
+		->default_val(100000)
+		->capture_default_str()
+		->group("Software Parameters")
+		->check(CLI::Range(0, std::numeric_limits<int>::max()))
+		->type_name("<int>")
 		->transform(trim_whitespace);
 
 	auto* threads_opt = cmd->add_option("-t,--threads", args.thread_num,
