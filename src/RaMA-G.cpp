@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
 	setupCommonOptions(&app, common_args);
 	CLI11_PARSE(app, argc, argv);
 
+
 	try {
 		// === Restart Mode Logic ===
 		if (common_args.restart) {
@@ -27,9 +28,6 @@ int main(int argc, char** argv) {
 				if (!std::filesystem::is_directory(common_args.work_dir_path)) {
 					throw CLI::ValidationError("Work directory is not valid: " + common_args.work_dir_path.string());
 				}
-				if (!std::filesystem::is_empty(common_args.work_dir_path)) {
-					throw CLI::ValidationError("Work directory is not empty: " + common_args.work_dir_path.string());
-				}
 			}
 			else {
 				std::filesystem::create_directories(common_args.work_dir_path);
@@ -37,6 +35,16 @@ int main(int argc, char** argv) {
 			setupLoggerWithFile(common_args.work_dir_path);
 			spdlog::info("RaMA-G version {}", VERSION);
 			spdlog::info("Restart mode enabled.");
+
+			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
+			std::ifstream is(config_path);
+			if (!is) {
+				spdlog::error("Failed to open {} for loading CommonArgs", config_path.string());
+				return false;
+			}
+			cereal::JSONInputArchive archive(is);
+			archive(common_args);
+			spdlog::info("CommonArgs loaded from {}", config_path.string());
 		}
 		// === Normal Alignment Mode Logic ===
 		else {
@@ -98,6 +106,18 @@ int main(int argc, char** argv) {
 			if (common_args.overlap_size >= common_args.chunk_size) {
 				throw std::runtime_error("Overlap size must be less than chunk size.");
 			}
+
+
+			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
+			std::ofstream os(config_path);
+			if (!os) {
+				spdlog::error("Failed to open {} for saving CommonArgs", config_path.string());
+				return false;
+			}
+			cereal::JSONOutputArchive archive(os);
+			archive(cereal::make_nvp("common_args", common_args));
+			spdlog::info("CommonArgs saved to {}", config_path.string());
+
 		}
 	}
 	catch (const std::runtime_error& e) {
@@ -107,6 +127,7 @@ int main(int argc, char** argv) {
 		spdlog::error("Exiting with error code 1.");
 		return 1;
 	}
+
 
 	// TODO: Add alignment execution or restart handling here
 	spdlog::info("Command: {}", getCommandLine(argc, argv));

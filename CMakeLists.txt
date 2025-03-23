@@ -34,8 +34,9 @@ ${PREPROCESS_DIR}/split_data.cpp
 # Include directories for header files
 target_include_directories(RaMA-G PRIVATE
     ${UTILS_DIR}
-    ${UTILS_DIR}/spdlog/include/spdlog
-    ${UTILS_DIR}/CLI11/include/CLI
+    ${UTILS_DIR}/spdlog/include/
+    ${UTILS_DIR}/CLI11/include/
+    ${UTILS_DIR}/cereal/include/
     ${PREPROCESS_DIR}
 )
 

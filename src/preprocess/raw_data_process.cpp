@@ -4,6 +4,31 @@
 #include "data_process.h"
 
 
+bool saveSpeciesChunkInfoMap(const SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename) {
+	std::ofstream os(filename);
+	if (!os) {
+		spdlog::error("Failed to open file {} for writing.", filename);
+		return false;
+	}
+	cereal::JSONOutputArchive archive(os);
+	archive(species_chunk_info_map);
+	spdlog::info("Species chunk info map saved to file (JSON format): {}", filename);
+	return true;
+}
+
+
+bool loadSpeciesChunkInfoMap(SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename) {
+	std::ifstream is(filename, std::ios::binary);
+	if (!is) {
+		spdlog::error("Failed to open file {} for reading.", filename);
+		return false;
+	}
+	cereal::JSONInputArchive archive(is);
+	archive(species_chunk_info_map);
+	spdlog::info("Species chunk info map loaded from file: {}", filename);
+	return true;
+}
+
 // Check if a string is a URL
 bool isUrl(const std::string& path_str) {
 	static const std::regex url_pattern(R"(^(https?|ftp)://)");

@@ -109,6 +109,19 @@ bool splitChrToChunk(FilePath work_dir,
 	size_t chunk_length,
 	size_t overlap_length,
 	int thread_num) {
+
+	FilePath chunk_map_filename = work_dir / DATA_DIR / CHUNK_DIR / CHUNK_MAP_FILE;
+
+	if (std::filesystem::exists(chunk_map_filename)) {
+		spdlog::info("Found existing chunk info map file: {}. Loading...", chunk_map_filename.string());
+		if (!loadSpeciesChunkInfoMap(species_chunk_info_map, chunk_map_filename)) {
+			spdlog::error("Failed to load species_chunk_info_map from file: {}", chunk_map_filename.string());
+			return false;
+		}
+		spdlog::info("Successfully loaded chunk info map. Skipping chunk splitting.");
+		return true;
+	}
+
 	ThreadPool pool(thread_num);
 
 	// Iterate over each species in the species_chr_path_map
@@ -228,6 +241,13 @@ bool splitChrToChunk(FilePath work_dir,
 
 	// Wait for all tasks to complete
 	pool.waitAllTasksDone();
+
+	spdlog::info("Saving species_chunk_info_map to file: {}", chunk_map_filename.string());
+	if (!saveSpeciesChunkInfoMap(species_chunk_info_map, chunk_map_filename)) {
+		spdlog::error("Failed to save species_chunk_info_map to file: {}", chunk_map_filename.string());
+		return false;
+	}
+	spdlog::info("Successfully saved species_chunk_info_map.");
 	return true;
 }
 

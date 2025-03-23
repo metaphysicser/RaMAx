@@ -8,6 +8,11 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/async.h"
+#include <cereal/archives/json.hpp> 
+#include <cereal/types/unordered_map.hpp>
+#include <cereal/types/vector.hpp>
+#include <cereal/types/string.hpp>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -18,12 +23,31 @@
 
 #define LOGGER_NAME "logger"
 #define LOGGER_FILE "RaMA-G.log"
+#define CONFIG_FILE "config.json"
 
 #define DATA_DIR "data"	
 #define RAW_DATA_DIR "raw_data"
 #define CLEAN_DATA_DIR "clean_data"
 #define SPLIT_CHR_DIR "split_chr"
 #define CHUNK_DIR "chunk"
+#define CHUNK_MAP_FILE "chunk_map.json"
+
+namespace cereal {
+	template <class Archive>
+	void save(Archive& ar, const std::filesystem::path& p)
+	{
+		std::string path_str = p.string();
+		ar(path_str);
+	}
+
+	template <class Archive>
+	void load(Archive& ar, std::filesystem::path& p)
+	{
+		std::string path_str;
+		ar(path_str);
+		p = std::filesystem::path(path_str);
+	}
+} // namespace cereal
 
 // Custom formatter for CLI11, unify option display style
 class CustomFormatter : public CLI::Formatter {
@@ -90,7 +114,45 @@ struct CommonArgs {
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
 	OutputFormat output_format = OutputFormat::UNKNOWN;
+
+	template<class Archive>
+	void serialize(Archive& ar) {
+		ar(
+			CEREAL_NVP(reference_path),
+			CEREAL_NVP(query_path),
+			CEREAL_NVP(output_path),
+			CEREAL_NVP(work_dir_path),
+			CEREAL_NVP(chunk_size),
+			CEREAL_NVP(overlap_size),
+			CEREAL_NVP(restart),
+			CEREAL_NVP(thread_num),
+			CEREAL_NVP(output_format)
+		);
+	}
 };
+//bool saveCommonArgs(const CommonArgs& args, const std::string& filename) {
+//	std::ofstream os(filename);
+//	if (!os) {
+//		spdlog::error("Failed to open {} for saving CommonArgs", filename);
+//		return false;
+//	}
+//	cereal::JSONOutputArchive archive(os);
+//	archive(args);
+//	spdlog::info("CommonArgs saved to {}", filename);
+//	return true;
+//}
+//
+//bool loadCommonArgs(CommonArgs& args, const std::string& filename) {
+//	std::ifstream is(filename);
+//	if (!is) {
+//		spdlog::error("Failed to open {} for loading CommonArgs", filename);
+//		return false;
+//	}
+//	cereal::JSONInputArchive archive(is);
+//	archive(args);
+//	spdlog::info("CommonArgs loaded from {}", filename);
+//	return true;
+//}
 
 // Setup CLI11 common options
 inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {

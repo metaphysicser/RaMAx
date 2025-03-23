@@ -16,6 +16,7 @@
 
 KSEQ_INIT(gzFile, gzread)
 
+
 // Type alias for mapping species names to file paths
 using FilePath = std::filesystem::path;
 using Species = std::string;
@@ -29,7 +30,21 @@ struct ChunkInfo {
 	size_t start;
 	size_t end;
 	size_t length;
+
+	template <class Archive>
+	void serialize(Archive& ar) {
+		ar(
+			CEREAL_NVP(file_path),
+			CEREAL_NVP(chunk_index),
+			CEREAL_NVP(species),
+			CEREAL_NVP(chr),
+			CEREAL_NVP(start),
+			CEREAL_NVP(end),
+			CEREAL_NVP(length)
+		);
+	}
 };
+
 
 
 using SpeciesPathMap = std::unordered_map<Species, FilePath>;
@@ -38,6 +53,12 @@ using SpeciesChrPathMap = std::unordered_map<Chr, ChrPathMap>;
 using ChunkInfoVec = std::vector<ChunkInfo>;
 using ChrChunkInfoMap = std::unordered_map<Chr, ChunkInfoVec>;
 using SpeciesChunkInfoMap = std::unordered_map<Species, ChrChunkInfoMap>;
+
+bool saveSpeciesChunkInfoMap(const SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename);
+
+bool loadSpeciesChunkInfoMap(SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename);
+
+
 
 
 // Check if a string is a URL
