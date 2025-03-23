@@ -7,3 +7,6 @@
 [submodule "src/utils/CLI11"]
 	path = src/utils/CLI11
 	url = https://github.com/CLIUtils/CLI11.git
+[submodule "src/utils/cereal"]
+	path = src/utils/cereal
+	url = git@github.com:USCiLab/cereal.git
