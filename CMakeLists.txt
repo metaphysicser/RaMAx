@@ -21,7 +21,7 @@ add_subdirectory(${UTILS_DIR}/CLI11)
 # 查找 curl 和 zlib 库
 # Find and configure required libraries
 find_package(CURL REQUIRED)
-find_package(ZLIB REQUIRED STATIC)
+find_package(ZLIB REQUIRED)
 
 # 将源代码添加到此项目的可执行文件。
 add_executable(RaMA-G 
