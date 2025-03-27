@@ -106,8 +106,8 @@ bool splitRawDataToChr(const FilePath workdir_path,
 bool splitChrToChunk(FilePath work_dir,
 	SpeciesChrPathMap& species_chr_path_map,
 	SpeciesChunkInfoMap& species_chunk_info_map,
-	size_t chunk_length,
-	size_t overlap_length,
+	uint_t chunk_length,
+	uint_t overlap_length,
 	int thread_num) {
 
 	FilePath chunk_map_filename = work_dir / DATA_DIR / CHUNK_DIR / CHUNK_MAP_FILE;
@@ -150,7 +150,7 @@ bool splitChrToChunk(FilePath work_dir,
 					return;
 				}
 				kseq_t* seq = kseq_init(fp);
-				size_t l = kseq_read(seq);
+				int_t l = kseq_read(seq);
 				if (l < 0) {
 					spdlog::error("Failed to read sequence from file: {}", chr_file.string());
 					kseq_destroy(seq);
@@ -162,16 +162,16 @@ bool splitChrToChunk(FilePath work_dir,
 				kseq_destroy(seq);
 				gzclose(fp);
 
-				size_t seq_length = sequence.size();
+				uint_t seq_length = sequence.size();
 				ChunkInfoVec chunks;
-				int chunk_index = 0;
+				uint_t chunk_index = 0;
 
 				// Slide through the sequence to generate chunks
-				for (size_t start = 0; start < seq_length; ) {
-					size_t end = start + chunk_length;
+				for (uint_t start = 0; start < seq_length; ) {
+					uint_t end = start + chunk_length;
 					if (end > seq_length)
 						end = seq_length;
-					size_t length = end - start;
+					uint_t length = end - start;
 
 					std::string filename = chr + "_chunk_" + std::to_string(chunk_index) + ".fasta";
 					FilePath chunk_file = out_dir / filename;

@@ -32,6 +32,31 @@
 #define CHUNK_DIR "chunk"
 #define CHUNK_MAP_FILE "chunk_map.json"
 
+#ifndef DEBUG
+	#define DEBUG 0
+#endif
+
+#ifndef M64
+	#define M64 0
+#endif
+
+#if M64
+	typedef int64_t	int_t;
+	typedef uint64_t uint_t;
+	#define PRIdN	PRId64
+	#define U_MAX	UINT64_MAX
+	#define I_MAX	INT64_MAX
+	#define I_MIN	INT64_MIN
+#else
+	typedef int32_t int_t;
+	typedef uint32_t uint_t;
+	#define PRIdN	PRId32
+	#define U_MAX	UINT32_MAX
+	#define I_MAX	INT32_MAX
+	#define I_MIN	INT32_MIN
+#endif
+
+
 namespace cereal {
 	template <class Archive>
 	void save(Archive& ar, const std::filesystem::path& p)
@@ -109,8 +134,8 @@ struct CommonArgs {
 	std::filesystem::path output_path = "";
 	std::filesystem::path work_dir_path = "";
 
-	size_t chunk_size = 10000000;
-	size_t overlap_size = 100000;
+	uint_t chunk_size = 10000000;
+	uint_t overlap_size = 100000;
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
 	OutputFormat output_format = OutputFormat::UNKNOWN;

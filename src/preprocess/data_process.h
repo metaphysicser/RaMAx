@@ -24,12 +24,12 @@ using Chr = std::string;
 
 struct ChunkInfo {
 	FilePath file_path;
-	int chunk_index;
+	uint_t chunk_index;
 	std::string species;
 	std::string chr;
-	size_t start;
-	size_t end;
-	size_t length;
+	uint_t start;
+	uint_t end;
+	uint_t length;
 
 	template <class Archive>
 	void serialize(Archive& ar) {
@@ -98,5 +98,5 @@ std::string getReadableFileSize(const FilePath& filePath);
 bool splitRawDataToChr(const FilePath workdir_path, SpeciesPathMap& species_path_map, SpeciesChrPathMap& species_chr_path_map, int thread_num);
 
 
-bool splitChrToChunk(FilePath work_dir, SpeciesChrPathMap& species_chr_path_map, SpeciesChunkInfoMap& species_chunk_info_map, size_t chunk_length, size_t overlap_length, int thread_num);
+bool splitChrToChunk(FilePath work_dir, SpeciesChrPathMap& species_chr_path_map, SpeciesChunkInfoMap& species_chunk_info_map, uint_t chunk_length, uint_t overlap_length, int thread_num);
 #endif // RAW_DATA_PROCESS_HPP
