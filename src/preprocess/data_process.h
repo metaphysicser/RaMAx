@@ -1,9 +1,7 @@
 #ifndef DATA_PROCESS_H
-#define DATA_PROCESS_HP
+#define DATA_PROCESS_H
 
 #include <regex>
-#include <filesystem>
-#include <unordered_map>
 #include <string>
 #include <fstream>
 #include <stdexcept>
@@ -11,16 +9,11 @@
 #include <curl/curl.h>
 #include <zlib.h>
 #include "config.hpp"
-#include "threadpool.h"
 #include "kseq.h"
 
 KSEQ_INIT(gzFile, gzread)
 
-
 // Type alias for mapping species names to file paths
-using FilePath = std::filesystem::path;
-using Species = std::string;
-using Chr = std::string;
 
 struct ChunkInfo {
 	FilePath file_path;

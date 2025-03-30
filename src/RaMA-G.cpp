@@ -3,6 +3,7 @@
 
 #include "data_process.h"
 #include "config.hpp"
+#include "index.h"
 
 int main(int argc, char** argv) {
 	// Initialize logger and thread pool
@@ -158,5 +159,10 @@ int main(int argc, char** argv) {
 	// remove reference
 	tmp_species_chr_path_map.erase("reference");
 	splitChrToChunk(common_args.work_dir_path, tmp_species_chr_path_map, species_chunk_info_map, common_args.chunk_size, common_args.overlap_size, common_args.thread_num);
+	
+	IndexManager index_manager(common_args.work_dir_path, common_args.thread_num);
+	IndexPathMap index_path_map;
+	index_path_map["reference"] = index_manager.buildIndex("reference", species_path_map["reference"], IndexType::R_Index);
+	
 	return 0;
 }

@@ -283,7 +283,7 @@ FilePath cleanRawData(const FilePath workdir_path,
 		// and replace any character not A, G, C, T, or N with 'N'
 		std::string cleaned;
 		cleaned.reserve(seq->seq.l);
-		for (int i = 0; i < seq->seq.l; i++) {
+		for (size_t i = 0; i < seq->seq.l; i++) {
 			char c = seq->seq.s[i];
 			char uc = std::toupper(static_cast<unsigned char>(c));
 			if (uc == 'A' || uc == 'G' || uc == 'C' || uc == 'T' || uc == 'N') {
@@ -331,8 +331,9 @@ std::string getReadableFileSize(const FilePath& filePath) {
 			return "0 B";
 		}
 
-		double content_length = 0;
-		res = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &content_length);
+		curl_off_t content_length = 0;
+		res = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length);
+
 		curl_easy_cleanup(curl);
 		if (res != CURLE_OK || content_length < 0) {
 			spdlog::error("Failed to get Content-Length for URL: {}", pathStr);

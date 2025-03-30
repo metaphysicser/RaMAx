@@ -1,6 +1,8 @@
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
+
+#include "threadpool.h"
 #include "CLI/CLI.hpp"
 #include "CLI/Formatter.hpp"
 #include "CLI/Config.hpp"
@@ -18,6 +20,8 @@
 #include <thread>
 #include <memory>
 #include <filesystem>
+#include <unordered_map>
+
 
 #define VERSION "1.0.0"
 
@@ -31,6 +35,12 @@
 #define SPLIT_CHR_DIR "split_chr"
 #define CHUNK_DIR "chunk"
 #define CHUNK_MAP_FILE "chunk_map.json"
+
+#define INDEX_DIR "index"
+
+using FilePath = std::filesystem::path;
+using Species = std::string;
+using Chr = std::string;
 
 #ifndef DEBUG
 	#define DEBUG 0
@@ -240,7 +250,7 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 
 	// Set dependencies and exclusions
 	restart_flag->needs(workspace_opt);
-	restart_flag->excludes(ref_opt, qry_opt, output_opt, threads_opt);
+	restart_flag->excludes(ref_opt, qry_opt, output_opt, threads_opt, chunk_size_opt, overlap_size_opt);
 }
 
 // Setup logger with optional file output

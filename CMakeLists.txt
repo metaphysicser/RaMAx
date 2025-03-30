@@ -14,6 +14,10 @@ project ("RaMA-G")
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(UTILS_DIR ${SOURCE_DIR}/utils)
 set(PREPROCESS_DIR ${SOURCE_DIR}/preprocess)
+set(INDEX_DIR ${SOURCE_DIR}/index)
+set(BIGBWT_DIR ${INDEX_DIR}/bigbwt)
+set(SUFFIX_ARRAY_DIR ${INDEX_DIR}/suffix_array)
+set(R_INDEX_DIR ${INDEX_DIR}/r-index)
 
 add_subdirectory(${UTILS_DIR}/spdlog)
 add_subdirectory(${UTILS_DIR}/CLI11)
@@ -28,6 +32,7 @@ add_executable(RaMA-G
 ${SOURCE_DIR}/RaMA-G.cpp
 ${PREPROCESS_DIR}/raw_data_process.cpp
 ${PREPROCESS_DIR}/split_data.cpp
+${INDEX_DIR}/index.cpp
 )
 
 
@@ -38,6 +43,10 @@ target_include_directories(RaMA-G PRIVATE
     ${UTILS_DIR}/CLI11/include/
     ${UTILS_DIR}/cereal/include/
     ${PREPROCESS_DIR}
+    ${INDEX_DIR}
+    ${BIGBWT_DIR}
+    ${SUFFIX_ARRAY_DIR}
+    ${R_INDEX_DIR}
 )
 
 target_link_libraries(RaMA-G PRIVATE
@@ -60,5 +69,7 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(RaMA-G PRIVATE _DEBUG_)
 endif()
+
+add_definitions("-Wall -g")
 
 # TODO: 如有需要，请添加测试并安装目标。
