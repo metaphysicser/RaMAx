@@ -1,75 +1,104 @@
-﻿# CMakeList.txt: RaMA-G 的 CMake 项目，在此处包括源代码并定义
-# 项目特定的逻辑。
-#
-cmake_minimum_required (VERSION 3.8)
+﻿cmake_minimum_required(VERSION 3.8)
 
-# 如果支持，请为 MSVC 编译器启用热重载。
-if (POLICY CMP0141)
+project("RaMA-G")
+
+# MSVC 热重载支持
+if(POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
-  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT
+    "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,"
+    "$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-project ("RaMA-G")
+# ============ 路径设置 ============
+set(SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(UTILS_DIR         "${SOURCE_DIR}/utils")
+set(PREPROCESS_DIR    "${SOURCE_DIR}/preprocess")
+set(INDEX_DIR         "${SOURCE_DIR}/index")
+set(BIGBWT_DIR        "${INDEX_DIR}/bigbwt")
+set(SUFFIX_ARRAY_DIR  "${INDEX_DIR}/suffix_array")
+set(R_INDEX_DIR       "${INDEX_DIR}/r-index")
 
-set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(UTILS_DIR ${SOURCE_DIR}/utils)
-set(PREPROCESS_DIR ${SOURCE_DIR}/preprocess)
-set(INDEX_DIR ${SOURCE_DIR}/index)
-set(BIGBWT_DIR ${INDEX_DIR}/bigbwt)
-set(SUFFIX_ARRAY_DIR ${INDEX_DIR}/suffix_array)
-set(R_INDEX_DIR ${INDEX_DIR}/r-index)
+# ============ 添加子模块 ============
+add_subdirectory("${UTILS_DIR}/spdlog")
+add_subdirectory("${UTILS_DIR}/CLI11")
+add_subdirectory("${UTILS_DIR}/sdsl-lite")
 
-add_subdirectory(${UTILS_DIR}/spdlog)
-add_subdirectory(${UTILS_DIR}/CLI11)
+# ============ 安装 libdivsufsort（使用 install.sh） ============
+# 检查是否需要安装 libdivsufsort
+if (NOT EXISTS "${UTILS_DIR}/sdsl-lite/include/divsufsort.h")
+    message(STATUS "divsufsort.h not found, running install.sh")
 
-# 查找 curl 和 zlib 库
-# Find and configure required libraries
+    add_custom_target(sdsl-install ALL
+        COMMAND bash install.sh ${UTILS_DIR}/sdsl-lite/
+        WORKING_DIRECTORY ${UTILS_DIR}/sdsl-lite
+        COMMENT "Running install.sh from inside sdsl-lite directory"
+    )
+else()
+    message(STATUS "divsufsort.h found, skipping install.sh")
+endif()
+
+# 如果安装任务存在，则添加依赖
+if (TARGET sdsl-install)
+    add_dependencies(RaMA-G sdsl-install)
+endif()
+
+
+# ============ 查找系统库 ============
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 
-# 将源代码添加到此项目的可执行文件。
-add_executable(RaMA-G 
-${SOURCE_DIR}/RaMA-G.cpp
-${PREPROCESS_DIR}/raw_data_process.cpp
-${PREPROCESS_DIR}/split_data.cpp
-${INDEX_DIR}/index.cpp
+# ============ 创建主可执行程序 ============
+add_executable(RaMA-G
+    "${SOURCE_DIR}/RaMA-G.cpp"
+    "${PREPROCESS_DIR}/raw_data_process.cpp"
+    "${PREPROCESS_DIR}/split_data.cpp"
+    "${INDEX_DIR}/index.cpp"
 )
 
-
-# Include directories for header files
+# ============ 添加头文件路径 ============
 target_include_directories(RaMA-G PRIVATE
-    ${UTILS_DIR}
-    ${UTILS_DIR}/spdlog/include/
-    ${UTILS_DIR}/CLI11/include/
-    ${UTILS_DIR}/cereal/include/
-    ${PREPROCESS_DIR}
-    ${INDEX_DIR}
-    ${BIGBWT_DIR}
-    ${SUFFIX_ARRAY_DIR}
-    ${R_INDEX_DIR}
+    "${UTILS_DIR}"
+    "${UTILS_DIR}/spdlog/include"
+    "${UTILS_DIR}/CLI11/include"
+    "${UTILS_DIR}/cereal/include"
+    "${PREPROCESS_DIR}"
+    "${INDEX_DIR}"
+    "${BIGBWT_DIR}"
+    "${SUFFIX_ARRAY_DIR}"
+    "${R_INDEX_DIR}"
+    "${UTILS_DIR}/sdsl-lite/include"
+    "${UTILS_DIR}/sdsl-lite/external/libdivsufsort/include"
 )
 
+# ============ 链接库 ============
 target_link_libraries(RaMA-G PRIVATE
     spdlog::spdlog
     CLI11::CLI11
     ZLIB::ZLIB
     CURL::libcurl
+    sdsl
+    divsufsort
+    divsufsort64
 )
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
+
+# ============ C++ 标准设置 ============
+if(CMAKE_VERSION VERSION_GREATER 3.12)
   set_target_properties(RaMA-G PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
-)
+  )
 endif()
 
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+# ============ Debug 宏 ============
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(RaMA-G PRIVATE _DEBUG_)
 endif()
 
+# ============ 警告和调试信息 ============
 add_definitions("-Wall -g")
 
-# TODO: 如有需要，请添加测试并安装目标。
+# 可选安装目标
+# install(TARGETS RaMA-G DESTINATION bin)

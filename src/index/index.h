@@ -2,13 +2,17 @@
 #define INDEX_H
 
 #include "config.hpp"
-
+#include "r_index.hpp"
 using IndexPathMap = std::unordered_map<Species, FilePath>;
 
 enum IndexType {
 	R_Index,
 	FM_Index
 };
+
+//class R_Index : ri::r_index {
+//
+//};
 
 class IndexManager {
 public:
