@@ -4,31 +4,6 @@
 #include "data_process.h"
 
 
-bool saveSpeciesChunkInfoMap(const SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename) {
-	std::ofstream os(filename);
-	if (!os) {
-		spdlog::error("Failed to open file {} for writing.", filename);
-		return false;
-	}
-	cereal::JSONOutputArchive archive(os);
-	archive(species_chunk_info_map);
-	spdlog::info("Species chunk info map saved to file (JSON format): {}", filename);
-	return true;
-}
-
-
-bool loadSpeciesChunkInfoMap(SpeciesChunkInfoMap& species_chunk_info_map, const std::string& filename) {
-	std::ifstream is(filename, std::ios::binary);
-	if (!is) {
-		spdlog::error("Failed to open file {} for reading.", filename);
-		return false;
-	}
-	cereal::JSONInputArchive archive(is);
-	archive(species_chunk_info_map);
-	spdlog::info("Species chunk info map loaded from file: {}", filename);
-	return true;
-}
-
 // Check if a string is a URL
 bool isUrl(const std::string& path_str) {
 	static const std::regex url_pattern(R"(^(https?|ftp)://)");
@@ -213,7 +188,10 @@ bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_m
 		// Enqueue a cleaning task for each species file
 		pool.enqueue([species, raw_path, &workdir_path, &species_path_map]() {
 			// Clean the raw data file for this species
-			std::filesystem::path cleaned_path = cleanRawData(workdir_path, raw_path);
+			// std::filesystem::path cleaned_path = cleanRawData(workdir_path, raw_path);
+			FastaManager fasta_manager(raw_path);
+			FilePath out_dir = workdir_path / DATA_DIR / CLEAN_DATA_DIR;
+			FilePath cleaned_path = fasta_manager.cleanAndIndexFasta(out_dir, species);
 
 			// Update the species_path_map safely
 			species_path_map[species] = cleaned_path;
@@ -226,88 +204,6 @@ bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_m
 	pool.waitAllTasksDone();
 	return true;
 }
-
-
-FilePath cleanRawData(const FilePath workdir_path,
-	const FilePath raw_data_path) {
-	// Construct the output directory: workdir_path / DATA_DIR / CLEAN_DATA
-	FilePath out_dir = workdir_path / DATA_DIR / CLEAN_DATA_DIR;
-	if (!std::filesystem::exists(out_dir)) {
-		std::filesystem::create_directories(out_dir);
-		spdlog::info("Created directory: {}", out_dir.string());
-	}
-
-	// Construct the target file path, preserving the original file name
-	FilePath target_file = out_dir / raw_data_path.filename();
-	if (std::filesystem::exists(target_file)) {
-		spdlog::info("Cleaned file already exists, skipping: {}", target_file.string());
-		return target_file;
-	}
-
-	// Construct a temporary file path by appending '_in_process' to the file name
-	FilePath temp_file;
-	if (target_file.has_extension()) {
-		std::string stem = target_file.stem().string();
-		std::string extension = target_file.extension().string();
-		temp_file = target_file.parent_path() / (stem + "_in_process" + extension);
-	}
-	else {
-		temp_file = target_file.parent_path() / (target_file.filename().string() + "_in_process");
-	}
-
-	// If the temporary file exists, remove it to restart cleaning
-	if (std::filesystem::exists(temp_file)) {
-		spdlog::warn("Temporary file exists, removing: {}", temp_file.string());
-		std::filesystem::remove(temp_file);
-	}
-
-	// Open the raw data file using kseq (supports .gz format)
-	gzFile fp = gzopen(raw_data_path.string().c_str(), "r");
-	if (!fp) {
-		throw std::runtime_error("Failed to open raw data file: " + raw_data_path.string());
-	}
-	kseq_t* seq = kseq_init(fp);
-	int64_t l;
-
-	// Open the temporary file for writing the cleaned data
-	std::ofstream ofs(temp_file, std::ios::out);
-	if (!ofs) {
-		kseq_destroy(seq);
-		gzclose(fp);
-		throw std::runtime_error("Failed to open temporary file for writing: " + temp_file.string());
-	}
-
-	// Stream through each FASTA record, clean and write it
-	while ((l = kseq_read(seq)) >= 0) {
-		// Clean the sequence: convert all characters to uppercase,
-		// and replace any character not A, G, C, T, or N with 'N'
-		std::string cleaned;
-		cleaned.reserve(seq->seq.l);
-		for (size_t i = 0; i < seq->seq.l; i++) {
-			char c = seq->seq.s[i];
-			char uc = std::toupper(static_cast<unsigned char>(c));
-			if (uc == 'A' || uc == 'G' || uc == 'C' || uc == 'T' || uc == 'N') {
-				cleaned.push_back(uc);
-			}
-			else {
-				cleaned.push_back('N');
-			}
-		}
-		// Write the FASTA header and the cleaned sequence to the temporary file
-		ofs << ">" << seq->name.s << "\n" << cleaned << "\n";
-	}
-
-	// Close the output file and free kseq resources
-	ofs.close();
-	kseq_destroy(seq);
-	gzclose(fp);
-
-	// Rename the temporary file to the target file (supports resumable process)
-	std::filesystem::rename(temp_file, target_file);
-	spdlog::info("Cleaned raw data saved to: {}", target_file.string());
-	return target_file;
-}
-
 
 // Get human-readable file size (auto convert to KB/MB/GB)
 std::string getReadableFileSize(const FilePath& filePath) {
@@ -371,6 +267,28 @@ std::string getReadableFileSize(const FilePath& filePath) {
 			return "0 B";
 		}
 	}
+}
+
+FilePath getTempFilePath(const FilePath& input_path) {
+	// Construct a temporary file path by appending '_in_process' to the file name
+	FilePath temp_file;
+	if (input_path.has_extension()) {
+		std::string stem = input_path.stem().string();
+		std::string extension = input_path.extension().string();
+		temp_file = input_path.parent_path() / (stem + "_in_process" + extension);
+	}
+	else {
+		temp_file = input_path.parent_path() / (input_path.filename().string() + "_in_process");
+	}
+	return temp_file;
+}
+
+FilePath getFaiIndexPath(const FilePath& fasta_path) {
+	// 输入FilePath, 返回这个路径加上.fai的FilePath类型
+	FilePath fai_path = fasta_path;
+	fai_path += ".fai";
+	return fai_path;
+	
 }
 
 #endif

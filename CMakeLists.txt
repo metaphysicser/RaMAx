@@ -53,8 +53,9 @@ add_executable(RaMA-G
     "${SOURCE_DIR}/RaMA-G.cpp"
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
+    "src/preprocess/fasta_manager.cpp"
     "${INDEX_DIR}/index.cpp"
-)
+    )
 
 # ============ 添加头文件路径 ============
 target_include_directories(RaMA-G PRIVATE
