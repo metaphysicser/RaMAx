@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-
+	FastaManager ref_fasta_manager(species_path_map["reference"], getFaiIndexPath(species_path_map["reference"]));
 	//splitRawDataToChr(common_args.work_dir_path, species_path_map, species_chr_path_map, common_args.thread_num);
 
 	//SpeciesChrPathMap tmp_species_chr_path_map = species_chr_path_map;
@@ -164,7 +164,8 @@ int main(int argc, char** argv) {
 	
 	IndexManager index_manager(common_args.work_dir_path, common_args.thread_num);
 	IndexPathMap index_path_map;
-	index_path_map["reference"] = index_manager.buildIndex("reference", species_path_map["reference"], IndexType::R_Index);
+	index_path_map["reference"] = index_manager.buildIndex("reference", ref_fasta_manager, IndexType::RIndexType);
 	
+	spdlog::info("RaMA-G exits!");
 	return 0;
 }

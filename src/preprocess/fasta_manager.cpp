@@ -50,7 +50,6 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
     }
 
     in.close();
-    spdlog::info("Loaded {} FAI records from {}", fai_records.size(), fai_path.string());
 }
 
 bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
@@ -227,7 +226,7 @@ FilePath FastaManager::writeCleanedFasta(const FilePath& output_file, uint64_t l
     std::string header, sequence;
     while (nextRecord(header, sequence)) {
         ofs_fasta << ">" << header << "\n";
-
+        cleanSequence(sequence);
         size_t seq_len = sequence.size();
         size_t start = 0;
         while (start < seq_len) {

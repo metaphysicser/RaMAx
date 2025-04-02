@@ -40,6 +40,8 @@ KSEQ_INIT(gzFile, gzread)
 
 class FastaManager {
 public:
+    FilePath fasta_path_;  // Path to .fasta file
+    FilePath fai_path_;    // Optional path to .fai file
     /// Constructor with optional FAI index path
     /// If fai_path is not provided, only sequence reading is enabled
     FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath());
@@ -90,9 +92,6 @@ public:
     std::string getSubSequence(const std::string& seq_name, size_t start, size_t end);
 
 private:
-    FilePath fasta_path_;  // Path to .fasta file
-    FilePath fai_path_;    // Optional path to .fai file
-
     gzFile fp_{ nullptr };  // File pointer (used for compressed or uncompressed FASTA)
     kseq_t* seq_{ nullptr };  // KSEQ parser handle
 
