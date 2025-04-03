@@ -167,5 +167,6 @@ int main(int argc, char** argv) {
 	index_path_map["reference"] = index_manager.buildIndex("reference", ref_fasta_manager, IndexType::RIndexType);
 	
 	spdlog::info("RaMA-G exits!");
+
 	return 0;
 }

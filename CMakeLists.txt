@@ -15,7 +15,7 @@ set(SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(UTILS_DIR         "${SOURCE_DIR}/utils")
 set(PREPROCESS_DIR    "${SOURCE_DIR}/preprocess")
 set(INDEX_DIR         "${SOURCE_DIR}/index")
-set(BIGBWT_DIR        "${INDEX_DIR}/bigbwt")
+set(BIGBWT_DIR        "${INDEX_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR  "${INDEX_DIR}/suffix_array")
 set(R_INDEX_DIR       "${INDEX_DIR}/r-index")
 
@@ -53,8 +53,12 @@ add_executable(RaMA-G
     "${SOURCE_DIR}/RaMA-G.cpp"
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
-    "src/preprocess/fasta_manager.cpp"
+    "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${INDEX_DIR}/index.cpp"
+    "${BIGBWT_DIR}/newscan.cpp"
+    "${BIGBWT_DIR}/utils.c"
+    "${BIGBWT_DIR}/xerrors.c"
+    "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     )
 
 # ============ 添加头文件路径 ============
@@ -81,6 +85,7 @@ target_link_libraries(RaMA-G PRIVATE
     sdsl
     divsufsort
     divsufsort64
+    pthread
 )
 
 
