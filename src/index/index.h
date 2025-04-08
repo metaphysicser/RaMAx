@@ -2,14 +2,13 @@
 #define INDEX_H
 
 #include "data_process.h"
-#include "r_index.hpp"
 #include "newscan.hpp"
 #include "bwtparse.hpp"
-// #include "pfbwt.hpp"
+#include "pfbwt.hpp"
 extern "C" {
 #include "gsa/gsacak.h"
 }
-
+#include "CaPS-SA/Suffix_Array.hpp"
 #define WINDOW_SIZE 10
 #define STOP_MODULUS 100
 using IndexPathMap = std::unordered_map<Species, FilePath>;
@@ -19,11 +18,13 @@ enum IndexType {
 	FMIndexType,
 };
 
-class R_Index : public ri::r_index<ri::sparse_sd_vector, ri::rle_string_sd> {
+class FM_Index {
 public:
-	R_Index();
+	FM_Index();
+	bool buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
+	bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
 };
 

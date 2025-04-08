@@ -89,12 +89,12 @@ std::string FastaManager::concatRecords(char separator,
 
     while (nextRecord(hdr, seq) && count < limit) {
         result += seq;
-        result.push_back(separator);
+        // result.push_back(separator);
         ++count;
     }
 
     if (!result.empty()) {
-        result.back() = terminator; // Replace last separator
+        result.back() = 0x00; // Replace last separator
     }
     return result;
 }

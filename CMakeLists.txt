@@ -19,6 +19,16 @@ set(BIGBWT_DIR        "${INDEX_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR  "${INDEX_DIR}/suffix_array")
 set(R_INDEX_DIR       "${INDEX_DIR}/r-index")
 
+# 假设 parlaylib 被下载到 utils/parlaylib 目录
+set(PARLAYLIB_DIR "${UTILS_DIR}/parlaylib")
+set(PARLAYLIB_INCLUDE_DIR "${PARLAYLIB_DIR}/include")
+
+# 添加 parlaylib 头文件路径
+include_directories(${PARLAYLIB_INCLUDE_DIR})
+
+# 如果 parlaylib 是一个源代码库而不是编译后的库，你可以直接将其添加到项目中进行编译
+add_subdirectory(${PARLAYLIB_DIR})
+
 # ============ 添加子模块 ============
 add_subdirectory("${UTILS_DIR}/spdlog")
 add_subdirectory("${UTILS_DIR}/CLI11")
@@ -59,6 +69,7 @@ add_executable(RaMA-G
     "${BIGBWT_DIR}/utils.c"
     "${BIGBWT_DIR}/xerrors.c"
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
+    "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
     )
 
 # ============ 添加头文件路径 ============
@@ -97,6 +108,10 @@ if(CMAKE_VERSION VERSION_GREATER 3.12)
     CXX_EXTENSIONS NO
   )
 endif()
+
+# 启用 AVX2 支持
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -march=native")
+
 
 # ============ Debug 宏 ============
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
