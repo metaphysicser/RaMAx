@@ -5,13 +5,13 @@
 #ifndef PFTHREADS_HPP
 #define PFTHREADS_HPP
 
-namespace {
-
-    extern "C" {
+extern "C" {
 #include "xerrors.h"
-    }
+}
 #include <fcntl.h>
 
+
+namespace PfBWT {
 #define Buf_size 40
 #define Min_bwt_range 100000
 #define Sa_block      100000
@@ -22,7 +22,7 @@ namespace {
     static void fd_write(int fd, uint8_t* b, long towrite, long start);
     static void pc_init(sem_t* free_slots, sem_t* data_items, pthread_mutex_t* m);
     static void pc_destroy(sem_t* free_slots, sem_t* data_items, pthread_mutex_t* m);
-    void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
+    static void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
 
     // ----- parallel conversion of sa/lcp ->da/sufLen --------------------
     typedef struct {
@@ -44,7 +44,7 @@ namespace {
 
     // -------------------------------------------------------------------------
     // multithread conversion of SA and LCP array to DA and SuffixLen + extra bit  
-    void* sa2da_body(void* v)
+    static void* sa2da_body(void* v)
     {
         sa2da_data* d = (sa2da_data*)v;
         uint32_t seqid;
@@ -85,7 +85,7 @@ namespace {
 
     // transform sa[],lcp[] -> da[], suflen[] + 
     // extra bit telling whether suflen[i]==lcp[i]
-    void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt)
+    static void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt)
     {
         (void)d;   // d[] only used in assertions;
         long words = 0;
@@ -405,7 +405,7 @@ namespace {
     }
 
     // bwt construction from dictionary and parse using multiple threads
-    void bwt_multi(Args& arg, uint8_t* d, long dsize, // dictionary and its size  
+    static void bwt_multi(Args& arg, uint8_t* d, long dsize, // dictionary and its size  
         uint32_t* ilist, uint8_t* last, long psize, // ilist, last and their size 
         uint32_t* istart, long dwords) // starting point in ilist for each word and # words
     {

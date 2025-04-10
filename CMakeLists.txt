@@ -65,6 +65,7 @@ add_executable(RaMA-G
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${INDEX_DIR}/index.cpp"
+    "${INDEX_DIR}/fm_index.cpp"
     "${BIGBWT_DIR}/newscan.cpp"
     "${BIGBWT_DIR}/utils.c"
     "${BIGBWT_DIR}/xerrors.c"
@@ -113,7 +114,9 @@ endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -march=native")
 
 
-# ============ Debug 宏 ============
+# ============ 宏定义 ============
+target_compile_definitions(RaMA-G PRIVATE M64)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(RaMA-G PRIVATE _DEBUG_)
 endif()

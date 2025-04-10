@@ -96,14 +96,12 @@ namespace PfBWT {
             return *bwtpos > *(a.bwtpos);
         }
     };
-
+}
 
 #ifndef NOTHREADS
 #include "pfthreads.hpp"
 #endif
-
-
-
+namespace PfBWT {
     /* *******************************************************************
      * Computation of the final BWT
      *

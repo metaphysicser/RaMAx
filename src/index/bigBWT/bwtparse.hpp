@@ -15,7 +15,7 @@
 namespace BWTParse {
 
     // Typedef for the SA index (used for both 32-bit and 64-bit)
-    typedef uint32_t sa_index_t;
+    typedef uint_t sa_index_t;
 
     // Command-line arguments structure
     struct Args {
