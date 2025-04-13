@@ -1,4 +1,4 @@
-#include "index.h"
+﻿#include "index.h"
 
 
 FM_Index::FM_Index() {
@@ -299,10 +299,11 @@ bool FM_Index::pfBWT(const FilePath& fasta_path, const FilePath& output_path, ui
 	return true;
 }
 
-bool FM_Index::read_sa(const FilePath& sa_file, FullSAType& full_sa)
+bool FM_Index::read_and_build_sampled_sa(const FilePath& sa_file_path)
 {
-	std::ifstream file(sa_file, std::ios::binary | std::ios::ate);
+	std::ifstream file(sa_file_path, std::ios::binary | std::ios::ate);
 	if (!file) throw std::runtime_error("Cannot open SA file");
+
 	std::streamsize size = file.tellg();
 	file.seekg(0);
 
@@ -311,16 +312,24 @@ bool FM_Index::read_sa(const FilePath& sa_file, FullSAType& full_sa)
 	}
 
 	size_t count = size / 5;
-	full_sa.reserve(count);
+
+	// Create a buffer to hold the raw SA data
 	std::vector<char> buffer(size);
 	file.read(buffer.data(), size);
 
-	// SampleSAType sampled_sa();
-	
+	// Calculate the number of sampled suffixes based on the sampling rate of 32
+	size_t sampled_count = (count + 31) / 32;
+
+	// Resize sampled_sa to the correct number of elements based on sampled_count
+	sampled_sa.resize(sampled_count);
 
 	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
-	for (size_t i = 0; i < count; i++, ptr += 5)
-	{
+
+	size_t sampled_index = 0;
+
+	for (size_t i = 0; i < count; i += 32) { // Step by 32 to sample every 32nd suffix
+		ptr = reinterpret_cast<const uint8_t*>(buffer.data()) + (i * 5); // Move the pointer to the right position
+
 		// Little-Endian interpretation:
 		uint64_t val =
 			(uint64_t(ptr[0])) |
@@ -328,10 +337,18 @@ bool FM_Index::read_sa(const FilePath& sa_file, FullSAType& full_sa)
 			(uint64_t(ptr[2]) << 16) |
 			(uint64_t(ptr[3]) << 24) |
 			(uint64_t(ptr[4]) << 32);
-		full_sa.push_back(val);
+
+		// Ensure sampled_index does not exceed the size of sampled_sa
+		
+		sampled_sa[sampled_index] = val;
+		sampled_index++;
+		
 	}
+
 	return true;
 }
+
+
 
 
 bool FM_Index::buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread) {
@@ -346,38 +363,97 @@ bool FM_Index::buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath&
 
 	spdlog::info("bigBWT finished.");
 
-	FullSAType full_sa;
 	FilePath sa_path = output_path;
 	sa_path += ".sa";
 
-	read_sa(sa_path, full_sa);
+	read_and_build_sampled_sa(sa_path);
+	sdsl::util::bit_compress(sampled_sa);
+
+	FilePath bwt_path = output_path;
+	bwt_path += ".bwt";
+	read_and_build_bwt(bwt_path);
 
 	return true;
 }
 
-//bool FM_Index::build_sampled_sa(const FullSAType& full_sa, const std::string& output_path, uint64_t sample_rate) {
-//
-//	size_t n = full_sa.size();
-//
-//	// ��������λͼ��ÿ�� sample_rate λ����һ�Σ�
-//	sdsl::bit_vector mark(n, 0);
-//	for (size_t i = 0; i < n; i += sample_rate) {
-//		mark[i] = 1;
-//	}
-//
-//	sdsl::int_vector<64> sa_vector(n);
-//	for (size_t i = 0; i < n; ++i) {
-//		sa_vector[i] = full_sa[i];
-//	}
-//
-//	// ������� SA
-//	SampleSAType sampled_sa();
-//
-//
-//	return true;
-//}
+bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
+	// 打开文件，检查是否成功
+	std::ifstream bwt_file(bwt_file_path, std::ios::binary | std::ios::ate);
+	if (!bwt_file.is_open()) {
+		throw std::runtime_error("Error: Cannot open file " + bwt_file_path);
+	}
 
+	// 获取文件大小，检查文件大小是否合理
+	std::streamsize size = bwt_file.tellg();
+	if (size <= 0) {
+		throw std::runtime_error("Error: Invalid file size for " + bwt_file_path);
+	}
 
+	// 将文件指针重置到文件开头
+	bwt_file.seekg(0, std::ios::beg);
+
+	// 一次性将整个文件读入 std::string 中
+	std::string bwt(size, '\0');
+	if (!bwt_file.read(&bwt[0], size)) {
+		throw std::runtime_error("Error: Failed to read file " + bwt_file_path);
+	}
+
+	// 关闭文件，以释放文件句柄
+	bwt_file.close();
+
+	// 根据需求删除索引 0 处的1个字符
+	if (!bwt.empty()) {
+		bwt.erase(0, 1);
+	}
+	else {
+		throw std::runtime_error("Error: BWT string is empty after reading file " + bwt_file_path);
+	}
+
+	// 将 std::string 转换为 sdsl::int_vector<8>
+	sdsl::int_vector<8> sdsl_bwt(bwt.size());
+	for (size_t i = 0; i < bwt.size(); ++i) {
+		sdsl_bwt[i] = static_cast<uint8_t>(bwt[i]);
+	}
+
+	// 及时释放原始 BWT 字符串占用的内存
+	bwt.clear();
+	bwt.shrink_to_fit();
+
+	// 构造基于 wt_huff 的波列树（内部默认使用 sdsl::bit_vector）
+	// this->wt_bwt 是 FM_Index 类中的成员变量，例如：
+	// sdsl::wt_huff<sdsl::bit_vector> wt_bwt;
+	sdsl::construct_im(this->wt_bwt, sdsl_bwt);
+	//std::cout << "---- Access Operation Demo ----\n";
+	//for (size_t i = 0; i < std::min<size_t>(10, sdsl_bwt.size()); ++i) {
+	//	// 由于 wt 存储的是 uint8_t，这里转换为 char 进行输出
+	//	std::cout << "wt.access(" << i << ") = " << static_cast<char>(wt_bwt[i]) << "\n";
+	//}
+
+	//// 演示 rank 操作
+	//// 比如统计前 20 个字符中 'A' 出现的次数
+	//uint8_t symbol = static_cast<uint8_t>('C');  // 可以换成其他字符如 'C', 'G', 'T'
+	//size_t pos = 20;
+	//size_t count = wt_bwt.rank(pos, symbol);
+	//std::cout << "Rank of '" << static_cast<char>(symbol)
+	//	<< "' in positions [0, " << pos << ") = " << count << "\n";
+
+	//// 演示 select 操作
+	//// 查找第 2 次出现 'A' 的位置，注意 select 索引从1开始计数
+	//size_t kth = 2;
+	//size_t pos_sel = wt_bwt.select(kth, symbol);
+	//std::cout << "Select(" << kth << ", '" << static_cast<char>(symbol)
+	//	<< "') returns position: " << pos_sel << "\n";
+
+	//size_t raw_bwt_size = sdsl::size_in_bytes(sdsl_bwt);
+	//std::cout << "Raw BWT size: " << raw_bwt_size << " bytes\n";
+
+	//size_t wt_size = sdsl::size_in_bytes(wt_bwt);
+	//std::cout << "Compressed WT (wt_huff) size: " << wt_size << " bytes\n";
+	//
+	//double compression_ratio = static_cast<double>(wt_size) / raw_bwt_size;
+	//std::cout << "Compression Ratio: " << compression_ratio * 100.0 << " %\n";
+	return true;
+}
 
 bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode, uint_t thread) {
 

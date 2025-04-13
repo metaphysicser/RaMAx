@@ -9,10 +9,13 @@ extern "C" {
 #include "gsa/gsacak_wrapper.h"
 }
 #include "CaPS-SA/Suffix_Array.hpp"
-#include <sdsl/csa_sampling_strategy.hpp>  // sa_order_sa_sampling
-#include <sdsl/bit_vectors.hpp>          // bit_vector
+// #include <sdsl/csa_sampling_strategy.hpp>  // sa_order_sa_sampling
+//#include <sdsl/bit_vectors.hpp>          // bit_vector
 //#include <sdsl/wt_int.hpp>
-//#include <sdsl/int_vector.hpp>
+#include <sdsl/int_vector.hpp>
+#include <sdsl/wt_huff.hpp>
+#include <sdsl/util.hpp>
+#include <sdsl/suffix_arrays.hpp>
 //#include <sdsl/bit_vectors.hpp>
 
 
@@ -20,8 +23,7 @@ extern "C" {
 #define STOP_MODULUS 100
 using IndexPathMap = std::unordered_map<Species, FilePath>;
 
-using FullSAType = std::vector<uint64_t>;
-using SampleSAType = sdsl::sa_order_sa_sampling<64>;
+using SampledSAType = sdsl::int_vector<0>;
 
 enum IndexType {
 	RIndexType,
@@ -30,13 +32,15 @@ enum IndexType {
 
 class FM_Index {
 public:
-	std::vector<uint64_t> sa;
+	SampledSAType sampled_sa;
+	sdsl::wt_huff<sdsl::bit_vector> wt_bwt;
 
 	FM_Index();
 	bool buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode,  uint_t thread);
 	bool buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
-	bool read_sa(const FilePath& sa_file, FullSAType& full_sa);
-	bool build_sampled_sa(const FullSAType& full_sa, const std::string& output_path, uint64_t sample_rate);
+	bool read_and_build_sampled_sa(const FilePath& sa_file_path);
+	bool read_and_build_bwt(const FilePath& bwt_file_path);
+	// bool build_sampled_sa(const FullSAType& full_sa, const std::string& output_path, uint64_t sample_rate);
 	bool newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);

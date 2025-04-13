@@ -6,6 +6,38 @@ IndexManager::IndexManager(const FilePath work_dir, const uint_t thread_num) {
 	this->work_dir = work_dir;
 	this->index_dir = work_dir / INDEX_DIR;
 	this->thread_num = thread_num;
+
+}
+
+std::vector<uint64_t> read_sa(const std::string& sa_file)
+{
+	std::ifstream file(sa_file, std::ios::binary | std::ios::ate);
+	if (!file) throw std::runtime_error("Cannot open SA file");
+	std::streamsize size = file.tellg();
+	file.seekg(0);
+
+	if (size % 5 != 0) {
+		throw std::runtime_error("SA file size not multiple of 5 bytes");
+	}
+
+	size_t count = size / 5;
+	std::vector<uint64_t> sa(count);
+	std::vector<char> buffer(size);
+	file.read(buffer.data(), size);
+
+	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
+	for (size_t i = 0; i < count; i++, ptr += 5)
+	{
+		// Little-Endian interpretation:
+		uint64_t val =
+			(uint64_t(ptr[0])) |
+			(uint64_t(ptr[1]) << 8) |
+			(uint64_t(ptr[2]) << 16) |
+			(uint64_t(ptr[3]) << 24) |
+			(uint64_t(ptr[4]) << 32);
+		sa[i] = val;
+	}
+	return sa;
 }
 
 FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_manager, const IndexType index_type) {
@@ -25,46 +57,17 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 
 	spdlog::info("Indexing finished, index path: {}", index_path.string());
 
-	//FilePath parse_path = output_path;
-	//parse_path += ".parse";
 
-	//std::vector<uint32_t> parse = read_parse_file(parse_path);
 
-	//const std::size_t subproblem_count(0);
-	//const std::size_t max_context(0);
+	//FilePath sa_path = output_path;
+	//sa_path += ".sa";
+	//std::vector<uint64_t> sa = read_sa(sa_path);
 
-	//// 使用parse数据构建后缀数组
-	//// CaPS_SA::Suffix_Array<uint32_t> sa(parse, parse.size(), 0, 0);
 
-	//// 构建后缀数组
-	//// sa.construct();
-
-	//// const uint32_t* SA = sa.SA();
-	//std::string text = "AAAAAAAAAAAAAAAAGGGGGGGGGGGGGGGGGGGGGGGG$";
-
-	//cout << text.size() << endl;
-	///*CaPS_SA::Suffix_Array<uint32_t> suf_arr(text.c_str(), text.length(), subproblem_count, max_context);*/
-	//CaPS_SA::Suffix_Array<uint32_t> suf_arr(text.c_str(), text.size(), subproblem_count, max_context);
-	//suf_arr.construct();
-	//const uint32_t* SA = suf_arr.SA();
-	//const uint32_t* LCP = suf_arr.LCP();
-
-	//// 打印sa
-	//for (size_t i = 0; i < text.size(); ++i) {
-	//	std::cout << SA[i] << " \n";
-	//}
-	//cout << "-------_______________-----------" << endl;
-	//// 打印LCP
-	//for (size_t i = 0; i < text.size(); ++i) {
-	//	std::cout << LCP[i] << " \n";
-	////}
-	//// output_path = "/mnt/d/code/Another_project/Big-BWT/yeast.fasta";
 	//FilePath bwt_path = output_path;
-	//// FilePath bwt_path = "/mnt/d/code/Another_project/Big-BWT/yeast.fasta"
 	//bwt_path += ".bwt";
 	//std::ifstream bwt_file(bwt_path, std::ios::binary | std::ios::ate);
-	///*	std::string bwt((std::istreambuf_iterator<char>(bwt_file)),
-	//		std::istreambuf_iterator<char>())*/;
+
 
 	//std::streamsize size = bwt_file.tellg();   // 获取文件大小
 	//bwt_file.seekg(0, std::ios::beg);          // 回到文件开头
@@ -75,25 +78,6 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 
 
 
-	//FilePath sa_path = output_path;
-	//sa_path += ".sa";
-	//////		//// 遍历sa，打印出最大值
-	//////uint64_t max_value = 0;
-	//////for (size_t i = 0; i < sa.size(); ++i)
-	//////{
-	//////	if (sa[i] > max_value)
-	//////	{
-	//////		max_value = sa[i];
-	//////	}
-	//////}
-	//std::vector<uint64_t> sa = read_sa(sa_path);
-
-	////size_t eof_pos = bwt.find('\0');
-	////bwt.erase(bwt.begin() + eof_pos);
-
-	////// sa.insert(sa.begin() + eof_pos, sa.size());
-
-
 	//std::string text = fasta_manager.concatRecords();
 
 	//bool passed = true;
@@ -102,7 +86,7 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	//for (size_t i = 0; i < bwt.size(); ++i) {
 	//	uint64_t sai = sa[i];
 	//	if (i < 346652195 && i > 346652175) {
-	//		std::cout << text.substr(sai-1, 10) << std::endl;
+	//		std::cout << text.substr(sai - 1, 10) << std::endl;
 	//	}
 	//	if (sai == n - 1) {
 	//		std::cout << "final char" << std::endl;
@@ -136,9 +120,7 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	//else {
 	//	std::cerr << "❌ SA and BWT verification failed!\n";
 	//}
-
 	
-
 	
 	return index_path;
 
