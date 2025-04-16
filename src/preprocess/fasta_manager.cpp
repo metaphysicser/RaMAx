@@ -1,26 +1,31 @@
 #include "data_process.h"
 
-FastaManager::FastaManager(const FilePath& fasta_path, const FilePath& fai_path)
-    : fasta_path_(fasta_path)
-    , fai_path_(fai_path)
-{
-    // If fai_path is not empty, load the FAI records into an unordered_map
-    if (!fai_path.empty()) {
-        loadFaiRecords(fai_path);
-    }
-    open(); // Open FASTA file
-}
+//FastaManager::FastaManager()
+//{
+//
+//}
 
-FastaManager::~FastaManager() {
-    if (seq_) {
-        kseq_destroy(seq_);
-        seq_ = nullptr;
-    }
-    if (fp_) {
-        gzclose(fp_);
-        fp_ = nullptr;
-    }
-}
+//FastaManager::FastaManager(const FilePath& fasta_path, const FilePath& fai_path)
+//    : fasta_path_(fasta_path)
+//    , fai_path_(fai_path)
+//{
+//    // If fai_path is not empty, load the FAI records into an unordered_map
+//    if (!fai_path.empty()) {
+//        loadFaiRecords(fai_path);
+//    }
+//    open(); // Open FASTA file
+//}
+
+//FastaManager::~FastaManager() {
+//    if (seq_) {
+//        kseq_destroy(seq_);
+//        seq_ = nullptr;
+//    }
+//    if (fp_) {
+//        gzclose(fp_);
+//        fp_ = nullptr;
+//    }
+//}
 
 void FastaManager::loadFaiRecords(const FilePath& fai_path)
 {
@@ -32,6 +37,19 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
     }
 
     std::string line;
+    
+    std::getline(in, line);
+	if (line == "YES") {
+		has_n_in_fasta = true;
+	}
+	else if (line == "NO") {
+		has_n_in_fasta = false;
+	}
+	else {
+		spdlog::error("Invalid FAI file format: {}", fai_path.string());
+		throw std::runtime_error("Invalid FAI file format: " + fai_path.string());
+	}
+    fai_records.clear();
     while (std::getline(in, line)) {
         if (line.empty()) continue;
 
@@ -46,16 +64,16 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
         }
 
         // Insert the record into the unordered_map, using seq_name as the key
-        fai_records[rec.seq_name] = rec;
+        fai_records.push_back(rec);
     }
 
     in.close();
 }
 
 bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
-    int ret = kseq_read(seq_);
+    int ret = kseq_read(seq_.get());
     if (ret < 0) {
-        return false; // No more records
+        return false; // 无更多记录
     }
     header.assign(seq_->name.s);
     sequence.assign(seq_->seq.s, seq_->seq.l);
@@ -67,39 +85,30 @@ bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
 }
 
 void FastaManager::reset() {
-    if (seq_) {
-        kseq_destroy(seq_);
-        seq_ = nullptr;
-    }
-    if (fp_) {
-        gzclose(fp_);
-        fp_ = nullptr;
-    }
-    open();
+    // 通过 unique_ptr 的 reset 释放旧资源，然后重新打开
+    gz_file_wrapper_.reset();
+    seq_.reset();
+    fasta_open();
 }
 
-std::string FastaManager::concatRecords(char separator,
-    char terminator,
-    size_t limit)
-{
+std::string FastaManager::concatRecords(char separator, char terminator, size_t limit) {
     reset();
-    std::string result;
+    std::ostringstream oss;
     std::string hdr, seq;
     size_t count = 0;
 
     while (nextRecord(hdr, seq) && count < limit) {
-        result += seq;
-        // result.push_back(separator);
+        oss << seq << separator;  // 使用 ostringstream 拼接，减少不必要的内存拷贝
         ++count;
     }
-
+    std::string result = oss.str();
     if (!result.empty()) {
-        result.back() = 0x00; // Replace last separator
+        result.back() = terminator; // 替换最后一个分隔符为终止符
     }
     return result;
 }
 
-FastaManager::Stats FastaManager::getStats() {
+typename FastaManager::Stats FastaManager::getStats() {
     reset();
     Stats s;
     std::string hdr, seq;
@@ -107,12 +116,8 @@ FastaManager::Stats FastaManager::getStats() {
         size_t len = seq.size();
         s.record_count++;
         s.total_bases += len;
-        if (len < s.min_len) {
-            s.min_len = len;
-        }
-        if (len > s.max_len) {
-            s.max_len = len;
-        }
+        s.min_len = std::min(s.min_len, len);
+        s.max_len = std::max(s.max_len, len);
     }
     if (s.record_count > 0) {
         s.average_len = s.total_bases / s.record_count;
@@ -127,6 +132,10 @@ void FastaManager::cleanSequence(std::string& seq) {
     for (char& c : seq) {
         unsigned char uc = static_cast<unsigned char>(c);
         uc = std::toupper(uc);
+        if (!has_n_in_fasta && uc == 'N') {
+            has_n_in_fasta = true;
+        }
+        // 可加入 OpenMP 并行化优化（需要确定线程安全）
         if (uc != 'A' && uc != 'C' && uc != 'G' && uc != 'T' && uc != 'N') {
             uc = 'N';
         }
@@ -134,22 +143,20 @@ void FastaManager::cleanSequence(std::string& seq) {
     }
 }
 
-void FastaManager::open() {
-    fp_ = gzopen(fasta_path_.string().c_str(), "r");
-    if (!fp_) {
-        throw std::runtime_error("Failed to open FASTA file: " + fasta_path_.string());
-    }
-    seq_ = kseq_init(fp_);
+void FastaManager::fasta_open() {
+    // 使用 RAII 封装自动管理 gzFile 和 kseq_t 的生命周期
+    gz_file_wrapper_ = std::make_unique<GzFileWrapper>(fasta_path_.string());
+    seq_.reset(kseq_init(gz_file_wrapper_->get()));
 }
 
 bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     const FilePath& fai_path,
     size_t line_width) const
 {
-	if (std::filesystem::exists(fai_path)) {
-		spdlog::warn("Fai file already exists: {}", fai_path.string());
-		return true;
-	}
+    if (std::filesystem::exists(fai_path)) {
+        spdlog::warn("Fai file already exists: {}", fai_path.string());
+        return true;
+    }
     std::ifstream in(fa_path);
     if (!in) {
         spdlog::error("Failed to open {} for reading in reScanAndWriteFai", fa_path.string());
@@ -162,6 +169,8 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
         spdlog::error("Failed to open {} for writing .fai", fai_path.string());
         return false;
     }
+
+    out << (has_n_in_fasta ? "YES" : "NO") << "\n";
 
     size_t global_offset = 0;
     std::string line;
@@ -208,8 +217,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     return true;
 }
 
-FilePath FastaManager::writeCleanedFasta(const FilePath& output_file, uint64_t line_width)
-{
+FilePath FastaManager::writeCleanedFasta(const FilePath& output_file, uint64_t line_width) {
     if (std::filesystem::exists(output_file)) {
         spdlog::warn("Output FASTA already exists: {}", output_file.string());
         return output_file;
@@ -260,37 +268,119 @@ FilePath FastaManager::cleanAndIndexFasta(const FilePath& output_dir,
     reScanAndWriteFai(out_fasta, out_fai, line_width);
 
     this->fai_path_ = out_fai;
-
     return out_fasta;
 }
 
-std::string FastaManager::getSubSequence(const std::string& seq_name,
-    size_t start,
-    size_t end)
+std::string FastaManager::getSubConcatSequence(size_t start, size_t length)
 {
-    // Use the unordered_map to quickly find the FAI record by seq_name
-    auto it = fai_records.find(seq_name);
-    if (it == fai_records.end()) {
-        throw std::runtime_error("Sequence " + seq_name + " not found in FAI index.");
+    // 如果请求长度为 0，直接返回空
+    if (length == 0) {
+        return "";
     }
 
-    const FaiRecord& rec = it->second;
+    // 将结果存储在 result 中
+    std::string result;
+    result.reserve(length); // 预留长度, 避免反复分配
 
-    // Check for valid range
-    if (start > end || end >= rec.length) {
-        throw std::runtime_error("Invalid range [" + std::to_string(start) +
-            "," + std::to_string(end) + "] for sequence " + seq_name);
+    // current_offset 表示当前遍历到的序列在“全局坐标”中的起始位置
+    size_t current_offset = 0;
+
+    // 剩余需要读取的长度
+    size_t remain = length;
+
+    // 遍历 FAI 中所有记录（假设顺序与原始文件一致）
+    for (const auto& rec : fai_records) {
+        // 每条序列在全局坐标中的范围是 [current_offset, current_offset + rec.length - 1]
+        size_t seq_start_global = current_offset;
+        size_t seq_end_global = current_offset + rec.length - 1;
+
+        // 判断请求的 start 是否落在这条序列上（或者部分区间与这条序列重叠）
+        if (start <= seq_end_global && (start + remain - 1) >= seq_start_global) {
+            // 计算在本序列中的局部起始位置 local_start
+            // 例如，如果 start=1500 而这条序列 global 区间 [1000..2999]，则 local_start=1500-1000=500
+            size_t local_start = (start > seq_start_global) ? (start - seq_start_global) : 0;
+
+            // 当前序列从 local_start 到末端还剩多少碱基
+            size_t can_read_in_this_seq = rec.length - local_start;
+
+            // 我们实际要从本序列读出的长度
+            size_t to_read = (remain < can_read_in_this_seq) ? remain : can_read_in_this_seq;
+
+            // 调用已有的函数，从当前序列中读出区间
+            // 注意该函数是基于 “序列本地坐标”(start_in_seq, length_in_seq)
+            std::string part = getSubSequence(rec.seq_name, local_start, to_read);
+            result += part;
+
+            // 更新剩余需要读取的长度
+            remain -= to_read;
+            // 更新全局坐标的起点（因为我们已经读完这部分）
+            start += to_read;
+
+            // 如果剩余长度为 0，说明已完成读取
+            if (remain == 0) {
+                break;
+            }
+        }
+
+        // 更新下一条序列的 global offset
+        current_offset += rec.length;
     }
 
-    std::ifstream in(fasta_path_, std::ios::binary);
-    if (!in) {
+    // 如果循环结束后 remain 还不为 0，说明请求区间超出了所有序列总长度
+    // 你可以选择抛出异常或仅返回已能读取的部分
+    if (remain > 0) {
+        throw std::runtime_error("Requested range exceeds total length of all sequences.");
+    }
+
+    return result;
+}
+
+std::string FastaManager::getSubSequence(const std::string& seq_name, size_t start, size_t length)
+{
+    // 使用 std::vector 查找目标序列
+    FaiRecord rec;
+    bool find = false;
+    for (const auto& fai_record : fai_records) {
+        if (fai_record.seq_name == seq_name) {
+            rec = fai_record;
+            find = true;
+            break;
+        }
+    }
+
+    if (!find) {
+        throw std::runtime_error("Cannot find sequence " + seq_name + " in FAI records.");
+    }
+
+    if ( start+length > rec.length) {
+        throw std::runtime_error("Invalid range [" + std::to_string(start) + ", " + std::to_string(start+length) +
+            "] for sequence " + seq_name);
+    }
+
+    // 使用 mmap 映射 FASTA 文件到内存
+    int fd = open(fasta_path_.c_str(), O_RDONLY);
+    if (fd == -1) {
         throw std::runtime_error("Failed to open " + fasta_path_.string() + " for reading sub-sequence.");
     }
 
-    size_t req_len = end - start + 1;
-    std::string result;
-    result.reserve(req_len);
+    // 获取文件大小
+    off_t file_size = lseek(fd, 0, SEEK_END);
+    if (file_size == -1) {
+        close(fd);
+        throw std::runtime_error("Failed to determine the size of " + fasta_path_.string());
+    }
 
+    // 将文件映射到内存
+    char* file_data = (char*)mmap(NULL, file_size, PROT_READ, MAP_SHARED, fd, 0);
+    if (file_data == MAP_FAILED) {
+        close(fd);
+        throw std::runtime_error("Failed to mmap file " + fasta_path_.string());
+    }
+
+    // 关闭文件描述符，mmap 后不再需要它
+    close(fd);
+
+    // 计算请求的子序列的起始位置
     size_t line_bases = rec.line_bases;
     size_t line_bytes = rec.line_bytes;
     size_t seq_offset = rec.offset;
@@ -299,25 +389,33 @@ std::string FastaManager::getSubSequence(const std::string& seq_name,
     size_t colIndex = start % line_bases;
     size_t filePos = seq_offset + rowIndex * line_bytes + colIndex;
 
-    in.seekg(filePos, std::ios::beg);
-    if (!in.good()) {
-        throw std::runtime_error("Failed to seek to position " + std::to_string(filePos)
-            + " in " + fasta_path_.string());
-    }
+    // 计算需要读取的字符数
+    size_t req_len = length;
+    std::string result;
+    result.reserve(req_len);
 
+    // 使用内存映射的数据进行读取
     size_t to_read = req_len;
+    size_t current_pos = filePos;
+
     while (to_read > 0) {
-        char c;
-        if (!in.get(c)) {
-            throw std::runtime_error("Reached EOF unexpectedly while reading sub-sequence for " + seq_name);
+        char c = file_data[current_pos];
+        if (c != '\n' && c != '\r') {  // 忽略换行符
+            result.push_back(c);
+            --to_read;
         }
-        if (c == '\n' || c == '\r') {
-            continue;
+        ++current_pos;
+        if (current_pos >= file_size) {
+            break; // 如果超出文件范围
         }
-        result.push_back(c);
-        to_read--;
     }
 
-    in.close();
+    // 释放内存映射
+    munmap(file_data, file_size);
+
+    if (to_read > 0) {
+        throw std::runtime_error("Reached EOF unexpectedly while reading sub-sequence for " + seq_name);
+    }
+
     return result;
 }

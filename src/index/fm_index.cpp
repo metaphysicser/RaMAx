@@ -1,8 +1,7 @@
 ﻿#include "index.h"
 
 
-FM_Index::FM_Index() {
-
+FM_Index::FM_Index(FastaManager* fasta_manager):fasta_manager(fasta_manager) {
 }
 
 bool FM_Index::newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread) {
@@ -320,10 +319,40 @@ bool FM_Index::read_and_build_sampled_sa(const FilePath& sa_file_path)
 	// Calculate the number of sampled suffixes based on the sampling rate of 32
 	size_t sampled_count = (count + 31) / 32;
 
+	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
+
+	size_t position_in_SA = std::numeric_limits<size_t>::max();
+	for (size_t i = 0; i < count; ++i)
+	{
+		ptr = reinterpret_cast<const uint8_t*>(buffer.data()) + i * 5;
+		uint64_t val = (uint64_t(ptr[0]))
+			| (uint64_t(ptr[1]) << 8)
+			| (uint64_t(ptr[2]) << 16)
+			| (uint64_t(ptr[3]) << 24)
+			| (uint64_t(ptr[4]) << 32);
+
+		if (val == count - 1) {
+			position_in_SA = i;
+			break;
+		}
+	}
+
+	if (position_in_SA != 0) {
+		ptr = reinterpret_cast<const uint8_t*>(buffer.data()) + (position_in_SA-1) * 5;
+		uint64_t val = (uint64_t(ptr[0]))
+			| (uint64_t(ptr[1]) << 8)
+			| (uint64_t(ptr[2]) << 16)
+			| (uint64_t(ptr[3]) << 24)
+			| (uint64_t(ptr[4]) << 32);
+
+		char last_char = fasta_manager->getSubConcatSequence(val, 1)[0];
+		alpha_set = repositionNullAfter(alpha_set, last_char);
+		alpha_set_without_N = repositionNullAfter(alpha_set_without_N, last_char);
+		
+	}
+
 	// Resize sampled_sa to the correct number of elements based on sampled_count
 	sampled_sa.resize(sampled_count);
-
-	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
 
 	size_t sampled_index = 0;
 
@@ -344,6 +373,7 @@ bool FM_Index::read_and_build_sampled_sa(const FilePath& sa_file_path)
 		sampled_index++;
 		
 	}
+	
 
 	return true;
 }
@@ -380,13 +410,13 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 	// 打开文件，检查是否成功
 	std::ifstream bwt_file(bwt_file_path, std::ios::binary | std::ios::ate);
 	if (!bwt_file.is_open()) {
-		throw std::runtime_error("Error: Cannot open file " + bwt_file_path);
+		throw std::runtime_error("Error: Cannot open file " + bwt_file_path.string());
 	}
 
 	// 获取文件大小，检查文件大小是否合理
 	std::streamsize size = bwt_file.tellg();
 	if (size <= 0) {
-		throw std::runtime_error("Error: Invalid file size for " + bwt_file_path);
+		throw std::runtime_error("Error: Invalid file size for " + bwt_file_path.string());
 	}
 
 	// 将文件指针重置到文件开头
@@ -395,7 +425,7 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 	// 一次性将整个文件读入 std::string 中
 	std::string bwt(size, '\0');
 	if (!bwt_file.read(&bwt[0], size)) {
-		throw std::runtime_error("Error: Failed to read file " + bwt_file_path);
+		throw std::runtime_error("Error: Failed to read file " + bwt_file_path.string());
 	}
 
 	// 关闭文件，以释放文件句柄
@@ -406,7 +436,7 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 		bwt.erase(0, 1);
 	}
 	else {
-		throw std::runtime_error("Error: BWT string is empty after reading file " + bwt_file_path);
+		throw std::runtime_error("Error: BWT string is empty after reading file " + bwt_file_path.string());
 	}
 
 	// 将 std::string 转换为 sdsl::int_vector<8>
@@ -455,6 +485,7 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 	return true;
 }
 
+
 bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode, uint_t thread) {
 
 	if (fast_mode) {
@@ -465,4 +496,31 @@ bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, boo
 		
 		buildIndexUsingBigBWT(fasta_manager.fasta_path_, output_path, thread);
 	}
+	
+	size_t cumulative = 0;
+
+	if (fasta_manager.has_n_in_fasta) {
+		// alpha_set 中包含 N，假设 alpha_set 已经按照字典序排序
+		for (const auto& c : alpha_set) {
+			// 计算字符 c 在完整 BWT 中的总出现次数
+			size_t occ = wt_bwt.rank(wt_bwt.size(), c);
+			// 对于当前字符 c，其C值即为前面所有字符出现次数的累积值
+			count_array.push_back(cumulative);
+			// 更新累积值
+			cumulative += occ;
+		}
+	}
+	else {
+		// alpha_set_without_N 不包含 N，同样要求字母集合已排序
+		for (const auto& c : alpha_set_without_N) {
+			size_t occ = wt_bwt.rank(wt_bwt.size(), c);
+			count_array.push_back(cumulative);
+			cumulative += occ;
+		}
+	}
+
+
+	return true;
 }
+
+

@@ -40,7 +40,7 @@ std::vector<uint64_t> read_sa(const std::string& sa_file)
 	return sa;
 }
 
-FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_manager, const IndexType index_type) {
+FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_manager) {
 	FilePath index_path = index_dir / prefix;
 
 	if (!std::filesystem::exists(index_path)) {
@@ -50,18 +50,19 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	// index_dir的路径加上prefix的前缀加上fasta_manager.fasta_path_的扩展名
 	FilePath output_path = index_path / (prefix + std::filesystem::path(fasta_manager.fasta_path_).extension().string());
 
-	FM_Index fm_index;
+	FM_Index fm_index(&fasta_manager);
 	spdlog::info("Indexing with prefix: {}, index path: {}", prefix, index_path.string());
 	
-	fm_index.buildIndexUsingBigBWT(fasta_manager.fasta_path_, output_path, thread_num);
+	fm_index.buildIndex(fasta_manager, output_path, false, thread_num);
 
 	spdlog::info("Indexing finished, index path: {}", index_path.string());
 
 
-
+	std::cout << fasta_manager.getSubConcatSequence(0, 800000) << std::endl;
 	//FilePath sa_path = output_path;
 	//sa_path += ".sa";
 	//std::vector<uint64_t> sa = read_sa(sa_path);
+	//size_t sa_size = sa.size();
 
 
 	//FilePath bwt_path = output_path;
@@ -76,9 +77,23 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	//bwt_file.read(&bwt[0], size);           // 一次性读入
 	//bwt.erase(0, 1);  // 从索引0开始，删除1个字符
 
+	//// 打印bwt中除了ATCG的值
+	//for (size_t i = 0; i < bwt.size(); ++i) {
+	//	if (bwt[i] != 'A' && bwt[i] != 'G' && bwt[i] != 'C' && bwt[i] != 'T') {
+	//		std::cout << "bwt[" << i << "] = " << int(bwt[i]) << " " << bwt[i] << std::endl;
+	//	}
+	//}
+
 
 
 	//std::string text = fasta_manager.concatRecords();
+
+	//// 打印text中除了ATCG的值
+	////for (size_t i = 0; i < text.size(); ++i) {
+	////	if (text[i] != 'A' && text[i] != 'C' && text[i] != 'G' && text[i] != 'T') {
+	////		std::cout << "text[" << i << "] = " << text[i] << std::endl;
+	////	}
+	////}
 
 	//bool passed = true;
 	//size_t n = text.size();
@@ -120,7 +135,7 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	//else {
 	//	std::cerr << "❌ SA and BWT verification failed!\n";
 	//}
-	
+	//
 	
 	return index_path;
 

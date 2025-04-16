@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <cctype>
 #include <curl/curl.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <zlib.h>
 #include "config.hpp"
 #include "kseq.h"
@@ -38,77 +40,119 @@ KSEQ_INIT(gzFile, gzread)
 //	}
 //};
 
+class GzFileWrapper {
+public:
+    explicit GzFileWrapper(const std::string& filename, const std::string& mode = "r") {
+        fp_ = gzopen(filename.c_str(), mode.c_str());
+        if (!fp_) {
+            throw std::runtime_error("Failed to open FASTA file: " + filename);
+        }
+    }
+    ~GzFileWrapper() {
+        if (fp_) {
+            gzclose(fp_);
+        }
+    }
+    gzFile get() const { return fp_; }
+    // 禁止复制
+    GzFileWrapper(const GzFileWrapper&) = delete;
+    GzFileWrapper& operator=(const GzFileWrapper&) = delete;
+private:
+    gzFile fp_{ nullptr };
+};
+
+// 封装 kseq_t*，使用自定义删除器自动调用 kseq_destroy
+struct KseqDeleter {
+    void operator()(kseq_t* seq) const {
+        if (seq) kseq_destroy(seq);
+    }
+};
+using KseqPtr = std::unique_ptr<kseq_t, KseqDeleter>;
+
 class FastaManager {
 public:
-    FilePath fasta_path_;  // Path to .fasta file
-    FilePath fai_path_;    // Optional path to .fai file
-    /// Constructor with optional FAI index path
-    /// If fai_path is not provided, only sequence reading is enabled
-    FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath());
-    ~FastaManager();
+    FilePath fasta_path_;  // FASTA 文件路径
+    FilePath fai_path_;    // 可选 .fai 索引文件路径
+    bool has_n_in_fasta = false;
 
-    /// Read the next FASTA record (header and sequence)
+    // 构造函数与析构函数：采用 RAII，不再需要在析构函数中手动释放资源
+    FastaManager() = default;
+    FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
+        : fasta_path_(fasta_path), fai_path_(fai_path)
+    {
+        if (!fai_path.empty()) {
+            loadFaiRecords(fai_path);
+        }
+        fasta_open(); // 打开 FASTA 文件并初始化解析器
+    }
+    ~FastaManager() = default; // unique_ptr 自动释放资源
+
+    // 读取下一个 FASTA 记录（header 与序列）
     bool nextRecord(std::string& header, std::string& sequence);
 
-    /// Reset reading to the beginning of the file
+    // 重置读取到文件开头（采用 RAII 重建解析器）
     void reset();
 
-    /// Concatenate all records into a single sequence
-    /// with optional separator and terminator characters
+    // 将所有记录拼接成一个字符串（使用 ostringstream 优化字符串拼接）
     std::string concatRecords(char separator = '0', char terminator = '1',
         size_t limit = std::numeric_limits<size_t>::max());
 
-    /// Statistics of the FASTA file (record count, lengths, etc.)
+    // FASTA 文件统计信息
     struct Stats {
         size_t record_count = 0;
         size_t total_bases = 0;
-        size_t min_len = SIZE_MAX;
+        size_t min_len = std::numeric_limits<size_t>::max();
         size_t max_len = 0;
         size_t average_len = 0;
     };
     Stats getStats();
 
-    /// Write cleaned sequences to a new FASTA file (no index)
-    FilePath writeCleanedFasta(const FilePath& output_dir, uint64_t line_width = 60);
+    // 清洗 FASTA 序列并写入新文件
+    FilePath writeCleanedFasta(const FilePath& output_file, uint64_t line_width = 60);
 
-    /// Clean sequences and generate both FASTA and FAI files
+    // 清洗并生成 FASTA 与 FAI 文件
     FilePath cleanAndIndexFasta(const FilePath& output_dir,
         const std::string& prefix,
         uint64_t line_width = 60);
 
-    /// FAI record (sequence index metadata)
+    // FAI 记录数据结构
     struct FaiRecord {
-        std::string seq_name;    // Sequence name (e.g., "chr1")
-        size_t length;           // Total number of bases
-        size_t offset;           // Byte offset of the first base in the file
-        size_t line_bases;       // Number of bases per line (e.g., 60)
-        size_t line_bytes;       // Number of bytes per line (including newline)
+        std::string seq_name;    // 序列名称（例如 "chr1"）
+        size_t length;           // 序列长度
+        size_t offset;           // 序列在文件中的字节偏移量
+        size_t line_bases;       // 每行碱基数（例如 60）
+        size_t line_bytes;       // 每行字节数（包括换行符）
     };
 
-    /// Loaded FAI records from .fai file
-    std::unordered_map<std::string, FaiRecord> fai_records;
+    // 使用 unordered_map 保存 FAI 记录
+    std::vector<FaiRecord> fai_records;
 
-    /// Extract a sub-sequence from a given sequence by name and range [start, end]
-    std::string getSubSequence(const std::string& seq_name, size_t start, size_t end);
+    // 从指定序列中根据范围 [start, end] 提取子序列
+    std::string getSubSequence(const std::string& seq_name, size_t start, size_t length);
+    std::string getSubConcatSequence(size_t start, size_t length);
 
 private:
-    gzFile fp_{ nullptr };  // File pointer (used for compressed or uncompressed FASTA)
-    kseq_t* seq_{ nullptr };  // KSEQ parser handle
+    // RAII 封装后，不再直接使用原始指针
+    std::unique_ptr<GzFileWrapper> gz_file_wrapper_;
+    KseqPtr seq_;
 
     bool clean_data_{ false };
 
-    void cleanSequence(std::string& seq);  // Optional cleaning logic (replace non-ACGTN)
+    // 序列清洗：将非 ACGTN 的字符替换为 N，同时记录是否存在 N
+    void cleanSequence(std::string& seq);
 
-    void open();  // (Re)open fasta file and initialize parser
+    // 打开 FASTA 文件和初始化 kseq 解析器
+    void fasta_open();
 
-    /// Scan fasta and write .fai index (used after writing cleaned fasta)
+    // 重新扫描 FASTA 并写入 .fai 文件
     bool reScanAndWriteFai(const FilePath& fa_path,
         const FilePath& fai_path,
         size_t line_width) const;
 
-    /// Load .fai file into fai_records
+    // 加载 .fai 文件中的记录到 fai_records
     void loadFaiRecords(const FilePath& fai_path);
 };
+
 
 using SpeciesPathMap = std::unordered_map<Species, FilePath>;
 //using ChrPathMap = std::unordered_map<Chr, FilePath>;

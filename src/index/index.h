@@ -21,21 +21,24 @@ extern "C" {
 
 #define WINDOW_SIZE 10
 #define STOP_MODULUS 100
+
 using IndexPathMap = std::unordered_map<Species, FilePath>;
 
 using SampledSAType = sdsl::int_vector<0>;
-
-enum IndexType {
-	RIndexType,
-	FMIndexType,
-};
+using WtHuffType = sdsl::wt_huff<sdsl::bit_vector>;
+using CountArrayType = std::vector<size_t>;
 
 class FM_Index {
 public:
+	FastaManager* fasta_manager;
+	std::array<char, 6> alpha_set = { '\0', 'A', 'C', 'G', 'N', 'T'};
+	std::array<char, 5> alpha_set_without_N = { '\0', 'A', 'C', 'G', 'T' };
 	SampledSAType sampled_sa;
-	sdsl::wt_huff<sdsl::bit_vector> wt_bwt;
+	WtHuffType wt_bwt;
+	CountArrayType count_array;
 
 	FM_Index();
+	FM_Index(FastaManager* fasta_manager);
 	bool buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode,  uint_t thread);
 	bool buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool read_and_build_sampled_sa(const FilePath& sa_file_path);
@@ -45,7 +48,32 @@ public:
 	bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
+
+	template <size_t N>
+	static std::array<char, N> repositionNullAfter(const std::array<char, N>& arr, char c) {
+		std::vector<char> temp;
+		temp.reserve(N);
+		for (char ch : arr) {
+			if (ch != '\0') {
+				temp.push_back(ch);
+			}
+		}
+		auto it = std::find(temp.begin(), temp.end(), c);
+		if (it == temp.end()) {
+			throw std::runtime_error("Character not found in array");
+		}
+		size_t pos = std::distance(temp.begin(), it);
+		temp.insert(temp.begin() + pos + 1, '\0');
+
+		if (temp.size() != N) {
+			throw std::runtime_error("Unexpected size mismatch after reordering");
+		}
+		std::array<char, N> result;
+		std::copy(temp.begin(), temp.end(), result.begin());
+		return result;
+	}
 };
+
 
 class IndexManager {
 public:
@@ -53,7 +81,7 @@ public:
 	FilePath index_dir;
 	uint_t thread_num;
 	IndexManager(const FilePath work_dir, const uint_t thread_num);
-	FilePath buildIndex(const std::string prefix, FastaManager& ref_fasta_manager, const IndexType index_type);
+	FilePath buildIndex(const std::string prefix, FastaManager& ref_fasta_manager);
 };
 
 
