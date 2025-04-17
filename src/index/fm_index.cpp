@@ -1,7 +1,9 @@
 ﻿#include "index.h"
 
 
-FM_Index::FM_Index(FastaManager* fasta_manager):fasta_manager(fasta_manager) {
+FM_Index::FM_Index(FastaManager* fasta_manager, uint_t sample_rate):fasta_manager(fasta_manager) {
+	this->sample_rate = sample_rate;
+	this->total_size = fasta_manager->getConcatSeqLength();
 }
 
 bool FM_Index::newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread) {
@@ -498,24 +500,32 @@ bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, boo
 	}
 	
 	size_t cumulative = 0;
+	char2idx.fill(0xFF);
+	count_array.fill(0);
 
 	if (fasta_manager.has_n_in_fasta) {
+		uint_t count = 0;
 		// alpha_set 中包含 N，假设 alpha_set 已经按照字典序排序
 		for (const auto& c : alpha_set) {
 			// 计算字符 c 在完整 BWT 中的总出现次数
 			size_t occ = wt_bwt.rank(wt_bwt.size(), c);
 			// 对于当前字符 c，其C值即为前面所有字符出现次数的累积值
-			count_array.push_back(cumulative);
+			count_array[static_cast<uint8_t>(c)] = cumulative;
 			// 更新累积值
 			cumulative += occ;
+			char2idx[static_cast<uint8_t>(c)] = count;
+			count++;
 		}
 	}
 	else {
 		// alpha_set_without_N 不包含 N，同样要求字母集合已排序
+		uint_t count = 0;
 		for (const auto& c : alpha_set_without_N) {
 			size_t occ = wt_bwt.rank(wt_bwt.size(), c);
-			count_array.push_back(cumulative);
+			count_array[static_cast<uint8_t>(c)] = cumulative;
 			cumulative += occ;
+			char2idx[static_cast<uint8_t>(c)] = count;
+			count++;
 		}
 	}
 
@@ -523,4 +533,8 @@ bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, boo
 	return true;
 }
 
+uint_t FM_Index::LF(size_t pos) const {
+	uint8_t c = wt_bwt[pos];
+	return count_array[c] + wt_bwt.rank(pos, c);
+}
 

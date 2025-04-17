@@ -1,4 +1,4 @@
-#ifndef INDEX_H
+﻿#ifndef INDEX_H
 #define INDEX_H
 
 #include "data_process.h"
@@ -26,7 +26,7 @@ using IndexPathMap = std::unordered_map<Species, FilePath>;
 
 using SampledSAType = sdsl::int_vector<0>;
 using WtHuffType = sdsl::wt_huff<sdsl::bit_vector>;
-using CountArrayType = std::vector<size_t>;
+
 
 class FM_Index {
 public:
@@ -35,10 +35,13 @@ public:
 	std::array<char, 5> alpha_set_without_N = { '\0', 'A', 'C', 'G', 'T' };
 	SampledSAType sampled_sa;
 	WtHuffType wt_bwt;
-	CountArrayType count_array;
+	std::array<uint_t, 256> count_array;
+	uint_t sample_rate;
+	uint_t total_size;
+	std::array<uint8_t, 256> char2idx;
 
 	FM_Index();
-	FM_Index(FastaManager* fasta_manager);
+	FM_Index(FastaManager* fasta_manager, uint_t sample_rate = 32);
 	bool buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode,  uint_t thread);
 	bool buildIndexUsingBigBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool read_and_build_sampled_sa(const FilePath& sa_file_path);
@@ -48,6 +51,8 @@ public:
 	bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
+	uint_t getSA(size_t pos) const;
+	uint_t LF(size_t pos) const;
 
 	template <size_t N>
 	static std::array<char, N> repositionNullAfter(const std::array<char, N>& arr, char c) {

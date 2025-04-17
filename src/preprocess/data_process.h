@@ -131,6 +131,8 @@ public:
     std::string getSubSequence(const std::string& seq_name, size_t start, size_t length);
     std::string getSubConcatSequence(size_t start, size_t length);
 
+    uint_t getConcatSeqLength();
+
 private:
     // RAII 封装后，不再直接使用原始指针
     std::unique_ptr<GzFileWrapper> gz_file_wrapper_;

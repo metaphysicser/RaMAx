@@ -58,11 +58,44 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	spdlog::info("Indexing finished, index path: {}", index_path.string());
 
 
-	std::cout << fasta_manager.getSubConcatSequence(0, 800000) << std::endl;
-	//FilePath sa_path = output_path;
-	//sa_path += ".sa";
-	//std::vector<uint64_t> sa = read_sa(sa_path);
-	//size_t sa_size = sa.size();
+	// std::cout << fasta_manager.getSubConcatSequence(0, 800000) << std::endl;
+	FilePath sa_path = output_path;
+	sa_path += ".sa";
+	std::vector<uint64_t> sa = read_sa(sa_path);
+	size_t sa_size = sa.size();
+	size_t dummy_sum = 0;  // 防止编译器优化掉LF调用
+
+	size_t num = 1000000;
+
+	auto start = std::chrono::high_resolution_clock::now();
+	// 校验LF函数是否正确
+	for (uint_t i = 0; i < num; i++) {
+		uint_t lf = fm_index.LF(i);
+		dummy_sum += lf;  // 强制使用返回值
+		//uint_t sa_value = sa[lf];
+		//if (sa[i] == 0) {
+		//	assert(sa_value == sa_size - 1);
+		//}
+		//else {
+		//	assert(sa_value == sa[i] - 1);
+		//}
+	}
+
+	auto end = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed_sec = end - start;
+	double total_ms = elapsed_sec.count() * 1000.0;
+	double avg_ns_per_call = elapsed_sec.count() * 1e9 / num;
+	double million_lf_per_sec = num / elapsed_sec.count() / 1e6;
+
+	size_t wt_mem_bytes = sdsl::size_in_bytes(fm_index.wt_bwt);
+	std::cout << "WT size: " << wt_mem_bytes << " bytes\n";
+	std::cout << "WT size: " << (wt_mem_bytes / 1024.0 / 1024.0) << " MB\n";
+
+	std::cout << "=== LF Benchmark ===\n";
+	std::cout << "Total time     : " << total_ms << " ms\n";
+	std::cout << "Avg time/call  : " << avg_ns_per_call << " ns\n";
+	std::cout << "Throughput     : " << million_lf_per_sec << " M LF/s\n";
+	std::cout << "(ignore dummy_sum=" << dummy_sum << ")\n";
 
 
 	//FilePath bwt_path = output_path;

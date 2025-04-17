@@ -419,3 +419,11 @@ std::string FastaManager::getSubSequence(const std::string& seq_name, size_t sta
 
     return result;
 }
+
+uint_t FastaManager::getConcatSeqLength() {
+    uint_t total_length = 0;
+	for (const auto& rec : fai_records) {
+		total_length += rec.length;
+	}
+    return total_length + 1;
+}
