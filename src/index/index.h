@@ -51,8 +51,8 @@ public:
 	bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 	BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
-	uint_t getSA(size_t pos) const;
-	uint_t LF(size_t pos) const;
+	uint_t getSA(uint_t pos) const;
+	uint_t LF(uint_t pos) const;
 
 	template <size_t N>
 	static std::array<char, N> repositionNullAfter(const std::array<char, N>& arr, char c) {

@@ -533,8 +533,26 @@ bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, boo
 	return true;
 }
 
-uint_t FM_Index::LF(size_t pos) const {
+uint_t FM_Index::LF(uint_t pos) const {
 	uint8_t c = wt_bwt[pos];
 	return count_array[c] + wt_bwt.rank(pos, c);
+}
+
+uint_t FM_Index::getSA(size_t pos) const {
+	uint_t steps = 0;
+	size_t cur = pos;
+	
+		   /* 向上跳直到落在采样位置 (每 32 个一采样) */
+	while ((cur) % sample_rate != 0) {
+		cur = LF(cur);
+		++steps;	
+	}
+	
+		    /* 采样值 + 步数 (= text_length 时取模) */
+	size_t sa_sample = sampled_sa[(cur) / sample_rate];
+	size_t sa_val = sa_sample + steps;
+	if (sa_val >= total_size) sa_val -= total_size;
+	return sa_val;
+	
 }
 

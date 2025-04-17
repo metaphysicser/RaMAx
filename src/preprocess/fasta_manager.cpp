@@ -425,5 +425,5 @@ uint_t FastaManager::getConcatSeqLength() {
 	for (const auto& rec : fai_records) {
 		total_length += rec.length;
 	}
-    return total_length + 1;
+    return total_length;
 }
