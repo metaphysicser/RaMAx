@@ -57,13 +57,57 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 
 	spdlog::info("Indexing finished, index path: {}", index_path.string());
 
+	std::string query = "NCACAGCGAGCTATCGATCGTAGCTAGCTAGCTAGCTCGTAGCTAACACTGTGTGTACTACGACTAGCTACAACACAGCGAGCTATCGATCGTAGCTAGCTAGCTAGCTCGTA";
+	// 把query 逆转
+	std::reverse(query.begin(), query.end());
 
+	SAInterval I = { 0, fm_index.total_size };
+
+	uint_t q = 0;
+	uint_t len = 0;
+
+	while (q < query.size()) {
+		I = fm_index.backwardExtend(I, query[q]);
+
+		// ❗️如果没有匹配，就退出
+		if (I.l == I.r) break;
+
+		q++;
+		len++;  // 当前已经匹配了多少字符
+	}
+
+	// 🎯 I 区间非空，则 query[0..len-1] 和参考串有匹配
+	if (I.l < I.r) {
+		if (I.r - I.l == 1) {
+			std::cout << "[唯一匹配] ";
+		}
+		else {
+			std::cout << "[非唯一匹配] ";
+		}
+
+		// 🧠 从SA中获取匹配位置
+		uint_t ref_pos = fm_index.getSA(I.l);  // 默认用 I.l 获取 SA 值
+
+		// 🧾 从参考文本中提取匹配段
+		std::string ref_match = fm_index.fasta_manager->getSubConcatSequence(ref_pos, len);
+		std::reverse(query.begin(), query.end());
+		std::string query_match = query.substr(0, len);
+		
+		std::cout << "Query:  " << query_match << std::endl;
+		std::cout << "Ref[" << ref_pos << "]: " << ref_match << std::endl;
+	}
+	else {
+		std::cout << "No match found.\n";
+	}
+
+	return index_path;
+	
 	//// std::cout << fasta_manager.getSubConcatSequence(0, 800000) << std::endl;
-	FilePath sa_path = output_path;
-	sa_path += ".sa";
-	std::vector<uint64_t> sa = read_sa(sa_path);
-	size_t sa_size = sa.size();
-	//size_t dummy_sum = 0;  // 防止编译器优化掉LF调用
+	//FilePath sa_path = output_path;
+	//sa_path += ".sa";
+	//std::vector<uint64_t> sa = read_sa(sa_path);
+	//size_t sa_size = sa.size();
+	////size_t dummy_sum = 0;  // 防止编译器优化掉LF调用
 
 	//size_t num = sa_size;
 
@@ -81,12 +125,12 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	//	}
 	//}
 
-	for (uint_t i = 0; i < sa_size; i++) {
-		uint_t sa1 = sa[i];
-		uint_t sa2 = fm_index.getSA(i);
-		if(sa1 != sa2)
-			std::cout << sa1 << " " << sa2 << " " << i << std::endl;
-	}
+	//for (uint_t i = 0; i < sa_size; i++) {
+	//	uint_t sa1 = sa[i];
+	//	uint_t sa2 = fm_index.getSA(i);
+	//	if(sa1 != sa2)
+	//		std::cout << sa1 << " " << sa2 << " " << i << std::endl;
+	//}
 
 	//auto end = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double> elapsed_sec = end - start;

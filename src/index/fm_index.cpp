@@ -556,3 +556,10 @@ uint_t FM_Index::getSA(size_t pos) const {
 	
 }
 
+SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
+	uint8_t ch = static_cast<uint8_t>(c);
+	uint_t new_l = count_array[ch] + wt_bwt.rank(I.l, ch);
+	uint_t new_r = count_array[ch] + wt_bwt.rank(I.r, ch);
+	return { new_l, new_r };
+}
+

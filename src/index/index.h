@@ -27,6 +27,10 @@ using IndexPathMap = std::unordered_map<Species, FilePath>;
 using SampledSAType = sdsl::int_vector<0>;
 using WtHuffType = sdsl::wt_huff<sdsl::bit_vector>;
 
+struct SAInterval { uint_t l; uint_t r; };
+inline bool empty(const SAInterval& I) { return I.l == I.r; }
+inline bool isUnique(const SAInterval& I) { return I.r - I.l == 1; }
+
 
 class FM_Index {
 public:
@@ -53,6 +57,8 @@ public:
 	BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
 	uint_t getSA(uint_t pos) const;
 	uint_t LF(uint_t pos) const;
+
+	SAInterval backwardExtend(const SAInterval& I, char c);
 
 	template <size_t N>
 	static std::array<char, N> repositionNullAfter(const std::array<char, N>& arr, char c) {
