@@ -15,15 +15,21 @@ set(SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(UTILS_DIR         "${SOURCE_DIR}/utils")
 set(PREPROCESS_DIR    "${SOURCE_DIR}/preprocess")
 set(INDEX_DIR         "${SOURCE_DIR}/index")
+set(ALIGN_DIR         "${SOURCE_DIR}/align")
 set(BIGBWT_DIR        "${INDEX_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR  "${INDEX_DIR}/suffix_array")
 set(R_INDEX_DIR       "${INDEX_DIR}/r-index")
 
 
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mavx2")
+# 启用 AVX2 支持
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
 # ============ 添加子模块 ============
 add_subdirectory("${UTILS_DIR}/spdlog")
 add_subdirectory("${UTILS_DIR}/CLI11")
 add_subdirectory("${UTILS_DIR}/sdsl-lite")
+add_subdirectory("${ALIGN_DIR}/WFA2-lib")
 
 # ============ 安装 libdivsufsort（使用 install.sh） ============
 # 检查是否需要安装 libdivsufsort
@@ -48,6 +54,8 @@ endif()
 # ============ 查找系统库 ============
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(OpenMP)
+find_package(Threads REQUIRED)
 
 # ============ 创建主可执行程序 ============
 add_executable(RaMA-G
@@ -77,6 +85,8 @@ target_include_directories(RaMA-G PRIVATE
     "${R_INDEX_DIR}"
     "${UTILS_DIR}/sdsl-lite/include"
     "${UTILS_DIR}/sdsl-lite/external/libdivsufsort/include"
+    "${ALIGN_DIR}"
+    "${ALIGN_DIR}/WFA2-lib"
 )
 
 # ============ 链接库 ============
@@ -88,7 +98,8 @@ target_link_libraries(RaMA-G PRIVATE
     sdsl
     divsufsort
     divsufsort64
-    pthread
+    Threads::Threads
+    wfa2cpp_static 
 )
 
 
@@ -101,9 +112,6 @@ if(CMAKE_VERSION VERSION_GREATER 3.12)
   )
 endif()
 
-# 启用 AVX2 支持
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -march=native")
-
 
 # ============ 宏定义 ============
 target_compile_definitions(RaMA-G PRIVATE M64)
@@ -114,6 +122,8 @@ endif()
 
 # ============ 警告和调试信息 ============
 add_definitions("-Wall -g")
+
+
 
 # 可选安装目标
 # install(TARGETS RaMA-G DESTINATION bin)
