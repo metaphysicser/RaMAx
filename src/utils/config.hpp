@@ -66,6 +66,17 @@ using Chr = std::string;
 	#define I_MIN	INT32_MIN
 #endif
 
+inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
+	std::array<char, 256> m{};
+
+	for (auto& c : m) c = 'N';
+	// ‘Ÿ∏≤∏« A/T, C/G, ¥Û–°–¥
+	m['A'] = 'T';  m['T'] = 'A';
+	m['C'] = 'G';  m['G'] = 'C';
+	m['a'] = 't';  m['t'] = 'a';
+	m['c'] = 'g';  m['g'] = 'c';
+	return m;
+}();
 
 namespace cereal {
 	template <class Archive>

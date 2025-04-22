@@ -2,6 +2,7 @@
 #define INDEX_H
 
 #include "data_process.h"
+#include "anchor.h"
 #include "newscan.hpp"
 #include "bwtparse.hpp"
 #include "pfbwt.hpp"
@@ -46,7 +47,7 @@ class FM_Index {
 public:
     // -------- 构造 & 析构 --------
     FM_Index() = default;
-    FM_Index(FastaManager* fasta_manager, uint_t sample_rate = 32);
+    FM_Index(Chr chr_name, FastaManager* fasta_manager, uint_t sample_rate = 32);
 
     // -------- 索引构建 --------
     bool buildIndex(FastaManager& fasta_manager,
@@ -78,6 +79,11 @@ public:
     uint_t getSA(uint_t pos)               const;
     uint_t LF(uint_t pos)                  const;
     SAInterval backwardExtend(const SAInterval& I, char c);
+	AnchorPtrVec findAnchors(Chr query_name, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
+
+
+
 
     // -------- 工具函数 --------
     template <size_t N>
@@ -104,7 +110,7 @@ public:
         return result;
     }
 
-
+    Chr chr_name;
     FastaManager* fasta_manager{ nullptr };
     std::array<char, 6> alpha_set{ '\0','A','C','G','N','T' };
     std::array<char, 5> alpha_set_without_N{ '\0','A','C','G','T' };

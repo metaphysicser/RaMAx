@@ -1,7 +1,7 @@
 ﻿#include "index.h"
 
 
-FM_Index::FM_Index(FastaManager* fasta_manager, uint_t sample_rate):fasta_manager(fasta_manager) {
+FM_Index::FM_Index(Chr chr_name, FastaManager* fasta_manager, uint_t sample_rate):chr_name(chr_name), fasta_manager(fasta_manager) {
 	this->sample_rate = sample_rate;
 	this->total_size = fasta_manager->getConcatSeqLength();
 }
@@ -563,5 +563,58 @@ SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
 	uint_t new_l = count_array[ch] + wt_bwt.rank(I.l, ch);
 	uint_t new_r = count_array[ch] + wt_bwt.rank(I.r, ch);
 	return { new_l, new_r };
+}
+
+AnchorPtrVec FM_Index::findAnchors(Chr query_name, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
+{
+	if (strand == FORWARD) {
+		std::reverse(query.begin(), query.end());
+	}
+	else {
+		for (char& ch : query) {
+			ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
+		}
+	}
+	AnchorPtrVec anchor_ptr_vec;
+
+	uint_t total_length = 0;
+	uint_t query_length = query.length();
+	while (total_length < query_length) {
+		RegionVec region_vec;
+		uint_t match_length = findSubSeqAnchors(query.c_str() + total_length, query_length - total_length, region_vec, min_anchor_length, max_anchor_frequency);
+		if (region_vec.size() > 0) {
+			Region query_region(query_name, total_length + query_offset, match_length);
+			for (uint_t i = 0; i < region_vec.size(); i++) {
+				Match match(region_vec[i], query_region, strand);
+			}
+		}
+		total_length += match_length;
+	}
+
+	
+	return anchor_ptr_vec;
+}
+
+uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)
+{
+	uint_t match_length = 0;
+	SAInterval I = { 0, total_size };
+
+	while (match_length < query_length) {
+		I = backwardExtend(I, query[match_length]);
+		if (I.l == I.r) break;
+		match_length++;
+	}
+
+	if (match_length < min_anchor_length || I.l - I.r > max_anchor_frequency) {
+		return 1;
+	}
+
+	for (uint_t i = I.l; i < I.r; i++) {
+		uint_t ref_pos = getSA(I.l);
+		region_vec.push_back(Region(chr_name, ref_pos, match_length));
+	}
+
+	return match_length;
 }
 

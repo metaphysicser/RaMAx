@@ -50,12 +50,25 @@ FilePath IndexManager::buildIndex(const std::string prefix, FastaManager& fasta_
 	// index_dir的路径加上prefix的前缀加上fasta_manager.fasta_path_的扩展名
 	FilePath output_path = index_path / (prefix + std::filesystem::path(fasta_manager.fasta_path_).extension().string());
 
-	FM_Index fm_index(&fasta_manager);
+	FM_Index fm_index(prefix, &fasta_manager);
 	spdlog::info("Indexing with prefix: {}, index path: {}", prefix, index_path.string());
 	
 	fm_index.buildIndex(fasta_manager, output_path, false, thread_num);
 
 	spdlog::info("Indexing finished, index path: {}", index_path.string());
+
+	std::vector<std::string> queries = {
+		"ACTGACTGACTG",
+		"TGCATGCATGCA",
+		"GGGCCCAGT",
+		"TTTAAA"
+		// …更多序列…
+	};
+	uint_t minAnchorLen = 8;
+	Strand strand = REVERSE;
+
+	// 创建线程池，线程数用与索引构建相同的 thread_num
+	// fm_index.findAnchors(queries[0], strand, minAnchorLen);
 
 	std::string query = "NCACAGCGAGCTATCGATCGTAGCTAGCTAGCTAGCTCGTAGCTAACACTGTGTGTACTACGACTAGCTACAACACAGCGAGCTATCGATCGTAGCTAGCTAGCTAGCTCGTA";
 	// 把query 逆转

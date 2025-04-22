@@ -26,28 +26,34 @@ using Cigar_t = std::vector<CigarUnit>; // 整条 CIGAR
 // 区 域 & 匹 配
 // ------------------------------------------------------------------
 struct Region {
+    Chr chr_name{};
     Coord_t start{ 0 };
     Coord_t length{ 0 };
     Region() = default;
-    Region(Coord_t s, Coord_t len) : start{ s }, length{ len } {}
+    Region(Chr chr_name, Coord_t s, Coord_t len) : chr_name{chr_name}, start{ s }, length{ len } {}
 };
+using RegionVec = std::vector<Region>;
 
 enum Strand { FORWARD, REVERSE };
 
 struct Match {
-    Chr    ref_chr;
     Region ref_region;
-    Chr    query_chr;
     Region query_region;
     Strand strand;
 
     Match(Chr r_chr, Coord_t r_start, Coord_t r_len,
         Chr q_chr, Coord_t q_start, Coord_t q_len,
         Strand sd = FORWARD)
-        : ref_chr(r_chr), ref_region(r_start, r_len),
-        query_chr(q_chr), query_region(q_start, q_len),
+        :  ref_region(r_chr, r_start, r_len),
+        query_region(q_chr, q_start, q_len),
         strand(sd) {
     }
+
+	Match(Region ref_region, Region query_region, Strand sd = FORWARD) :
+		ref_region(ref_region),
+		query_region(query_region),
+		strand(sd) {
+	}
     Match() = default;
 };
 
@@ -62,7 +68,7 @@ struct Anchor {
         : match(m), alignment_length(aln_len), cigar(c), alignment_score(score) {
     }
 };
-
+using AnchorVec = std::vector<Anchor>;
 // Alias for shared pointers to Anchor
 using AnchorPtr = std::shared_ptr<Anchor>;
 using AnchorPtrVec = std::vector<AnchorPtr>;
