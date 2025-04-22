@@ -14,7 +14,9 @@ sudo apt install -y \
     cmake \
     libcurl4-openssl-dev \
     zlib1g-dev \
-    libboost-dev 
+    libboost-dev \
+    pkg-config \
+    doxygen
 ```
 
 > **Note:**  
