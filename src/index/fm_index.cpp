@@ -75,6 +75,8 @@ BWTParse::sa_index_t* FM_Index::compute_SA(uint32_t* Text, long n, long k)
 	return SA;
 }
 
+
+
 bool FM_Index::bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread) {
 
 
