@@ -70,6 +70,8 @@ add_executable(RaMA-G
     "${BIGBWT_DIR}/xerrors.c"
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
+    "${ALIGN_DIR}/anchor.cpp"
+    "${ALIGN_DIR}/cigar.cpp"
     )
 
 # ============ 添加头文件路径 ============
