@@ -57,7 +57,7 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
         std::istringstream iss(line);
 
         FaiRecord rec;
-        iss >> rec.seq_name >> rec.length >> rec.offset >> rec.line_bases >> rec.line_bytes;
+        iss >> rec.seq_name >> rec.global_start_pos >>rec.length >> rec.offset >> rec.line_bases >> rec.line_bytes;
         if (iss.fail()) {
             spdlog::warn("Skipping malformed line in {}: {}", fai_path.string(), line);
             continue;
@@ -172,6 +172,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
 
     out << (has_n_in_fasta ? "YES" : "NO") << "\n";
 
+    uint_t global_start_pos = 0;
     size_t global_offset = 0;
     std::string line;
     std::string seq_name;
@@ -186,10 +187,11 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
 
         if (!line.empty() && line[0] == '>') {
             if (reading_seq) {
-                out << seq_name << "\t" << seq_len << "\t"
+                out << seq_name << "\t" << global_start_pos << "\t" << seq_len << "\t"
                     << seq_start << "\t"
                     << line_width << "\t"
                     << line_bytes_in_fasta << "\n";
+                global_start_pos += seq_len;
             }
             seq_name = line.substr(1);
             seq_len = 0;
@@ -201,9 +203,9 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
         }
         global_offset += this_line_bytes;
     }
-
+    
     if (reading_seq) {
-        out << seq_name << "\t" << seq_len << "\t"
+        out << seq_name << "\t" << global_start_pos << "\t" << seq_len << "\t"
             << seq_start << "\t"
             << line_width << "\t"
             << line_bytes_in_fasta << "\n";
@@ -426,4 +428,30 @@ uint_t FastaManager::getConcatSeqLength() {
 		total_length += rec.length;
 	}
     return total_length;
+}
+
+ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
+    // fai_records 必须按 global_start_pos 升序排列
+    size_t l = 0, r = fai_records.size();
+    // 二分查找：找到第一个 global_start_pos > global_start
+    while (l < r) {
+        size_t m = l + (r - l) / 2;
+        if (fai_records[m].global_start_pos > global_start)
+            r = m;
+        else
+            l = m + 1;
+    }
+    if (l == 0) {
+        throw std::out_of_range("请求的 global_start 在第一个染色体之前");
+    }
+    const FaiRecord& rec = fai_records[l - 1];
+
+    // 检查这段区间是否越界到下一个染色体
+    uint_t chr_end_global = rec.global_start_pos + rec.length;
+    if (global_start + length > chr_end_global) {
+        return "";
+    }
+
+    // 计算在该染色体上的局部坐标
+    return rec.seq_name;
 }

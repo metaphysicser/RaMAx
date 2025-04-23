@@ -118,10 +118,11 @@ public:
     // FAI 记录数据结构
     struct FaiRecord {
         std::string seq_name;    // 序列名称（例如 "chr1"）
-        size_t length;           // 序列长度
-        size_t offset;           // 序列在文件中的字节偏移量
-        size_t line_bases;       // 每行碱基数（例如 60）
-        size_t line_bytes;       // 每行字节数（包括换行符）
+        uint_t global_start_pos;
+        uint_t length;           // 序列长度
+        uint_t offset;           // 序列在文件中的字节偏移量
+        uint_t line_bases;       // 每行碱基数（例如 60）
+        uint_t line_bytes;       // 每行字节数（包括换行符）
     };
 
     // 使用 unordered_map 保存 FAI 记录
@@ -132,6 +133,7 @@ public:
     std::string getSubConcatSequence(size_t start, size_t length);
 
     uint_t getConcatSeqLength();
+    ChrName getChrName(uint_t global_start, uint_t length);
 
 private:
     // RAII 封装后，不再直接使用原始指针
@@ -156,7 +158,7 @@ private:
 };
 
 
-using SpeciesPathMap = std::unordered_map<Species, FilePath>;
+using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
 //using ChrPathMap = std::unordered_map<Chr, FilePath>;
 //using SpeciesChrPathMap = std::unordered_map<Chr, ChrPathMap>;
 //using ChunkInfoVec = std::vector<ChunkInfo>;

@@ -2,6 +2,7 @@
 #define ANCHOR_H
 
 #include "config.hpp"
+#include "cigar.h"
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -18,19 +19,16 @@ namespace bgi = boost::geometry::index;
 // 基础别名
 // ------------------------------------------------------------------
 using Coord_t = uint_t;
-using Score_t = int_t;
-using CigarUnit = uint32_t;              // 一个 CIGAR 操作
-using Cigar_t = std::vector<CigarUnit>; // 整条 CIGAR
 
 // ------------------------------------------------------------------
 // 区 域 & 匹 配
 // ------------------------------------------------------------------
 struct Region {
-    Chr chr_name{};
+    ChrName chr_name{};
     Coord_t start{ 0 };
     Coord_t length{ 0 };
     Region() = default;
-    Region(Chr chr_name, Coord_t s, Coord_t len) : chr_name{chr_name}, start{ s }, length{ len } {}
+    Region(ChrName chr_name, Coord_t s, Coord_t len) : chr_name{chr_name}, start{ s }, length{ len } {}
 };
 using RegionVec = std::vector<Region>;
 
@@ -41,8 +39,8 @@ struct Match {
     Region query_region;
     Strand strand;
 
-    Match(Chr r_chr, Coord_t r_start, Coord_t r_len,
-        Chr q_chr, Coord_t q_start, Coord_t q_len,
+    Match(ChrName r_chr, Coord_t r_start, Coord_t r_len,
+        ChrName q_chr, Coord_t q_start, Coord_t q_len,
         Strand sd = FORWARD)
         :  ref_region(r_chr, r_start, r_len),
         query_region(q_chr, q_start, q_len),
@@ -93,7 +91,7 @@ inline AnchorBox make_box(const Anchor& a) {
 class PairGenomeAnchor {
 public:
     PairGenomeAnchor() = default;
-    PairGenomeAnchor(Species ref, Species query,
+    PairGenomeAnchor(SpeciesName ref, SpeciesName query,
         AnchorPtrVec init_anchors);
 
     void rebuild();
@@ -102,8 +100,8 @@ public:
     std::vector<AnchorPtr> query(const AnchorBox& region) const;
 
 private:
-    Species       ref_species{};
-    Species       query_species{};
+    SpeciesName       ref_species{};
+    SpeciesName       query_species{};
     AnchorPtrVec  anchors{};
     AnchorRTree   anchor_rtree{};
 };

@@ -1,6 +1,6 @@
 #include "anchor.h"
 
-PairGenomeAnchor::PairGenomeAnchor(Species ref, Species query,
+PairGenomeAnchor::PairGenomeAnchor(SpeciesName ref, SpeciesName query,
     AnchorPtrVec init_anchors)
     : ref_species(ref)
     , query_species(query)

@@ -39,8 +39,8 @@
 #define INDEX_DIR "index"
 
 using FilePath = std::filesystem::path;
-using Species = std::string;
-using Chr = std::string;
+using SpeciesName = std::string;
+using ChrName = std::string;
 
 #ifndef DEBUG
 	#define DEBUG 0

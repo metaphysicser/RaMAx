@@ -1,7 +1,7 @@
 ﻿#include "index.h"
 
 
-FM_Index::FM_Index(Chr chr_name, FastaManager* fasta_manager, uint_t sample_rate):chr_name(chr_name), fasta_manager(fasta_manager) {
+FM_Index::FM_Index(SpeciesName species_name, FastaManager* fasta_manager, uint_t sample_rate):species_name(species_name), fasta_manager(fasta_manager) {
 	this->sample_rate = sample_rate;
 	this->total_size = fasta_manager->getConcatSeqLength();
 }
@@ -565,7 +565,7 @@ SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
 	return { new_l, new_r };
 }
 
-AnchorPtrVec FM_Index::findAnchors(Chr query_name, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
+AnchorPtrVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
 	if (strand == FORWARD) {
 		std::reverse(query.begin(), query.end());
@@ -583,9 +583,13 @@ AnchorPtrVec FM_Index::findAnchors(Chr query_name, std::string query, Strand str
 		RegionVec region_vec;
 		uint_t match_length = findSubSeqAnchors(query.c_str() + total_length, query_length - total_length, region_vec, min_anchor_length, max_anchor_frequency);
 		if (region_vec.size() > 0) {
-			Region query_region(query_name, total_length + query_offset, match_length);
+			Region query_region(query_chr, total_length + query_offset, match_length);
 			for (uint_t i = 0; i < region_vec.size(); i++) {
 				Match match(region_vec[i], query_region, strand);
+				Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
+				Cigar_t cigar;
+				cigar.push_back(cigarToInt('=', match_length));
+				anchor_ptr_vec.push_back(std::make_shared<Anchor>(match, score, cigar));
 			}
 		}
 		total_length += match_length;
@@ -612,7 +616,7 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, Regio
 
 	for (uint_t i = I.l; i < I.r; i++) {
 		uint_t ref_pos = getSA(I.l);
-		region_vec.push_back(Region(chr_name, ref_pos, match_length));
+		region_vec.push_back(Region(fasta_manager->getChrName(ref_pos, match_length), ref_pos, match_length));
 	}
 
 	return match_length;
