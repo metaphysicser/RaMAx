@@ -61,8 +61,8 @@ struct Anchor {
     Cigar_t cigar;
     Score_t alignment_score{ 0 };
     Anchor() = default;
-    Anchor(const Match& m, Coord_t aln_len,
-        const Cigar_t& c, Score_t score)
+    Anchor(const Match m, Coord_t aln_len,
+        const Cigar_t c, Score_t score)
         : match(m), alignment_length(aln_len), cigar(c), alignment_score(score) {
     }
 };

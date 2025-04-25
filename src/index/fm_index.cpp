@@ -589,11 +589,13 @@ AnchorPtrVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand 
 				Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
 				Cigar_t cigar;
 				cigar.push_back(cigarToInt('=', match_length));
-				anchor_ptr_vec.push_back(std::make_shared<Anchor>(match, score, cigar));
+				AnchorPtr p = std::make_shared<Anchor>(match, match_length, cigar, score);
+				anchor_ptr_vec.push_back(p);
 			}
 		}
 		total_length += match_length;
 	}
+	
 
 	
 	return anchor_ptr_vec;
@@ -603,20 +605,30 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, Regio
 {
 	uint_t match_length = 0;
 	SAInterval I = { 0, total_size };
+	SAInterval next_I = { 0, total_size };
 
 	while (match_length < query_length) {
-		I = backwardExtend(I, query[match_length]);
-		if (I.l == I.r) break;
+		next_I = backwardExtend(I, query[match_length]);
+		if (next_I.l == next_I.r) break;
 		match_length++;
+		I = next_I;
 	}
-
-	if (match_length < min_anchor_length || I.l - I.r > max_anchor_frequency) {
+	uint_t frequency = I.r - I.l;
+	if (frequency > max_anchor_frequency) {
+		return match_length;
+	}
+	if (match_length < min_anchor_length) {
+	/*if (match_length < min_anchor_length) {*/
 		return 1;
 	}
 
 	for (uint_t i = I.l; i < I.r; i++) {
-		uint_t ref_pos = getSA(I.l);
-		region_vec.push_back(Region(fasta_manager->getChrName(ref_pos, match_length), ref_pos, match_length));
+		uint_t ref_pos = getSA(i);
+		ChrName name = fasta_manager->getChrName(ref_pos, match_length);
+		if (name.size() > 0) {
+			region_vec.push_back(Region(name, ref_pos, match_length));
+		}
+		
 	}
 
 	return match_length;

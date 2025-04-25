@@ -42,7 +42,7 @@ Score_t caculateMatchScore(const char* match, uint_t length)
 		if (id == 0 || id == 3) {
 			score += MATCH_SCORE_AT;
 		}
-		else if (id == 1 && id == 2) {
+		else if (id == 1 || id == 2) {
 			score += MATCH_SCORE_CG;
 		}
 		else {
