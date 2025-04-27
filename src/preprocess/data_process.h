@@ -87,6 +87,9 @@ public:
     }
     ~FastaManager() = default; // unique_ptr 自动释放资源
 
+    FastaManager(FastaManager&&) = default;
+    FastaManager& operator=(FastaManager&&) = default;
+
     // 读取下一个 FASTA 记录（header 与序列）
     bool nextRecord(std::string& header, std::string& sequence);
 

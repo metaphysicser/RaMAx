@@ -4,6 +4,9 @@
 FM_Index::FM_Index(SpeciesName species_name, FastaManager* fasta_manager, uint_t sample_rate):species_name(species_name), fasta_manager(fasta_manager) {
 	this->sample_rate = sample_rate;
 	this->total_size = fasta_manager->getConcatSeqLength();
+	if (total_size < sample_rate) {
+		this->sample_rate = 1;
+	}
 }
 
 bool FM_Index::newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread) {
@@ -490,7 +493,7 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 }
 
 
-bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, bool fast_mode, uint_t thread) {
+bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
 
 	if (fast_mode) {
 		// TODO CaPS-SA
@@ -498,14 +501,14 @@ bool FM_Index::buildIndex(FastaManager& fasta_manager, FilePath output_path, boo
 	}
 	else {
 		
-		buildIndexUsingBigBWT(fasta_manager.fasta_path_, output_path, thread);
+		buildIndexUsingBigBWT(fasta_manager->fasta_path_, output_path, thread);
 	}
 	
 	size_t cumulative = 0;
 	char2idx.fill(0xFF);
 	count_array.fill(0);
 
-	if (fasta_manager.has_n_in_fasta) {
+	if (fasta_manager->has_n_in_fasta) {
 		uint_t count = 0;
 		// alpha_set 中包含 N，假设 alpha_set 已经按照字典序排序
 		for (const auto& c : alpha_set) {
@@ -634,3 +637,22 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, Regio
 	return match_length;
 }
 
+bool FM_Index::saveToFile(const std::string& filename) const
+{
+    std::ofstream ofs(filename, std::ios::binary);
+    if (!ofs) return false;                       // 打开失败
+
+    cereal::BinaryOutputArchive oar(ofs);         // 也可换 PortableBinary
+    oar(*this);                                   // 调用上面 save()
+    return static_cast<bool>(ofs);                // 检查流状态
+}
+
+bool FM_Index::loadFromFile(const std::string& filename)
+{
+    std::ifstream ifs(filename, std::ios::binary);
+    if (!ifs) return false;
+
+    cereal::BinaryInputArchive iar(ifs);
+    iar(*this);                                   // 调用上面 load()
+    return static_cast<bool>(ifs);
+}

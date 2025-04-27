@@ -22,10 +22,11 @@ extern "C" {
 #define WINDOW_SIZE   10u
 #define STOP_MODULUS 100u
 
+#define FMINDEX_EXTESION "fmidx"
+
 // ----------------------------------------------------------------------
 //  Type aliases
 // ----------------------------------------------------------------------
-using IndexPathMap = std::unordered_map<SpeciesName, FilePath>;
 using SampledSA_t = sdsl::int_vector<0>;
 using WtHuff_t = sdsl::wt_huff<sdsl::bit_vector>;
 
@@ -50,8 +51,7 @@ public:
     FM_Index(SpeciesName species_name, FastaManager* fasta_manager, uint_t sample_rate = 32);
 
     // -------- 索引构建 --------
-    bool buildIndex(FastaManager& fasta_manager,
-        FilePath        output_path,
+    bool buildIndex(FilePath        output_path,
         bool            fast_mode,
         uint_t          thread);
 
@@ -82,6 +82,8 @@ public:
 	AnchorPtrVec findAnchors(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
     uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
 
+    bool saveToFile(const std::string& filename) const;
+    bool loadFromFile(const std::string& filename);
 
 
 
@@ -110,6 +112,32 @@ public:
         return result;
     }
 
+    template <class Archive>
+    void save(Archive& ar) const
+    {
+        ar(sample_rate,
+           total_size,
+           alpha_set,
+           alpha_set_without_N,
+           count_array,
+           char2idx,
+           sampled_sa,     // 走上面给 int_vector 写的 save()
+           wt_bwt);        // 走 wt_huff 的 save()
+    }
+
+    template <class Archive>
+    void load(Archive& ar)
+    {
+        ar(sample_rate,
+           total_size,
+           alpha_set,
+           alpha_set_without_N,
+           count_array,
+           char2idx,
+           sampled_sa,
+           wt_bwt);
+    }
+
     SpeciesName species_name;
     FastaManager* fasta_manager{ nullptr };
     std::array<char, 6> alpha_set{ '\0','A','C','G','N','T' };
@@ -122,15 +150,4 @@ public:
     std::array<uint8_t, 256>  char2idx{};
 };
 
-// ----------------------------------------------------------------------
-//  索引管理类
-// ----------------------------------------------------------------------
-class IndexManager {
-public:
-    FilePath work_dir;
-    FilePath index_dir;
-    uint_t thread_num;
-    IndexManager(const FilePath work_dir, const uint_t thread_num);
-    FilePath buildIndex(const std::string prefix, FastaManager& ref_fasta_manager);
-};
 #endif

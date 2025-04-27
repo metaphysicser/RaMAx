@@ -63,7 +63,6 @@ add_executable(RaMA-G
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
-    "${INDEX_DIR}/index.cpp"
     "${INDEX_DIR}/fm_index.cpp"
     "${BIGBWT_DIR}/newscan.cpp"
     "${BIGBWT_DIR}/utils.c"
@@ -72,6 +71,7 @@ add_executable(RaMA-G
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
     "${ALIGN_DIR}/anchor.cpp"
     "${ALIGN_DIR}/cigar.cpp"
+    "${ALIGN_DIR}/rare_aligner.cpp"
     )
 
 # ============ 添加头文件路径 ============

@@ -1,4 +1,4 @@
-#ifndef CONFIG_HPP
+﻿#ifndef CONFIG_HPP
 #define CONFIG_HPP
 
 
@@ -14,6 +14,13 @@
 #include <cereal/types/unordered_map.hpp>
 #include <cereal/types/vector.hpp>
 #include <cereal/types/string.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/array.hpp>
+
+#include <sdsl/int_vector.hpp>
+#include <sdsl/wt_huff.hpp>
+#include <sdsl/util.hpp>
+#include <sdsl/suffix_arrays.hpp>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -70,7 +77,7 @@ inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
 	std::array<char, 256> m{};
 
 	for (auto& c : m) c = 'N';
-	// �ٸ��� A/T, C/G, ��Сд
+	// 再覆盖 A/T, C/G, 大小写
 	m['A'] = 'T';  m['T'] = 'A';
 	m['C'] = 'G';  m['G'] = 'C';
 	m['a'] = 't';  m['t'] = 'a';
@@ -78,20 +85,66 @@ inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
 	return m;
 }();
 
-namespace cereal {
-	template <class Archive>
+namespace cereal
+{
+	// ---------- std::filesystem::path ----------
+	template<class Archive>
 	void save(Archive& ar, const std::filesystem::path& p)
 	{
-		std::string path_str = p.string();
-		ar(path_str);
+		ar(p.string());
 	}
 
-	template <class Archive>
+	template<class Archive>
 	void load(Archive& ar, std::filesystem::path& p)
 	{
-		std::string path_str;
-		ar(path_str);
-		p = std::filesystem::path(path_str);
+		std::string tmp;  ar(tmp);
+		p = std::filesystem::path(tmp);
+	}
+
+	// ===============================================================
+	//  帮助函数：把 *任意* SDSL 对象转成字节串，再转回来
+	// ===============================================================
+	template<typename SdslObj>
+	inline std::string sdsl_to_string(const SdslObj& obj)
+	{
+		std::ostringstream oss(std::ios::binary);
+		sdsl::serialize(obj, oss);          // 由 SDSL 决定写多少字节
+		return oss.str();
+	}
+
+	template<typename SdslObj>
+	inline void string_to_sdsl(const std::string& buf, SdslObj& obj)
+	{
+		std::istringstream iss(buf, std::ios::binary);
+		sdsl::load(obj, iss);               // 由 SDSL 负责解析
+	}
+
+	// ---------- sdsl::int_vector<0> ----------
+	template<class Archive>
+	void save(Archive& ar, const sdsl::int_vector<0>& v)
+	{
+		ar(sdsl_to_string(v));
+	}
+
+	template<class Archive>
+	void load(Archive& ar, sdsl::int_vector<0>& v)
+	{
+		std::string buf;  ar(buf);
+		string_to_sdsl(buf, v);
+	}
+
+	// ---------- sdsl::wt_huff<bit_vector> ----------
+	template<class Archive>
+	void save(Archive& ar, const sdsl::wt_huff<sdsl::bit_vector>& wt)
+	{
+		ar(sdsl_to_string(wt));
+	}
+
+	template<class Archive>
+	void load(Archive& ar, sdsl::wt_huff<sdsl::bit_vector>& wt)
+	{
+		std::string buf;  ar(buf);
+		string_to_sdsl(buf, wt);
 	}
 } // namespace cereal
 

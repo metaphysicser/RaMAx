@@ -5,6 +5,7 @@
 #include "config.hpp"
 #include "index.h"
 #include "anchor.h"
+#include "align.h"
 using namespace std;
 
 
@@ -252,7 +253,6 @@ int main(int argc, char** argv) {
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-	FastaManager ref_fasta_manager(species_path_map["reference"], getFaiIndexPath(species_path_map["reference"]));
 	//splitRawDataToChr(common_args.work_dir_path, species_path_map, species_chr_path_map, common_args.thread_num);
 
 	//SpeciesChrPathMap tmp_species_chr_path_map = species_chr_path_map;
@@ -260,9 +260,8 @@ int main(int argc, char** argv) {
 	//tmp_species_chr_path_map.erase("reference");
 	//splitChrToChunk(common_args.work_dir_path, tmp_species_chr_path_map, species_chunk_info_map, common_args.chunk_size, common_args.overlap_size, common_args.thread_num);
 	
-	IndexManager index_manager(common_args.work_dir_path, common_args.thread_num);
-	IndexPathMap index_path_map;
-	index_path_map["reference"] = index_manager.buildIndex("reference", ref_fasta_manager);
+	PairRareAligner pra(common_args.work_dir_path, common_args.thread_num);
+	pra.buildIndex("reference", species_path_map["reference"]);
 
 	// csa_wt<wt_huff<rrr_vector<127> >, 512, 1024> fm_index2;
 	
