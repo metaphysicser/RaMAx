@@ -455,3 +455,46 @@ ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
     // 计算在该染色体上的局部坐标
     return rec.seq_name;
 }
+
+// data_process.cpp
+
+ChunkInfoVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size)
+{
+    ChunkInfoVec chunks;
+    // 预估总 chunk 数以减少 realloc（可选）
+    size_t total_len = getConcatSeqLength();
+    size_t est_chunks = (total_len + chunk_size - 1) / chunk_size;
+    chunks.reserve(est_chunks);
+
+    // 对每条染色体分别切分
+    for (const auto& rec : fai_records) {
+        const auto& chr = rec.seq_name;
+        size_t chr_len = rec.length;
+
+        // 如果染色体长度小于等于 chunk_size，则只生成一个不重叠 chunk
+        if (chr_len <= chunk_size) {
+            chunks.push_back({ chr, 0, chr_len });
+            continue;
+        }
+
+        // 多个 chunk，需要在它们之间保留 overlap_size
+        size_t start = 0;
+        while (start < chr_len) {
+            // 本 chunk 的实际长度（最后一块可能不足 chunk_size）
+            size_t this_len = std::min<size_t>(chunk_size,
+                chr_len - start);
+            chunks.push_back({ chr, start, this_len });
+
+            // 计算下一个 chunk 的起始位置：前进 chunk_size，然后回退 overlap_size
+            if (start + this_len >= chr_len) {
+                break;
+            }
+            start += chunk_size;
+            // 保证不回退超过已经走过的距离
+            start = (start >= overlap_size ? start - overlap_size : 0);
+        }
+    }
+
+    return chunks;
+}
+

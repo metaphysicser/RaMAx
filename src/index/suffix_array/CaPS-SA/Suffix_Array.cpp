@@ -1,5 +1,5 @@
 
-#include "Suffix_Array.hpp"
+#include "CaPS-SA/Suffix_Array.hpp"
 // #include "parlay/parallel.h"
 #include "threadpool.h"
 #include <cstring>

@@ -11,43 +11,42 @@ if(POLICY CMP0141)
 endif()
 
 # ============ 路径设置 ============
-set(SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/src")
-set(UTILS_DIR         "${SOURCE_DIR}/utils")
-set(PREPROCESS_DIR    "${SOURCE_DIR}/preprocess")
-set(INDEX_DIR         "${SOURCE_DIR}/index")
-set(ALIGN_DIR         "${SOURCE_DIR}/align")
-set(BIGBWT_DIR        "${INDEX_DIR}/bigBWT")
-set(SUFFIX_ARRAY_DIR  "${INDEX_DIR}/suffix_array")
-set(R_INDEX_DIR       "${INDEX_DIR}/r-index")
+set(SOURCE_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(INCLUDE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(SUBMODULE_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/submodule")
+set(PREPROCESS_DIR     "${SOURCE_DIR}/preprocess")
+set(INDEX_DIR          "${SOURCE_DIR}/index")
+set(ALIGN_DIR          "${SOURCE_DIR}/align")
+set(BIGBWT_DIR         "${INDEX_DIR}/bigBWT")
+set(BIGBWT_INCLUDE_DIR "${INCLUDE_DIR}/bigBWT")
+set(SUFFIX_ARRAY_DIR   "${INDEX_DIR}/suffix_array")
+set(SUFFIX_ARRAY_INCLUDE_DIR "${INCLUDE_DIR}/suffix_array")
 
-
+# ============ 编译优化选项 ============
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mavx2")
-# 启用 AVX2 支持
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 
 # ============ 添加子模块 ============
-add_subdirectory("${UTILS_DIR}/spdlog")
-add_subdirectory("${UTILS_DIR}/CLI11")
-add_subdirectory("${UTILS_DIR}/sdsl-lite")
-add_subdirectory("${ALIGN_DIR}/WFA2-lib")
+add_subdirectory("${SUBMODULE_DIR}/spdlog")
+add_subdirectory("${SUBMODULE_DIR}/CLI11")
+add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
+add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
 
 # ============ 安装 libdivsufsort（使用 install.sh） ============
-# 检查是否需要安装 libdivsufsort
-if (NOT EXISTS "${UTILS_DIR}/sdsl-lite/include/divsufsort.h")
+if (NOT EXISTS "${SUBMODULE_DIR}/sdsl-lite/include/divsufsort.h")
     message(STATUS "divsufsort.h not found, running install.sh")
 
     add_custom_target(sdsl-install ALL
-        COMMAND bash install.sh ${UTILS_DIR}/sdsl-lite/
-        WORKING_DIRECTORY ${UTILS_DIR}/sdsl-lite
+        # ① 先确保 sdsl-lite/build 目录存在
+        # COMMAND ${CMAKE_COMMAND} -E make_directory build
+        # ② 再执行 install.sh
+        COMMAND bash install.sh ${SUBMODULE_DIR}/sdsl-lite/
+        WORKING_DIRECTORY ${SUBMODULE_DIR}/sdsl-lite/
         COMMENT "Running install.sh from inside sdsl-lite directory"
+        VERBATIM
     )
 else()
     message(STATUS "divsufsort.h found, skipping install.sh")
-endif()
-
-# 如果安装任务存在，则添加依赖
-if (TARGET sdsl-install)
-    add_dependencies(RaMA-G sdsl-install)
 endif()
 
 
@@ -72,23 +71,19 @@ add_executable(RaMA-G
     "${ALIGN_DIR}/anchor.cpp"
     "${ALIGN_DIR}/cigar.cpp"
     "${ALIGN_DIR}/rare_aligner.cpp"
-    )
+)
 
 # ============ 添加头文件路径 ============
 target_include_directories(RaMA-G PRIVATE
-    "${UTILS_DIR}"
-    "${UTILS_DIR}/spdlog/include"
-    "${UTILS_DIR}/CLI11/include"
-    "${UTILS_DIR}/cereal/include"
-    "${PREPROCESS_DIR}"
-    "${INDEX_DIR}"
-    "${BIGBWT_DIR}"
-    "${SUFFIX_ARRAY_DIR}"
-    "${R_INDEX_DIR}"
-    "${UTILS_DIR}/sdsl-lite/include"
-    "${UTILS_DIR}/sdsl-lite/external/libdivsufsort/include"
-    "${ALIGN_DIR}"
-    "${ALIGN_DIR}/WFA2-lib"
+    "${INCLUDE_DIR}"
+    "${SUBMODULE_DIR}/spdlog/include"
+    "${SUBMODULE_DIR}/CLI11/include"
+    "${SUBMODULE_DIR}/cereal/include"
+    "${BIGBWT_INCLUDE_DIR}"
+    "${SUFFIX_ARRAY_INCLUDE_DIR}"
+    "${SUBMODULE_DIR}/sdsl-lite/include"
+    "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
+    "${SUBMODULE_DIR}/WFA2-lib"
 )
 
 # ============ 链接库 ============
@@ -101,9 +96,8 @@ target_link_libraries(RaMA-G PRIVATE
     divsufsort
     divsufsort64
     Threads::Threads
-    wfa2cpp_static 
+    wfa2cpp_static
 )
-
 
 # ============ C++ 标准设置 ============
 if(CMAKE_VERSION VERSION_GREATER 3.12)
@@ -113,7 +107,6 @@ if(CMAKE_VERSION VERSION_GREATER 3.12)
     CXX_EXTENSIONS NO
   )
 endif()
-
 
 # ============ 宏定义 ============
 target_compile_definitions(RaMA-G PRIVATE M64)
@@ -125,7 +118,10 @@ endif()
 # ============ 警告和调试信息 ============
 add_definitions("-Wall -g")
 
-
+# ============ 添加依赖关系（必须在定义 RaMA-G 后） ============
+if (TARGET sdsl-install)
+    add_dependencies(RaMA-G sdsl-install)
+endif()
 
 # 可选安装目标
 # install(TARGETS RaMA-G DESTINATION bin)

@@ -1,7 +1,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif //__cplusplus
-#include "gsacak.h"
+#include "gsa/gsacak.h"
 
 // set only the highest bit as 1, i.e. 1000...
 //const unsigned int EMPTY_k=((unsigned int)1)<<(sizeof(unsigned int)*8-1); 

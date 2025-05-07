@@ -15,30 +15,12 @@
 
 KSEQ_INIT(gzFile, gzread)
 
-// Type alias for mapping species names to file paths
-
-//struct ChunkInfo {
-//	FilePath file_path;
-//	uint_t chunk_index;
-//	std::string species;
-//	std::string chr;
-//	uint_t start;
-//	uint_t end;
-//	uint_t length;
-//
-//	template <class Archive>
-//	void serialize(Archive& ar) {
-//		ar(
-//			CEREAL_NVP(file_path),
-//			CEREAL_NVP(chunk_index),
-//			CEREAL_NVP(species),
-//			CEREAL_NVP(chr),
-//			CEREAL_NVP(start),
-//			CEREAL_NVP(end),
-//			CEREAL_NVP(length)
-//		);
-//	}
-//};
+struct ChunkInfo {
+    ChrName chr_name;  // 染色体／序列名称
+    uint_t start;          // 在该染色体上的起始偏移（0-based）
+    uint_t length;         // 本 chunk 的长度（最后一个可能不足 chunk_size）
+};
+using ChunkInfoVec = std::vector<ChunkInfo>;
 
 class GzFileWrapper {
 public:
@@ -137,6 +119,8 @@ public:
 
     uint_t getConcatSeqLength();
     ChrName getChrName(uint_t global_start, uint_t length);
+
+    ChunkInfoVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
 private:
     // RAII 封装后，不再直接使用原始指针

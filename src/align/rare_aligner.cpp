@@ -57,8 +57,6 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 
 	spdlog::info("Indexing with prefix: {}, index path: {}", prefix, ref_index_path.string());
 
-	
-
 	if (!std::filesystem::exists(idx_file_path)) {
 		fm_index.buildIndex(output_path, false, thread_num);
 		fm_index.saveToFile(idx_file_path.string());
@@ -66,9 +64,12 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 	else {
 		fm_index.loadFromFile(idx_file_path.string());
 	}
-	std::string query = "NCACAGCGAGCTATCGATCGTAGCTAGCTAGCTAGCTCGTAGCTAACACTGTGTGTACTACGACTAGCTACAACACAGCGAGCTATCGATCGTAGCTAGCTAGCTAG";
-	AnchorPtrVec p = fm_index.findAnchors("qeury", query, FORWARD, 0, 20, 50);
 	spdlog::info("Indexing finished, index path: {}", ref_index_path.string());
 
 	return ref_index_path;
+}
+
+void PairRareAligner::alignQueryFile(const std::string prefix, const FilePath fasta_path)
+{
+	FastaManager query_fasta_manager = FastaManager(fasta_path, getFaiIndexPath(fasta_path));
 }
