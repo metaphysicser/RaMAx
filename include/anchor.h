@@ -69,7 +69,8 @@ struct Anchor {
 using AnchorVec = std::vector<Anchor>;
 // Alias for shared pointers to Anchor
 using AnchorPtr = std::shared_ptr<Anchor>;
-using AnchorPtrVec = std::vector<AnchorPtr>;
+using AnchorPtrList = std::list<AnchorPtr>;
+using AnchorPtrListVec = std::vector<AnchorPtrList>;
 
 // 空间索引类型
 using AnchorPoint = bg::model::point<Coord_t, 2, bg::cs::cartesian>;
@@ -92,17 +93,17 @@ class PairGenomeAnchor {
 public:
     PairGenomeAnchor() = default;
     PairGenomeAnchor(SpeciesName ref, SpeciesName query,
-        AnchorPtrVec init_anchors);
+        AnchorPtrListVec init_anchors);
 
     void rebuild();
-    void insert(AnchorPtr ap);
-    void remove(AnchorPtr ap);
+    void insertAnchorRtree(AnchorPtr ap);
+    void removeAnchorRtree(AnchorPtr ap);
     std::vector<AnchorPtr> query(const AnchorBox& region) const;
 
 private:
     SpeciesName       ref_species{};
     SpeciesName       query_species{};
-    AnchorPtrVec  anchors{};
+    AnchorPtrListVec  anchors{};
     AnchorRTree   anchor_rtree{};
 };
 #endif // ANCHOR_H

@@ -568,7 +568,7 @@ SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
 	return { new_l, new_r };
 }
 
-AnchorPtrVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
+AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
 	if (strand == FORWARD) {
 		std::reverse(query.begin(), query.end());
@@ -578,7 +578,7 @@ AnchorPtrVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand 
 			ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
 		}
 	}
-	AnchorPtrVec anchor_ptr_vec;
+	AnchorPtrListVec anchor_ptr_list_vec;
 
 	uint_t total_length = 0;
 	uint_t query_length = query.length();
@@ -587,21 +587,20 @@ AnchorPtrVec FM_Index::findAnchors(ChrName query_chr, std::string query, Strand 
 		uint_t match_length = findSubSeqAnchors(query.c_str() + total_length, query_length - total_length, region_vec, min_anchor_length, max_anchor_frequency);
 		if (region_vec.size() > 0) {
 			Region query_region(query_chr, total_length + query_offset, match_length);
+			AnchorPtrList anchor_ptr_list;
 			for (uint_t i = 0; i < region_vec.size(); i++) {
 				Match match(region_vec[i], query_region, strand);
 				Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
 				Cigar_t cigar;
 				cigar.push_back(cigarToInt('=', match_length));
 				AnchorPtr p = std::make_shared<Anchor>(match, match_length, cigar, score);
-				anchor_ptr_vec.push_back(p);
+				anchor_ptr_list.push_back(p);
 			}
+			anchor_ptr_list_vec.push_back(anchor_ptr_list);
 		}
 		total_length += match_length;
 	}
-	
-
-	
-	return anchor_ptr_vec;
+	return anchor_ptr_list_vec;
 }
 
 uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)

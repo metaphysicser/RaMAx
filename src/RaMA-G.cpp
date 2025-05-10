@@ -5,7 +5,7 @@
 #include "config.hpp"
 #include "index.h"
 #include "anchor.h"
-#include "align.h"
+#include "rare_aligner.h"
 using namespace std;
 
 

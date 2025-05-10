@@ -1,4 +1,4 @@
-﻿#include "align.h"
+﻿#include "rare_aligner.h"
 
 
 PairRareAligner::PairRareAligner(const FilePath work_dir, const uint_t thread_num) {

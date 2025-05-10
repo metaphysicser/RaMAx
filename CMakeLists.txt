@@ -17,6 +17,7 @@ set(SUBMODULE_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/submodule")
 set(PREPROCESS_DIR     "${SOURCE_DIR}/preprocess")
 set(INDEX_DIR          "${SOURCE_DIR}/index")
 set(ALIGN_DIR          "${SOURCE_DIR}/align")
+set(ANCHOR_DIR         "${SOURCE_DIR}/anchor")
 set(BIGBWT_DIR         "${INDEX_DIR}/bigBWT")
 set(BIGBWT_INCLUDE_DIR "${INCLUDE_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR   "${INDEX_DIR}/suffix_array")
@@ -59,6 +60,7 @@ find_package(Threads REQUIRED)
 # ============ 创建主可执行程序 ============
 add_executable(RaMA-G
     "${SOURCE_DIR}/RaMA-G.cpp"
+    "${SOURCE_DIR}/rare_aligner.cpp"
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
@@ -68,9 +70,8 @@ add_executable(RaMA-G
     "${BIGBWT_DIR}/xerrors.c"
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
-    "${ALIGN_DIR}/anchor.cpp"
+    "${ANCHOR_DIR}/anchor.cpp"
     "${ALIGN_DIR}/cigar.cpp"
-    "${ALIGN_DIR}/rare_aligner.cpp"
 )
 
 # ============ 添加头文件路径 ============
