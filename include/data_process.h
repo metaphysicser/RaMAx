@@ -11,16 +11,10 @@
 #include <sys/mman.h>
 #include <zlib.h>
 #include "config.hpp"
+#include "anchor.h"
 #include "kseq.h"
 
 KSEQ_INIT(gzFile, gzread)
-
-struct ChunkInfo {
-    ChrName chr_name;  // 染色体／序列名称
-    uint_t start;          // 在该染色体上的起始偏移（0-based）
-    uint_t length;         // 本 chunk 的长度（最后一个可能不足 chunk_size）
-};
-using ChunkInfoVec = std::vector<ChunkInfo>;
 
 class GzFileWrapper {
 public:
@@ -120,7 +114,7 @@ public:
     uint_t getConcatSeqLength();
     ChrName getChrName(uint_t global_start, uint_t length);
 
-    ChunkInfoVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
+    RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
 private:
     // RAII 封装后，不再直接使用原始指针

@@ -210,6 +210,8 @@ struct CommonArgs {
 
 	uint_t chunk_size = 10000000;
 	uint_t overlap_size = 100000;
+	uint_t min_anchor_length = 20;
+	uint_t max_anchor_frequency = 50;
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
 	OutputFormat output_format = OutputFormat::UNKNOWN;
@@ -299,13 +301,34 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 		->type_name("<int>")
 		->transform(trim_whitespace);
 
+	auto* min_anchor_length_opt = cmd->add_option(
+		"--min_anchor_length", args.min_anchor_length,
+		"Minimum anchor length (default: 20).")
+		->default_val(20)
+		->capture_default_str()
+		->group("Software Parameters")
+		->check(CLI::Range(1, std::numeric_limits<int>::max()))
+		->type_name("<int>")
+		->transform(trim_whitespace);
+
+	auto* max_anchor_frequency_opt = cmd->add_option(
+		"--max_anchor_frequency", args.max_anchor_frequency,
+		"Maximum anchor frequency filter (default: 50).")
+		->default_val(50)
+		->capture_default_str()
+		->group("Software Parameters")
+		->check(CLI::Range(0, std::numeric_limits<int>::max()))
+		->type_name("<int>")
+		->transform(trim_whitespace);
+
+
 	auto* threads_opt = cmd->add_option("-t,--threads", args.thread_num,
 		"Number of threads to use for parallel processing (default: system cores).")
 		->default_val(std::thread::hardware_concurrency())
 		->envname("RAMA_G_THREADS")
 		->capture_default_str()
 		->group("Performance")
-		->check(CLI::Range(2, std::numeric_limits<int>::max()))
+		->check(CLI::Range(1, std::numeric_limits<int>::max()))
 		->type_name("<int>")->transform(trim_whitespace);
 
 	auto* restart_flag = cmd->add_flag("--restart", args.restart,
@@ -314,7 +337,10 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 
 	// Set dependencies and exclusions
 	restart_flag->needs(workspace_opt);
-	restart_flag->excludes(ref_opt, qry_opt, output_opt, threads_opt, chunk_size_opt, overlap_size_opt);
+	restart_flag->excludes(ref_opt, 
+		qry_opt, output_opt, threads_opt, 
+		chunk_size_opt, overlap_size_opt, 
+		min_anchor_length_opt, max_anchor_frequency_opt);
 }
 
 // Setup logger with optional file output

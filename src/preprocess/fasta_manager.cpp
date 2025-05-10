@@ -458,9 +458,9 @@ ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
 
 // data_process.cpp
 
-ChunkInfoVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size)
+RegionVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size)
 {
-    ChunkInfoVec chunks;
+    RegionVec chunks;
     // 预估总 chunk 数以减少 realloc（可选）
     size_t total_len = getConcatSeqLength();
     size_t est_chunks = (total_len + chunk_size - 1) / chunk_size;

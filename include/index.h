@@ -41,6 +41,11 @@ struct SAInterval {
     bool isUnique() const noexcept { return (r - l) == 1; }
 };
 
+enum SearchMode {
+    FAST_SEARCH,
+    ACCURATE_SEARCH
+};
+
 // ----------------------------------------------------------------------
 //  FM-Index 类
 // ----------------------------------------------------------------------
@@ -79,9 +84,9 @@ public:
     uint_t getSA(uint_t pos)               const;
     uint_t LF(uint_t pos)                  const;
     SAInterval backwardExtend(const SAInterval& I, char c);
-    AnchorPtrListVec findAnchors(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    AnchorPtrListVec findAnchors(ChrName query_chr, std::string query, SearchMode search_mode, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
     uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
-
+    
     bool saveToFile(const std::string& filename) const;
     bool loadFromFile(const std::string& filename);
 

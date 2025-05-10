@@ -165,8 +165,13 @@ int main(int argc, char** argv) {
 	//tmp_species_chr_path_map.erase("reference");
 	//splitChrToChunk(common_args.work_dir_path, tmp_species_chr_path_map, species_chunk_info_map, common_args.chunk_size, common_args.overlap_size, common_args.thread_num);
 	
-	PairRareAligner pra(common_args.work_dir_path, common_args.thread_num);
+	PairRareAligner pra(common_args.work_dir_path, common_args.thread_num, 
+		common_args.chunk_size, common_args.overlap_size, 
+		common_args.min_anchor_length, common_args.max_anchor_frequency);
+	// PairRareAligner pra(common_args.work_dir_path, 1, 10000000, 100000, 20, 50);
+
 	pra.buildIndex("reference", species_path_map["reference"]);
+	pra.alignQueryFile("query", species_path_map["query"], ACCURATE_SEARCH);
 
 	// csa_wt<wt_huff<rrr_vector<127> >, 512, 1024> fm_index2;
 	

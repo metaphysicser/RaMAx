@@ -2,6 +2,7 @@
 #define RARE_ALIGNER_H
 #include "config.hpp"
 #include "index.h"
+#include "threadpool.h"
 
 class PairRareAligner {
 public:
@@ -9,10 +10,17 @@ public:
     FilePath index_dir;
 
     FastaManager ref_fasta_manager;
+    FM_Index ref_index;
+
+    uint_t chunk_size;
+    uint_t overlap_size;
+    uint_t min_anchor_length;
+    uint_t max_anchor_frequency;
+
     uint_t thread_num;
-    PairRareAligner(const FilePath work_dir, const uint_t thread_num);
+    PairRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
     FilePath buildIndex(const std::string prefix, const FilePath fasta_path);
-    void alignQueryFile(const std::string prefix, const FilePath fasta_path);
+    void alignQueryFile(const std::string prefix, const FilePath fasta_path, SearchMode search_mode);
 };
 #endif
 
