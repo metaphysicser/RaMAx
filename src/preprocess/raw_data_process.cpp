@@ -269,6 +269,53 @@ std::string getReadableFileSize(const FilePath& filePath) {
 	}
 }
 
+bool isFileSmallerThan(const FilePath& filePath, size_t maxSizeMB = 1024) {
+	const std::string pathStr = filePath.string();
+	// 将阈值转换为字节
+	const curl_off_t maxBytes = static_cast<curl_off_t>(maxSizeMB) * 1024 * 1024;
+
+	// 1) 如果是 HTTP/HTTPS URL
+	if (pathStr.rfind("http://", 0) == 0 || pathStr.rfind("https://", 0) == 0) {
+		CURL* curl = curl_easy_init();
+		if (!curl) {
+			spdlog::error("curl_easy_init failed for URL: {}", pathStr);
+			return false;
+		}
+		curl_easy_setopt(curl, CURLOPT_URL, pathStr.c_str());
+		curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+		if (curl_easy_perform(curl) != CURLE_OK) {
+			spdlog::error("curl_easy_perform failed for URL: {}", pathStr);
+			curl_easy_cleanup(curl);
+			return false;
+		}
+
+		curl_off_t content_length = 0;
+		if (curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &content_length) != CURLE_OK
+			|| content_length < 0) {
+			spdlog::error("Failed to get Content-Length for URL: {}", pathStr);
+			curl_easy_cleanup(curl);
+			return false;
+		}
+		curl_easy_cleanup(curl);
+
+		return content_length < maxBytes;
+	}
+	// 2) 本地文件
+	else {
+		try {
+			auto size = static_cast<curl_off_t>(std::filesystem::file_size(filePath));
+			return size < maxBytes;
+		}
+		catch (const std::filesystem::filesystem_error& e) {
+			spdlog::error("Failed to get file size for {}: {}", pathStr, e.what());
+			return false;
+		}
+	}
+}
+
 FilePath getTempFilePath(const FilePath& input_path) {
 	// Construct a temporary file path by appending '_in_process' to the file name
 	FilePath temp_file;

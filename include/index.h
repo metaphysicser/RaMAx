@@ -14,6 +14,8 @@ extern "C" {
 #include <sdsl/wt_huff.hpp>
 #include <sdsl/util.hpp>
 #include <sdsl/suffix_arrays.hpp>
+#include "divsufsort64.h"
+#include "divsufsort.h"
 
 
 // ----------------------------------------------------------------------
@@ -60,7 +62,11 @@ public:
         bool            fast_mode,
         uint_t          thread);
 
-    bool buildIndexUsingBigBWT(const FilePath& fasta_path,
+    bool buildIndexUsingBigBWT(
+        const FilePath& output_path,
+        uint_t          thread);
+
+    bool buildIndexUsingDivfsort(
         const FilePath& output_path,
         uint_t          thread);
 

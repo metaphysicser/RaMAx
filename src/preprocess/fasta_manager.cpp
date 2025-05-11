@@ -91,14 +91,14 @@ void FastaManager::reset() {
     fasta_open();
 }
 
-std::string FastaManager::concatRecords(char separator, char terminator, size_t limit) {
+std::string FastaManager::concatRecords(char terminator, size_t limit) {
     reset();
     std::ostringstream oss;
     std::string hdr, seq;
     size_t count = 0;
 
     while (nextRecord(hdr, seq) && count < limit) {
-        oss << seq << separator;  // 使用 ostringstream 拼接，减少不必要的内存拷贝
+        oss << seq;  // 使用 ostringstream 拼接，减少不必要的内存拷贝
         ++count;
     }
     std::string result = oss.str();

@@ -65,6 +65,7 @@ add_executable(RaMA-G
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${INDEX_DIR}/fm_index.cpp"
+    "${INDEX_DIR}/bigBWT_build.cpp"
     "${BIGBWT_DIR}/newscan.cpp"
     "${BIGBWT_DIR}/utils.c"
     "${BIGBWT_DIR}/xerrors.c"

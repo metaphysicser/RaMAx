@@ -73,7 +73,7 @@ public:
     void reset();
 
     // 将所有记录拼接成一个字符串（使用 ostringstream 优化字符串拼接）
-    std::string concatRecords(char separator = '0', char terminator = '1',
+    std::string concatRecords(char terminator = '\0',
         size_t limit = std::numeric_limits<size_t>::max());
 
     // FASTA 文件统计信息
@@ -184,6 +184,8 @@ bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_m
 
 // Get human-readable file size (auto convert to KB/MB/GB). Supports both local files and URLs.
 std::string getReadableFileSize(const FilePath& filePath);
+
+bool isFileSmallerThan(const FilePath& filePath, size_t maxSizeMB);
 
 //bool splitRawDataToChr(const FilePath workdir_path, SpeciesPathMap& species_path_map, SpeciesChrPathMap& species_chr_path_map, int thread_num);
 //
