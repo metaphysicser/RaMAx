@@ -86,6 +86,7 @@ target_include_directories(RaMA-G PRIVATE
     "${SUBMODULE_DIR}/sdsl-lite/include"
     "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
     "${SUBMODULE_DIR}/WFA2-lib"
+    "${SUBMODULE_DIR}/parlaylib/include"
 )
 
 # ============ 链接库 ============
