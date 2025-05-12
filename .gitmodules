@@ -31,3 +31,6 @@
 [submodule "submodule/spdlog"]
 	path = submodule/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "submodule/parlaylib"]
+	path = submodule/parlaylib
+	url = https://github.com/cmuparlay/parlaylib.git

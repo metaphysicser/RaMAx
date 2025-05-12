@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
 		common_args.min_anchor_length, common_args.max_anchor_frequency);
 	// PairRareAligner pra(common_args.work_dir_path, 1, 10000000, 100000, 20, 50);
 
-	pra.buildIndex("reference", species_path_map["reference"]);
+	pra.buildIndex("reference", species_path_map["reference"], true);
 	pra.alignQueryFile("query", species_path_map["query"], FAST_SEARCH);
 
 	// csa_wt<wt_huff<rrr_vector<127> >, 512, 1024> fm_index2;

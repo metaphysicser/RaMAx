@@ -9,7 +9,78 @@ FM_Index::FM_Index(SpeciesName species_name, FastaManager* fasta_manager, uint_t
 	}
 }
 
-bool FM_Index::buildIndexUsingDivfsort(const FilePath& output_path,
+bool FM_Index::buildIndexUsingCaPS(uint_t thread_count)
+{
+	this->total_size += 1;
+	std::string T = fasta_manager->concatRecords();
+	size_t n = T.size();
+	if (n == 0) return false;
+
+	if (n <= std::numeric_limits<uint32_t>::max())
+	{
+		return buildIndexUsingCaPSImpl<uint32_t>(T, thread_count);
+	}
+	else
+	{
+		return buildIndexUsingCaPSImpl<uint64_t>(T, thread_count);
+	}
+}
+
+template<typename index_t>
+bool FM_Index::buildIndexUsingCaPSImpl(const std::string& T, uint_t thread_count)
+{
+	using SA_t = index_t;
+
+	size_t n = T.size();
+
+	std::string value = std::to_string(thread_count);
+	setenv("PARLAY_NUM_THREADS", value.c_str(), 1);  // 1 means overwrite if exists
+
+	// 构造 CaPS 后缀数组
+	CaPS_SA::Suffix_Array<SA_t> suf_arr(T.c_str(), static_cast<SA_t>(n), 0, 0);
+	suf_arr.construct();
+	// 拷贝 SA_ 指针内容到 vector，方便后续操作（线程安全）
+	std::vector<SA_t> SA(n);
+	std::copy(suf_arr.SA(), suf_arr.SA() + n, SA.begin());
+
+	// 构建 BWT 向量
+	sdsl::int_vector<8> BWT(n);
+
+	ThreadPool pool(thread_count);
+	size_t chunk_size = (n + thread_count - 1) / thread_count;
+
+	for (uint_t t = 0; t < thread_count; ++t) {
+		size_t start = t * chunk_size;
+		size_t end = std::min(start + chunk_size, n);
+
+		pool.enqueue(
+			[&T, &SA, &BWT, n, start, end]() {
+				for (size_t i = start; i < end; ++i) {
+					size_t si = static_cast<size_t>(SA[i]);
+					BWT[i] = static_cast<uint8_t>(T[(si + n - 1) % n]);
+				}
+			}
+		);
+	}
+	pool.waitAllTasksDone();
+
+	// 构建采样 SA
+	size_t sampled_count = (n + sample_rate - 1) / sample_rate;
+	sampled_sa.resize(sampled_count);
+	for (size_t i = 0, idx = 0; i < n; i += sample_rate, ++idx) {
+		sampled_sa[idx] = static_cast<uint64_t>(SA[i]);
+	}
+	sdsl::util::bit_compress(sampled_sa);
+
+	// 构建波形树
+	sdsl::construct_im(this->wt_bwt, BWT);
+
+	return true;
+}
+
+
+
+bool FM_Index::buildIndexUsingDivfsort(
 	uint_t thread_count)
 {
 	// 1) Get the full concatenated sequence
@@ -78,11 +149,11 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
 
 	if (fast_mode) {
 		// TODO CaPS-SA
-		return true;
+		buildIndexUsingCaPS(thread);
 	}
 	else {
 		if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
-			buildIndexUsingDivfsort(output_path, thread);
+			buildIndexUsingDivfsort(thread);
 		}
 		else {
 			buildIndexUsingBigBWT(output_path, thread);

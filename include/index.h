@@ -16,7 +16,7 @@ extern "C" {
 #include <sdsl/suffix_arrays.hpp>
 #include "divsufsort64.h"
 #include "divsufsort.h"
-
+#include <cstdlib>
 
 // ----------------------------------------------------------------------
 //  Constants
@@ -67,8 +67,14 @@ public:
         uint_t          thread);
 
     bool buildIndexUsingDivfsort(
-        const FilePath& output_path,
         uint_t          thread);
+
+    bool buildIndexUsingCaPS(
+        uint_t          thread);
+
+    template<typename index_t>
+    bool buildIndexUsingCaPSImpl(const std::string& T, uint_t thread_count);
+
 
     bool read_and_build_sampled_sa(const FilePath& sa_file_path);
     bool read_and_build_bwt(const FilePath& bwt_file_path);

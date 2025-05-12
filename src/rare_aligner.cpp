@@ -52,7 +52,7 @@ std::vector<uint64_t> read_sa(const std::string& sa_file)
 	return sa;
 }
 
-FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fasta_path) {
+FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fasta_path, bool fast_build) {
 	FilePath ref_index_path = index_dir / prefix;
 
 	if (!std::filesystem::exists(ref_index_path)) {
@@ -71,7 +71,7 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 	spdlog::info("Indexing with prefix: {}, index path: {}", prefix, ref_index_path.string());
 
 	if (!std::filesystem::exists(idx_file_path)) {
-		ref_index.buildIndex(output_path, false, thread_num);
+		ref_index.buildIndex(output_path, fast_build, thread_num);
 		ref_index.saveToFile(idx_file_path.string());
 	}
 	else {

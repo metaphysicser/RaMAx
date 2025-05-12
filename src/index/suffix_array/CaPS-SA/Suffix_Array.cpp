@@ -1,7 +1,7 @@
 
 #include "CaPS-SA/Suffix_Array.hpp"
-// #include "parlay/parallel.h"
-#include "threadpool.h"
+#include "parlay/parallel.h"
+
 #include <cstring>
 #include <iostream>
 #include <fstream>
@@ -36,6 +36,7 @@ namespace CaPS_SA
             std::exit(EXIT_FAILURE);
         }
     }
+
 
     template <typename T_idx_>
     Suffix_Array<T_idx_>::~Suffix_Array()
@@ -108,24 +109,6 @@ namespace CaPS_SA
     }
 
 
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::merge_sort(idx_t* const X, idx_t* const Y, const idx_t n, idx_t* const LCP, idx_t* const W) const
-    //{
-    //    assert(std::memcmp(X, Y, n * sizeof(idx_t)) == 0);
-
-    //    if (n == 1)
-    //        LCP[0] = 0;
-    //    else
-    //    {
-    //        const idx_t m = n / 2;
-    //        const auto f = [&]() { merge_sort(Y, X, m, W, LCP); };
-    //        const auto g = [&]() { merge_sort(Y + m, X + m, n - m, W + m, LCP + m); };
-
-    //        m < nested_par_grain_size ?
-    //            (f(), g()) : parlay::par_do(f, g);
-    //        merge(X, m, X + m, n - m, W, W + m, Y, LCP);
-    //    }
-    //}
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::merge_sort(idx_t* const X, idx_t* const Y, const idx_t n, idx_t* const LCP, idx_t* const W) const
     {
@@ -136,36 +119,14 @@ namespace CaPS_SA
         else
         {
             const idx_t m = n / 2;
-
-            // 定义两个递归函数
             const auto f = [&]() { merge_sort(Y, X, m, W, LCP); };
             const auto g = [&]() { merge_sort(Y + m, X + m, n - m, W + m, LCP + m); };
 
-            // 如果 m 小于最小粒度大小，则顺序执行，否则使用线程池并行执行
-            if (m < nested_par_grain_size) {
-                f();
-                g();
-            }
-            else {
-                // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-                ThreadPool pool(4);
-
-                // 使用线程池并行执行 f 和 g
-                std::vector<std::future<void>> results;
-                results.push_back(pool.enqueue(f));
-                results.push_back(pool.enqueue(g));
-
-                // 等待所有任务完成
-                for (auto& result : results) {
-                    result.get();  // 确保任务完成
-                }
-            }
-
-            // 合并两个排序好的部分
+            m < nested_par_grain_size ?
+                (f(), g()) : parlay::par_do(f, g);
             merge(X, m, X + m, n - m, W, W + m, Y, LCP);
         }
     }
-
 
 
     template <typename T_idx_>
@@ -180,76 +141,23 @@ namespace CaPS_SA
         pivot_ = allocate<idx_t>(sample_count);
 
         const auto t_e = now();
-        std::cerr << "Initialized required data structures. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        // std::cerr << "Initialized required data structures. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
 
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::permute()
-    //{
-    //    const auto t_s = now();
-
-    //    const auto populate = [&](const idx_t i) { SA_[i] = SA_w[i] = i; };
-    //    parlay::parallel_for(0, n_, populate);
-
-    //    const auto t_e = now();
-    //    std::cerr << "Populated the suffix array with a permutation. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::permute()
     {
         const auto t_s = now();
 
-        // 创建一个线程池，假设使用的线程数为 4
-        ThreadPool pool(4);  // 你可以根据需要调整线程数
-
-        const auto populate = [&](const idx_t i) {
-            SA_[i] = SA_w[i] = i;
-            };
-
-        // 使用线程池来并行执行任务
-        std::vector<std::future<void>> results;
-        for (idx_t i = 0; i < n_; ++i) {
-            // 使用线程池的 enqueue 函数提交任务
-            results.push_back(pool.enqueue(populate, i));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
+        const auto populate = [&](const idx_t i) { SA_[i] = SA_w[i] = i; };
+        parlay::parallel_for(0, n_, populate);
 
         const auto t_e = now();
-        std::cerr << "Populated the suffix array with a permutation. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        // std::cerr << "Populated the suffix array with a permutation. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
 
-
-
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::sort_subarrays()
-    //{
-    //    const auto t_s = now();
-
-    //    const auto subarr_size = n_ / p_;   // Size of each subarray to be sorted independently.
-    //    std::atomic_uint64_t solved_ = 0;   // Progress tracker—number of subproblems solved in some step.
-    //    const auto sort_subarr =
-    //        [&](const idx_t i)
-    //        {
-    //            merge_sort(SA_w + i * subarr_size, SA_ + i * subarr_size,
-    //                subarr_size + (i < p_ - 1 ? 0 : n_ % p_),
-    //                LCP_ + i * subarr_size, LCP_w + i * subarr_size);
-
-    //            if (++solved_ % 8 == 0)
-    //                std::cerr << "\rSorted " << solved_ << " subarrays.";
-    //        };
-
-    //    parlay::parallel_for(0, p_, sort_subarr, 1);
-    //    std::cerr << "\n";
-
-    //    const auto t_e = now();
-    //    std::cerr << "Sorted the subarrays independently. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::sort_subarrays()
     {
@@ -257,10 +165,6 @@ namespace CaPS_SA
 
         const auto subarr_size = n_ / p_;   // Size of each subarray to be sorted independently.
         std::atomic_uint64_t solved_ = 0;   // Progress tracker—number of subproblems solved in some step.
-
-        // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-        ThreadPool pool(4);
-
         const auto sort_subarr =
             [&](const idx_t i)
             {
@@ -268,26 +172,15 @@ namespace CaPS_SA
                     subarr_size + (i < p_ - 1 ? 0 : n_ % p_),
                     LCP_ + i * subarr_size, LCP_w + i * subarr_size);
 
-                if (++solved_ % 8 == 0)
-                    std::cerr << "\rSorted " << solved_ << " subarrays.";
+                //if (++solved_ % 8 == 0)
+                    //std::cerr << "\rSorted " << solved_ << " subarrays.";
             };
 
-        // 使用线程池来并行执行任务
-        std::vector<std::future<void>> results;
-        for (idx_t i = 0; i < p_; ++i) {
-            // 将任务提交到线程池
-            results.push_back(pool.enqueue(sort_subarr, i));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
-
-        std::cerr << "\n";
+        parlay::parallel_for(0, p_, sort_subarr, 1);
+        //std::cerr << "\n";
 
         const auto t_e = now();
-        std::cerr << "Sorted the subarrays independently. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Sorted the subarrays independently. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
 
@@ -325,35 +218,9 @@ namespace CaPS_SA
         deallocate(pivot_w), deallocate(temp_1), deallocate(temp_2);
 
         const auto t_e = now();
-        std::cerr << "Selected the global pivots. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Selected the global pivots. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
-
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::locate_pivots(idx_t* const P) const
-    //{
-    //    const auto t_s = now();
-
-    //    const auto subarr_size = n_ / p_;   // Size of each independent sorted subarray.
-
-    //    const auto locate =
-    //        [&](const idx_t i)
-    //        {
-    //            const auto X_i = SA_ + i * subarr_size; // The i'th subarray.
-    //            const auto P_i = P + i * (p_ + 1);  // Pivot locations in `X_i` are to be placed in `P_i`.
-
-    //            const auto tot_subarr_size = subarr_size + (i < p_ - 1 ? 0 : n_ % p_);
-    //            P_i[0] = 0, P_i[p_] = tot_subarr_size; // The two flanking pivot indices.
-
-    //            for (idx_t j = 0; j < p_ - 1; ++j) // TODO: try parallelizing this loop too; observe performance diff.
-    //                P_i[j + 1] = upper_bound(X_i, tot_subarr_size, T_ + pivot_[j], n_ - pivot_[j]); // TODO: can shrink the search-range for successive searches.
-    //        };
-
-    //    parlay::parallel_for(0, p_, locate, 1);
-
-    //    const auto t_e = now();
-    //    std::cerr << "Located the pivots in each sorted subarray. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
 
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::locate_pivots(idx_t* const P) const
@@ -361,9 +228,6 @@ namespace CaPS_SA
         const auto t_s = now();
 
         const auto subarr_size = n_ / p_;   // Size of each independent sorted subarray.
-
-        // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-        ThreadPool pool(4);
 
         const auto locate =
             [&](const idx_t i)
@@ -378,22 +242,11 @@ namespace CaPS_SA
                     P_i[j + 1] = upper_bound(X_i, tot_subarr_size, T_ + pivot_[j], n_ - pivot_[j]); // TODO: can shrink the search-range for successive searches.
             };
 
-        // 使用线程池来并行执行任务
-        std::vector<std::future<void>> results;
-        for (idx_t i = 0; i < p_; ++i) {
-            // 将任务提交到线程池
-            results.push_back(pool.enqueue(locate, i));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
+        parlay::parallel_for(0, p_, locate, 1);
 
         const auto t_e = now();
-        std::cerr << "Located the pivots in each sorted subarray. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Located the pivots in each sorted subarray. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
-
 
 
     template <typename T_idx_>
@@ -443,6 +296,7 @@ namespace CaPS_SA
         return soln;
     }
 
+
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::partition_sub_subarrays(const idx_t* const P)
     {
@@ -459,20 +313,8 @@ namespace CaPS_SA
                 }
             };
 
-        // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-        ThreadPool pool(4);
+        parlay::parallel_for(0, p_, collect_size, 1);   // Collect the individual size of each partition.
 
-        // 使用线程池来并行执行 collect_size 操作
-        std::vector<std::future<void>> results;
-        for (idx_t j = 0; j < p_; ++j) {
-            // 将任务提交到线程池
-            results.push_back(pool.enqueue(collect_size, j));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
 
         // Compute inclusive-scan (prefix sum) of the partition sizes.
         idx_t cur_sum = 0;
@@ -486,6 +328,7 @@ namespace CaPS_SA
 
         part_size_scan_[p_] = cur_sum;
         assert(part_size_scan_[p_] == n_);
+
 
         // Collate the sorted sub-subarrays to appropriate partitions.
         const idx_t subarr_size = n_ / p_;
@@ -518,278 +361,77 @@ namespace CaPS_SA
                 assert(curr_idx == part_size_scan_[j + 1] - part_size_scan_[j]);
             };
 
-        // 使用线程池来并行执行 collate 操作
-        results.clear();  // 清空之前的结果
-        for (idx_t j = 0; j < p_; ++j) {
-            // 将任务提交到线程池
-            results.push_back(pool.enqueue(collate, j));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
+        parlay::parallel_for(0, p_, collate, 1);
 
         const auto t_e = now();
-        std::cerr << "Collated the sorted sub-subarrays into partitions. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Collated the sorted sub-subarrays into partitions. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::partition_sub_subarrays(const idx_t* const P)
-    //{
-    //    const auto t_s = now();
 
-    //    const auto collect_size =   // Collects the size of the `j`'th partition.
-    //        [&](const idx_t j)
-    //        {
-    //            part_size_scan_[j] = 0;
-    //            for (idx_t i = 0; i < p_; ++i)   // For subarray `i`.
-    //            {
-    //                const auto P_i = P + i * (p_ + 1);  // Pivot collection of subarray `i`.
-    //                part_size_scan_[j] += (P_i[j + 1] - P_i[j]);    // Collect its `j`'th sub-subarray's size.
-    //            }
-    //        };
+    template <typename T_idx_>
+    void Suffix_Array<T_idx_>::merge_sub_subarrays()
+    {
+        const auto t_s = now();
 
-    //    parlay::parallel_for(0, p_, collect_size, 1);   // Collect the individual size of each partition.
+        const auto dup =    // Duplicates the `j`'th partition.
+            [&](const idx_t j)
+            {
+                const auto part_size = part_size_scan_[j + 1] - part_size_scan_[j];
+                std::memcpy(SA_ + part_size_scan_[j], SA_w + part_size_scan_[j], part_size * sizeof(idx_t));
+                std::memcpy(LCP_ + part_size_scan_[j], LCP_w + part_size_scan_[j], part_size * sizeof(idx_t));
+            };
+
+        parlay::parallel_for(0, p_, dup, 1);    // Fulfill `sort_partition`'s precondition.
 
 
-    //    // Compute inclusive-scan (prefix sum) of the partition sizes.
-    //    idx_t cur_sum = 0;
-    //    for (idx_t j = 0; j < p_; ++j) // For partition `j`.
-    //    {
-    //        const auto part_size = part_size_scan_[j];
+        std::atomic_uint64_t solved_ = 0;   // Progress tracker—number of subproblems solved in some step.
+        const auto sort_part =
+            [&](const idx_t j)
+            {
+                const auto part_off = part_size_scan_[j];   // Offset of the partition in the partitions' flat collection.
+                auto const X_j = SA_w + part_off;   // Memory-base for partition `j`.
+                auto const Y_j = SA_ + part_off;    // Location to sort partition `j`.
+                auto const LCP_X_j = LCP_w + part_off;  // Memory-base for the LCP-arrays of partition `j`.
+                auto const LCP_Y_j = LCP_ + part_off;   // LCP array of `Y_j`.
+                auto const sub_subarr_off = part_ruler_ + j * (p_ + 1); // Indices of the sorted subarrays in `X_i`.
 
-    //        part_size_scan_[j] = cur_sum;
-    //        cur_sum += part_size;
-    //    }
+                sort_partition(X_j, Y_j, p_, sub_subarr_off, LCP_X_j, LCP_Y_j);
 
-    //    part_size_scan_[p_] = cur_sum;
-    //    assert(part_size_scan_[p_] == n_);
+                //if (++solved_ % 8 == 0)
+                    //std::cerr << "\rMerged " << solved_ << " partitions.";
+            };
 
+        parlay::parallel_for(0, p_, sort_part, 1);  // Merge the sorted subarrays in each partitions.
+        //std::cerr << "\n";
 
-    //    // Collate the sorted sub-subarrays to appropriate partitions.
-    //    const idx_t subarr_size = n_ / p_;
-    //    const auto collate =    // Collates the `j`'th sub-subarray from each sorted subarray to partition `j`.
-    //        [&](const idx_t j)
-    //        {
-    //            auto const Y_j = SA_w + part_size_scan_[j]; // Memory-base for partition `j`.
-    //            auto const LCP_Y_j = LCP_w + part_size_scan_[j];    // Memory-base for LCPs of partition `j`.
-    //            auto const sub_subarr_off = part_ruler_ + j * (p_ + 1); // Offset of the sorted sub-subarrays in `Y_j`.
-    //            idx_t curr_idx = 0; // Current index into `Y_j`.
-
-    //            for (idx_t i = 0; i < p_; ++i)   // Subarray `i`.
-    //            {
-    //                const auto X_i = SA_ + i * subarr_size; // `i`'th sorted subarray.
-    //                const auto LCP_X_i = LCP_ + i * subarr_size;    // LCP array of `X_i`.
-    //                const auto P_i = P + i * (p_ + 1);  // Pivot collection of subarray `i`.
-
-    //                sub_subarr_off[i] = curr_idx;
-    //                const auto sub_subarr_size = P_i[j + 1] - P_i[j];   // Size of the `j`'th sub-subarray of subarray `i`.
-    //                if (sub_subarr_size == 0)
-    //                    continue;
-
-    //                std::memcpy(Y_j + sub_subarr_off[i], X_i + P_i[j], sub_subarr_size * sizeof(idx_t));
-    //                std::memcpy(LCP_Y_j + sub_subarr_off[i], LCP_X_i + P_i[j], sub_subarr_size * sizeof(idx_t));
-    //                LCP_Y_j[sub_subarr_off[i]] = 0;
-    //                curr_idx += sub_subarr_size;
-    //            }
-
-    //            sub_subarr_off[p_] = curr_idx;
-    //            assert(curr_idx == part_size_scan_[j + 1] - part_size_scan_[j]);
-    //        };
-
-    //    parlay::parallel_for(0, p_, collate, 1);
-
-    //    const auto t_e = now();
-    //    std::cerr << "Collated the sorted sub-subarrays into partitions. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
-
-
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::merge_sub_subarrays()
-    //{
-    //    const auto t_s = now();
-
-    //    const auto dup =    // Duplicates the `j`'th partition.
-    //        [&](const idx_t j)
-    //        {
-    //            const auto part_size = part_size_scan_[j + 1] - part_size_scan_[j];
-    //            std::memcpy(SA_ + part_size_scan_[j], SA_w + part_size_scan_[j], part_size * sizeof(idx_t));
-    //            std::memcpy(LCP_ + part_size_scan_[j], LCP_w + part_size_scan_[j], part_size * sizeof(idx_t));
-    //        };
-
-    //    parlay::parallel_for(0, p_, dup, 1);    // Fulfill `sort_partition`'s precondition.
-
-
-    //    std::atomic_uint64_t solved_ = 0;   // Progress tracker—number of subproblems solved in some step.
-    //    const auto sort_part =
-    //        [&](const idx_t j)
-    //        {
-    //            const auto part_off = part_size_scan_[j];   // Offset of the partition in the partitions' flat collection.
-    //            auto const X_j = SA_w + part_off;   // Memory-base for partition `j`.
-    //            auto const Y_j = SA_ + part_off;    // Location to sort partition `j`.
-    //            auto const LCP_X_j = LCP_w + part_off;  // Memory-base for the LCP-arrays of partition `j`.
-    //            auto const LCP_Y_j = LCP_ + part_off;   // LCP array of `Y_j`.
-    //            auto const sub_subarr_off = part_ruler_ + j * (p_ + 1); // Indices of the sorted subarrays in `X_i`.
-
-    //            sort_partition(X_j, Y_j, p_, sub_subarr_off, LCP_X_j, LCP_Y_j);
-
-    //            if (++solved_ % 8 == 0)
-    //                std::cerr << "\rMerged " << solved_ << " partitions.";
-    //        };
-
-    //    parlay::parallel_for(0, p_, sort_part, 1);  // Merge the sorted subarrays in each partitions.
-    //    std::cerr << "\n";
-
-    //    const auto t_e = now();
-    //    std::cerr << "Merged the sorted subarrays in each partition. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
-template <typename T_idx_>
-void Suffix_Array<T_idx_>::merge_sub_subarrays()
-{
-    const auto t_s = now();
-
-    // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-    ThreadPool pool(4);
-
-    const auto dup =    // Duplicates the `j`'th partition.
-        [&](const idx_t j)
-        {
-            const auto part_size = part_size_scan_[j + 1] - part_size_scan_[j];
-            std::memcpy(SA_ + part_size_scan_[j], SA_w + part_size_scan_[j], part_size * sizeof(idx_t));
-            std::memcpy(LCP_ + part_size_scan_[j], LCP_w + part_size_scan_[j], part_size * sizeof(idx_t));
-        };
-
-    // 使用线程池并行执行 dup 操作
-    std::vector<std::future<void>> results;
-    for (idx_t j = 0; j < p_; ++j) {
-        // 将任务提交到线程池
-        results.push_back(pool.enqueue(dup, j));
+        const auto t_e = now();
+        //std::cerr << "Merged the sorted subarrays in each partition. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
-    // 等待所有任务完成
-    for (auto& result : results) {
-        result.get();  // 确保任务完成
+
+    template <typename T_idx_>
+    void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const idx_t n, const idx_t* const S, idx_t* const LCP_x, idx_t* const LCP_y)
+    {
+        if (n == 1)
+            return;
+
+        const auto m = n / 2;
+        const auto flat_count_l = S[m] - S[0];
+        const auto flat_count_r = S[n] - S[m];
+
+        const auto f = [&]() { sort_partition(Y, X, m, S, LCP_y, LCP_x); };
+        const auto g = [&]() { sort_partition(Y + flat_count_l, X + flat_count_l, n - m, S + m, LCP_y + flat_count_l, LCP_x + flat_count_l); };
+
+        (flat_count_l < nested_par_grain_size || flat_count_r < nested_par_grain_size) ?
+            (f(), g()) : parlay::par_do(f, g);
+        merge(X, flat_count_l, X + flat_count_l, flat_count_r, LCP_x, LCP_x + flat_count_l, Y, LCP_y);
     }
 
-    std::atomic_uint64_t solved_ = 0;   // Progress tracker—number of subproblems solved in some step.
-    const auto sort_part =
-        [&](const idx_t j)
-        {
-            const auto part_off = part_size_scan_[j];   // Offset of the partition in the partitions' flat collection.
-            auto const X_j = SA_w + part_off;   // Memory-base for partition `j`.
-            auto const Y_j = SA_ + part_off;    // Location to sort partition `j`.
-            auto const LCP_X_j = LCP_w + part_off;  // Memory-base for the LCP-arrays of partition `j`.
-            auto const LCP_Y_j = LCP_ + part_off;   // LCP array of `Y_j`.
-            auto const sub_subarr_off = part_ruler_ + j * (p_ + 1); // Indices of the sorted subarrays in `X_i`.
 
-            sort_partition(X_j, Y_j, p_, sub_subarr_off, LCP_X_j, LCP_Y_j);
-
-            if (++solved_ % 8 == 0)
-                std::cerr << "\rMerged " << solved_ << " partitions.";
-        };
-
-    // 使用线程池并行执行 sort_part 操作
-    results.clear();  // 清空之前的结果
-    for (idx_t j = 0; j < p_; ++j) {
-        // 将任务提交到线程池
-        results.push_back(pool.enqueue(sort_part, j));
-    }
-
-    // 等待所有任务完成
-    for (auto& result : results) {
-        result.get();  // 确保任务完成
-    }
-
-    std::cerr << "\n";
-
-    const auto t_e = now();
-    std::cerr << "Merged the sorted subarrays in each partition. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-}
-
-
-
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const idx_t n, const idx_t* const S, idx_t* const LCP_x, idx_t* const LCP_y)
-    //{
-    //    if (n == 1)
-    //        return;
-
-    //    const auto m = n / 2;
-    //    const auto flat_count_l = S[m] - S[0];
-    //    const auto flat_count_r = S[n] - S[m];
-
-    //    const auto f = [&]() { sort_partition(Y, X, m, S, LCP_y, LCP_x); };
-    //    const auto g = [&]() { sort_partition(Y + flat_count_l, X + flat_count_l, n - m, S + m, LCP_y + flat_count_l, LCP_x + flat_count_l); };
-
-    //    (flat_count_l < nested_par_grain_size || flat_count_r < nested_par_grain_size) ?
-    //        (f(), g()) : parlay::par_do(f, g);
-    //    merge(X, flat_count_l, X + flat_count_l, flat_count_r, LCP_x, LCP_x + flat_count_l, Y, LCP_y);
-    //}
-template <typename T_idx_>
-void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const idx_t n, const idx_t* const S, idx_t* const LCP_x, idx_t* const LCP_y)
-{
-    if (n == 1)
-        return;
-
-    const auto m = n / 2;
-    const auto flat_count_l = S[m] - S[0];
-    const auto flat_count_r = S[n] - S[m];
-
-    // 定义两个递归函数
-    const auto f = [&]() { sort_partition(Y, X, m, S, LCP_y, LCP_x); };
-    const auto g = [&]() { sort_partition(Y + flat_count_l, X + flat_count_l, n - m, S + m, LCP_y + flat_count_l, LCP_x + flat_count_l); };
-
-    // 如果子数组大小小于最小粒度大小，则顺序执行，否则并行执行
-    if (flat_count_l < nested_par_grain_size || flat_count_r < nested_par_grain_size) {
-        f();
-        g();
-    }
-    else {
-        // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-        ThreadPool pool(4);
-
-        // 使用线程池并行执行 f 和 g
-        std::vector<std::future<void>> results;
-        results.push_back(pool.enqueue(f));  // 提交 f 到线程池
-        results.push_back(pool.enqueue(g));  // 提交 g 到线程池
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
-    }
-
-    // 合并两个排序好的部分
-    merge(X, flat_count_l, X + flat_count_l, flat_count_r, LCP_x, LCP_x + flat_count_l, Y, LCP_y);
-}
-
-
-
-    //template <typename T_idx_>
-    //void Suffix_Array<T_idx_>::compute_partition_boundary_lcp()
-    //{
-    //    const auto t_s = now();
-
-    //    const auto compute_boundary_lcp =
-    //        [&](const idx_t j)
-    //        {
-    //            const auto part_idx = part_size_scan_[j];
-    //            LCP_[part_idx] = LCP(T_ + SA_[part_idx - 1], T_ + SA_[part_idx], n_ - std::max(SA_[part_idx - 1], SA_[part_idx]));
-    //        };
-
-    //    parlay::parallel_for(1, p_, compute_boundary_lcp, 1);
-
-    //    const auto t_e = now();
-    //    std::cerr << "Computed the LCPs at the partition boundaries. Time taken: " << duration(t_e - t_s) << " seconds.\n";
-    //}
     template <typename T_idx_>
     void Suffix_Array<T_idx_>::compute_partition_boundary_lcp()
     {
         const auto t_s = now();
-
-        // 创建线程池，假设使用 4 个线程（可以根据需求调整）
-        ThreadPool pool(4);
 
         const auto compute_boundary_lcp =
             [&](const idx_t j)
@@ -798,22 +440,11 @@ void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const 
                 LCP_[part_idx] = LCP(T_ + SA_[part_idx - 1], T_ + SA_[part_idx], n_ - std::max(SA_[part_idx - 1], SA_[part_idx]));
             };
 
-        // 使用线程池来并行执行 compute_boundary_lcp 操作
-        std::vector<std::future<void>> results;
-        for (idx_t j = 1; j < p_; ++j) {
-            // 将任务提交到线程池
-            results.push_back(pool.enqueue(compute_boundary_lcp, j));
-        }
-
-        // 等待所有任务完成
-        for (auto& result : results) {
-            result.get();  // 确保任务完成
-        }
+        parlay::parallel_for(1, p_, compute_boundary_lcp, 1);
 
         const auto t_e = now();
-        std::cerr << "Computed the LCPs at the partition boundaries. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Computed the LCPs at the partition boundaries. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
-
 
 
     template <typename T_idx_>
@@ -828,7 +459,7 @@ void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const 
         deallocate(part_ruler_);
 
         const auto t_e = now();
-        std::cerr << "Released the temporary data structures. Time taken: " << duration(t_e - t_s) << " seconds.\n";
+        //std::cerr << "Released the temporary data structures. Time taken: " << duration(t_e - t_s) << " seconds.\n";
     }
 
 
@@ -854,12 +485,12 @@ void Suffix_Array<T_idx_>::sort_partition(idx_t* const X, idx_t* const Y, const 
 
         merge_sub_subarrays();
 
-        // compute_partition_boundary_lcp();
+        compute_partition_boundary_lcp();
 
         clean_up();
 
         const auto t_end = now();
-        std::cerr << "Constructed the suffix array. Time taken: " << duration(t_end - t_start) << " seconds.\n";
+        // std::cerr << "Constructed the suffix array. Time taken: " << duration(t_end - t_start) << " seconds.\n";
     }
 
 
