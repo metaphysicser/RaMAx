@@ -30,6 +30,7 @@ extern "C" {
 //  Type aliases
 // ----------------------------------------------------------------------
 using SampledSA_t = sdsl::int_vector<0>;
+// using KmerTable_t = sdsl::int_vector<0>;
 using WtHuff_t = sdsl::wt_huff<sdsl::bit_vector>;
 
 // ----------------------------------------------------------------------
@@ -66,7 +67,7 @@ public:
         const FilePath& output_path,
         uint_t          thread);
 
-    bool buildIndexUsingDivfsort(
+    bool buildIndexUsingDivsufsort(
         uint_t          thread);
 
     bool buildIndexUsingCaPS(
@@ -97,10 +98,16 @@ public:
     uint_t LF(uint_t pos)                  const;
     SAInterval backwardExtend(const SAInterval& I, char c);
     AnchorPtrListVec findAnchors(ChrName query_chr, std::string query, SearchMode search_mode, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    uint_t findSubSeqAnchorsFast(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
     uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
     
     bool saveToFile(const std::string& filename) const;
     bool loadFromFile(const std::string& filename);
+
+    bool encode_kmer(const char* kmer, uint_t length, uint64_t code);
+
+    void build_kmer_table(uint_t k, uint_t thread_count);
+
 
 
 
@@ -133,27 +140,31 @@ public:
     void save(Archive& ar) const
     {
         ar(sample_rate,
-           total_size,
-           alpha_set,
-           alpha_set_without_N,
-           count_array,
-           char2idx,
-           sampled_sa,     // 走上面给 int_vector 写的 save()
-           wt_bwt);        // 走 wt_huff 的 save()
+            total_size,
+            alpha_set,
+            alpha_set_without_N,
+            count_array,
+            char2idx,
+            sampled_sa,     // SDSL 的 int_vector 序列化
+            wt_bwt         // SDSL 的 wavelet tree 序列化
+        );
     }
+
 
     template <class Archive>
     void load(Archive& ar)
     {
         ar(sample_rate,
-           total_size,
-           alpha_set,
-           alpha_set_without_N,
-           count_array,
-           char2idx,
-           sampled_sa,
-           wt_bwt);
+            total_size,
+            alpha_set,
+            alpha_set_without_N,
+            count_array,
+            char2idx,
+            sampled_sa,
+            wt_bwt
+        );
     }
+
 
     SpeciesName species_name;
     FastaManager* fasta_manager{ nullptr };
@@ -165,6 +176,9 @@ public:
     uint_t              sample_rate{ 32 };
     uint_t              total_size{ 0 };
     std::array<uint8_t, 256>  char2idx{};
+    //uint_t kmer_size;
+    //KmerTable_t kmer_table_left;
+    //KmerTable_t kmer_table_right;
 };
 
 #endif

@@ -170,11 +170,20 @@ int main(int argc, char** argv) {
 		common_args.min_anchor_length, common_args.max_anchor_frequency);
 	// PairRareAligner pra(common_args.work_dir_path, 1, 10000000, 100000, 20, 50);
 
-	pra.buildIndex("reference", species_path_map["reference"], true);
-	pra.alignQueryFile("query", species_path_map["query"], FAST_SEARCH);
+// 记录构建开始时间
+	auto t_start_build = std::chrono::steady_clock::now();
+	pra.buildIndex("reference", species_path_map["reference"], false);
+	auto t_end_build = std::chrono::steady_clock::now();
+	std::chrono::duration<double> build_time = t_end_build - t_start_build;
+	spdlog::info("Index built in {:.3f} seconds.", build_time.count());
 
-	// csa_wt<wt_huff<rrr_vector<127> >, 512, 1024> fm_index2;
-	
+	// 记录比对开始时间
+	auto t_start_align = std::chrono::steady_clock::now();
+	pra.alignQueryFile("query", species_path_map["query"], FAST_SEARCH);
+	auto t_end_align = std::chrono::steady_clock::now();
+	std::chrono::duration<double> align_time = t_end_align - t_start_align;
+	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
+
 	spdlog::info("RaMA-G exits!");
 
 	return 0;

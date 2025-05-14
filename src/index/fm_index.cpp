@@ -80,7 +80,7 @@ bool FM_Index::buildIndexUsingCaPSImpl(const std::string& T, uint_t thread_count
 
 
 
-bool FM_Index::buildIndexUsingDivfsort(
+bool FM_Index::buildIndexUsingDivsufsort(
 	uint_t thread_count)
 {
 	// 1) Get the full concatenated sequence
@@ -153,7 +153,7 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
 	}
 	else {
 		if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
-			buildIndexUsingDivfsort(thread);
+			buildIndexUsingDivsufsort(thread);
 		}
 		else {
 			buildIndexUsingBigBWT(output_path, thread);
@@ -190,6 +190,8 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
 			count++;
 		}
 	}
+
+	// build_kmer_table(kmer_size, thread);
 
 
 	return true;
@@ -281,6 +283,51 @@ AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, Sea
 	return anchor_ptr_list_vec;
 }
 
+//uint_t FM_Index::findSubSeqAnchorsFast(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)
+//{
+//	uint_t left = 0;
+//	uint_t right = 0;
+//	uint64_t kmer_index = 0;
+//	
+//	if (kmer_size <= query_length) {
+//		bool encode_success = encode_kmer(query, kmer_size, kmer_index);
+//		if (encode_success) {
+//			left = kmer_table_left[kmer_index];
+//			right = kmer_table_right[kmer_index];
+//		}
+//	}
+//
+//	uint_t match_length = 0;
+//	SAInterval I = { 0, total_size - 1 };
+//	SAInterval next_I = { 0, total_size - 1 };
+//
+//	if (left != 0 || right != 0) {
+//		match_length = kmer_size;
+//		I = { left, right };
+//		next_I = { left, right };
+//	}
+//
+//	while (match_length < query_length) {
+//		next_I = backwardExtend(I, query[match_length]);
+//		if (next_I.l == next_I.r) break;
+//		match_length++;
+//		I = next_I;
+//	}
+//	uint_t frequency = I.r - I.l;
+//	if (frequency > max_anchor_frequency || match_length < min_anchor_length) {
+//		return 1;
+//	}
+//
+//	for (uint_t i = I.l; i < I.r; i++) {
+//		uint_t ref_pos = getSA(i);
+//		ChrName name = fasta_manager->getChrName(ref_pos, match_length);
+//		if (name.size() > 0) {
+//			region_vec.push_back(Region(name, ref_pos, match_length));
+//		}
+//
+//	}
+//	return match_length;
+//}
 
 uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
@@ -299,16 +346,18 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, Regio
 		return 1;
 	}
 
+	region_vec.reserve(region_vec.size() + frequency);
 	for (uint_t i = I.l; i < I.r; i++) {
 		uint_t ref_pos = getSA(i);
 		ChrName name = fasta_manager->getChrName(ref_pos, match_length);
 		if (name.size() > 0) {
 			region_vec.push_back(Region(name, ref_pos, match_length));
 		}
-
 	}
 	return match_length;
 }
+
+
 
 bool FM_Index::saveToFile(const std::string& filename) const
 {
@@ -329,3 +378,80 @@ bool FM_Index::loadFromFile(const std::string& filename)
     iar(*this);                                   // 调用上面 load()
     return static_cast<bool>(ifs);
 }
+
+//bool FM_Index::encode_kmer(const char* kmer, uint_t length, uint64_t code) {
+//	code = 0;
+//	for (uint_t i = 0; i < length; ++i) {
+//		code <<= 2;
+//		switch (kmer[i]) {
+//		case 'A': code |= 0; break;
+//		case 'C': code |= 1; break;
+//		case 'G': code |= 2; break;
+//		case 'T': code |= 3; break;
+//		default:
+//			return false;
+//		}
+//	}
+//	return true;
+//}
+//
+//
+//void FM_Index::build_kmer_table(uint_t k, uint_t thread_count) {
+//	const size_t table_size = 1ULL << (2 * k);  // 4^k
+//	// std::vector<SAInterval> kmer_table;
+//	kmer_table_left.resize(table_size);
+//	kmer_table_right.resize(table_size);
+//	const char base_table[4] = { 'A', 'C', 'G', 'T' };
+//
+//	ThreadPool pool(thread_count);
+//
+//	// 分段处理，每个任务处理一段 k-mer code 区间
+//	const size_t block_size = (table_size + thread_count - 1) / thread_count;  // 可调参数
+//	for (size_t block_start = 0; block_start < table_size; block_start += block_size) {
+//		size_t block_end = std::min(block_start + block_size, table_size);
+//
+//		pool.enqueue([=, &base_table]() {
+//			std::string kmer(k, 'A');  // 每线程本地缓冲，避免共享
+//
+//			for (uint64_t code = block_start; code < block_end; ++code) {
+//				uint64_t temp = code;
+//
+//				// 解码整数 → k-mer 字符串
+//				for (int i = k - 1; i >= 0; --i) {
+//					kmer[i] = base_table[temp & 0b11];
+//					temp >>= 2;
+//				}
+//
+//				SAInterval interval = { 0, total_size - 1 };
+//				SAInterval notfind_interval = { 0, 0 };
+//				bool find = true;	
+//				for (int i = k - 1; i >= 0 && !interval.empty(); --i) {
+//					interval = backwardExtend(interval, kmer[i]);
+//					if (interval.r == interval.l) {
+//						find = false;
+//						// kmer_table[code] = notfind_interval;
+//						kmer_table_left[code] = 0;
+//						kmer_table_right[code] = 0;
+//						break;
+//					}
+//				}
+//
+//				// 空区间表示未命中
+//				if (find) {
+//					kmer_table_left[code] = interval.l;
+//					kmer_table_right[code] = interval.r;
+//				}
+//				
+//			}
+//			});
+//	}
+//
+//	pool.waitAllTasksDone();
+//
+//	sdsl::util::bit_compress(kmer_table_left);
+//	sdsl::util::bit_compress(kmer_table_right);
+//
+//	return;
+//}
+
+
