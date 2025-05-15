@@ -53,6 +53,7 @@ std::vector<uint64_t> read_sa(const std::string& sa_file)
 }
 
 FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fasta_path, bool fast_build) {
+
 	FilePath ref_index_path = index_dir / prefix;
 
 	if (!std::filesystem::exists(ref_index_path)) {
@@ -81,9 +82,24 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 
 	return ref_index_path;
 }
-void PairRareAligner::alignQueryFile(const std::string prefix,
+AnchorPtrListVec PairRareAligner::findQueryFileAnchor(const std::string prefix,
 	const FilePath fasta_path, SearchMode search_mode)
 {
+	FilePath reuslt_dir_path = work_dir / RESULT_DIR;
+
+	if (!std::filesystem::exists(reuslt_dir_path)) {
+		std::filesystem::create_directories(reuslt_dir_path);
+	}
+
+	FilePath anchor_file = reuslt_dir_path / (prefix + "." + ANCHOR_EXTENSION);
+
+	if (std::filesystem::exists(anchor_file)) {
+		spdlog::info("Anchor file already exists, skipping indexing.");
+		AnchorPtrListVec result;
+		loadAnchors(anchor_file.string(), result);
+		return result;
+	}
+	
 	// 1) 打开 FASTA 并分片
 	FastaManager query_fasta_manager(fasta_path,
 		getFaiIndexPath(fasta_path));
@@ -133,9 +149,31 @@ void PairRareAligner::alignQueryFile(const std::string prefix,
 		);
 	}
 
-	return;
 
-	// 5) 后续处理——例如写出文件或进一步分析
-	// writeAnchors(prefix + ".anchors", all_results);
+	saveAnchors(anchor_file.string(), all_results);
+
+	
+	return std::move(all_results);
+
+}
+
+void PairRareAligner::filterAnchors(AnchorPtrListVec& anchors)
+{
+	// 清空上次的结果
+	unique_anchors.clear();
+	repeat_anchors.clear();
+
+	// 遍历所有 AnchorPtrList
+	for (auto& alist : anchors) {
+		if (alist.size() == 1) {
+			// 只有一个 Anchor，那就是 MUM（唯一匹配）
+			unique_anchors.push_back(std::move(alist));
+		}
+		else {
+			// 多于一个的，都归为重复匹配
+			repeat_anchors.push_back(std::move(alist));
+		}
+	}
+	return;
 }
 

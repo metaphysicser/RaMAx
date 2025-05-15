@@ -179,7 +179,7 @@ int main(int argc, char** argv) {
 
 	// 记录比对开始时间
 	auto t_start_align = std::chrono::steady_clock::now();
-	pra.alignQueryFile("query", species_path_map["query"], FAST_SEARCH);
+	AnchorPtrListVec anchors = pra.findQueryFileAnchor("query", species_path_map["query"], FAST_SEARCH);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());

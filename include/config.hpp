@@ -44,6 +44,7 @@
 #define CHUNK_MAP_FILE "chunk_map.json"
 
 #define INDEX_DIR "index"
+#define RESULT_DIR "result"
 
 using FilePath = std::filesystem::path;
 using SpeciesName = std::string;
@@ -146,6 +147,8 @@ namespace cereal
 		std::string buf;  ar(buf);
 		string_to_sdsl(buf, wt);
 	}
+
+	
 } // namespace cereal
 
 // Custom formatter for CLI11, unify option display style

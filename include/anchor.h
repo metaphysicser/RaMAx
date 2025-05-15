@@ -6,11 +6,15 @@
 #include <memory>
 #include <vector>
 #include <algorithm>
-
+#include <cereal/types/vector.hpp>
+#include <cereal/types/list.hpp>
+#include <cereal/types/memory.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/box.hpp>
 #include <boost/geometry/index/rtree.hpp>
+
+#define ANCHOR_EXTENSION "anchor"
 
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
@@ -85,6 +89,37 @@ inline AnchorBox make_box(const Anchor& a) {
     AnchorPoint max_pt{ r.start + r.length, q.start + q.length };
     return AnchorBox{ min_pt, max_pt };
 }
+
+namespace cereal {
+
+    // Region
+    template <class Archive>
+    void serialize(Archive& ar, Region& r) {
+        ar(r.chr_name, r.start, r.length);
+    }
+
+    // Match
+    template <class Archive>
+    void serialize(Archive& ar, Match& m) {
+        ar(m.ref_region, m.query_region, m.strand);
+    }
+
+    // Anchor
+    template <class Archive>
+    void serialize(Archive& ar, Anchor& a) {
+        ar(a.match,
+            a.alignment_length,
+            a.cigar,
+            a.alignment_score);
+    }
+
+} // namespace cereal
+
+// 返回 true/false 表示保存是否成功
+bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors);
+
+// 将文件里的结果读到 anchors，返回是否成功
+bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors);
 
 // ------------------------------------------------------------------
 // 类：PairGenomeAnchor

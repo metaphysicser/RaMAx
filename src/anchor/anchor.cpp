@@ -46,3 +46,21 @@ std::vector<AnchorPtr> PairGenomeAnchor::query(const AnchorBox& region) const {
     }
     return out;
 }
+
+// 返回 true/false 表示保存是否成功
+bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors) {
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) return false;
+    cereal::BinaryOutputArchive oar(os);
+    oar(anchors);
+    return static_cast<bool>(os);
+}
+
+// 将文件里的结果读到 anchors，返回是否成功
+bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors) {
+    std::ifstream is(filename, std::ios::binary);
+    if (!is) return false;
+    cereal::BinaryInputArchive iar(is);
+    iar(anchors);
+    return static_cast<bool>(is);
+}
