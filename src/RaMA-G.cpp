@@ -179,10 +179,17 @@ int main(int argc, char** argv) {
 
 	// 记录比对开始时间
 	auto t_start_align = std::chrono::steady_clock::now();
-	AnchorPtrListVec anchors = pra.findQueryFileAnchor("query", species_path_map["query"], FAST_SEARCH);
+	AnchorPtrListVec anchors = pra.findQueryFileAnchor("query", species_path_map["query"], 
+		ACCURATE_SEARCH);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
+
+	auto t_start_filer = std::chrono::steady_clock::now();
+	pra.filterAnchors(anchors);
+	auto t_end_filer = std::chrono::steady_clock::now();
+	std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
+	spdlog::info("Anchors filtered in {:.3f} seconds.", filter_time.count());
 
 	spdlog::info("RaMA-G exits!");
 

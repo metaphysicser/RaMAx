@@ -229,6 +229,63 @@ SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
 
 AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, SearchMode search_mode, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
+	if (search_mode == FAST_SEARCH) {
+		return findAnchorsFast(query_chr, query, strand, query_offset, min_anchor_length, max_anchor_frequency);
+	}
+	else if (search_mode == ACCURATE_SEARCH)
+	{
+		return findAnchorsAccurate(query_chr, query, strand, query_offset, min_anchor_length, max_anchor_frequency);
+	}
+	else if (search_mode == MIDDLE_SEARCH)
+	{
+		return findAnchorsMiddle(query_chr, query, strand, query_offset, min_anchor_length, max_anchor_frequency);
+	}
+	else
+	{
+		throw std::invalid_argument("Invalid search mode");
+	}
+}
+
+AnchorPtrListVec FM_Index::findAnchorsFast(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
+{
+	if (strand == FORWARD) {
+		std::reverse(query.begin(), query.end());
+	}
+	else {
+		for (char& ch : query) {
+			ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
+		}
+	}
+	AnchorPtrListVec anchor_ptr_list_vec;
+
+	uint_t total_length = 0;
+	uint_t query_length = query.length();
+
+	while (total_length < query_length) {
+		RegionVec region_vec;
+		uint_t match_length = findSubSeqAnchors(query.c_str() + total_length, query_length - total_length,
+			region_vec, min_anchor_length, max_anchor_frequency);
+
+		if (region_vec.size() > 0) {
+			Region query_region(query_chr, total_length + query_offset, match_length);
+			AnchorPtrList anchor_ptr_list;
+				for (uint_t i = 0; i < region_vec.size(); i++) {
+					Match match(region_vec[i], query_region, strand);
+					Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
+					Cigar_t cigar;
+					cigar.push_back(cigarToInt('=', match_length));
+					AnchorPtr p = std::make_shared<Anchor>(match, match_length, cigar, score);
+					anchor_ptr_list.push_back(p);
+				}
+				anchor_ptr_list_vec.push_back(anchor_ptr_list);
+			}
+		total_length += match_length;
+	}
+	return anchor_ptr_list_vec;
+}
+
+AnchorPtrListVec FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
+{
 	if (strand == FORWARD) {
 		std::reverse(query.begin(), query.end());
 	}
@@ -243,19 +300,15 @@ AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, Sea
 	uint_t query_length = query.length();
 	uint_t last_pos = 0;
 	while (total_length < query_length) {
-		RegionVec region_vec;		
+		RegionVec region_vec;
 		uint_t match_length = findSubSeqAnchors(query.c_str() + total_length, query_length - total_length,
-				region_vec, min_anchor_length, max_anchor_frequency);
-		
+			region_vec, min_anchor_length, max_anchor_frequency);
+
 		if (region_vec.size() > 0) {
 			Region query_region(query_chr, total_length + query_offset, match_length);
 			AnchorPtrList anchor_ptr_list;
-
 			uint_t ref_end_pos = region_vec[0].start + match_length;
-			if (search_mode == ACCURATE_SEARCH && ref_end_pos == last_pos) {
-				total_length += match_length;
-			}
-			else {
+			if (ref_end_pos != last_pos) {
 				for (uint_t i = 0; i < region_vec.size(); i++) {
 					Match match(region_vec[i], query_region, strand);
 					Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
@@ -265,23 +318,85 @@ AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, Sea
 					anchor_ptr_list.push_back(p);
 				}
 				anchor_ptr_list_vec.push_back(anchor_ptr_list);
-
-				if (search_mode == FAST_SEARCH) {
-					total_length += match_length;
-				}
-				else if (search_mode == ACCURATE_SEARCH) {
-					total_length += min_anchor_length;
-				}
 			}
 			last_pos = ref_end_pos;
 		}
-		else {
-			total_length += 1;
-		}
-		
+		total_length += min_anchor_length;
 	}
 	return anchor_ptr_list_vec;
 }
+
+// -------------------------------------------------------------
+// Middle-Search：先 fast，后区间二分补搜
+// -------------------------------------------------------------
+AnchorPtrListVec FM_Index::findAnchorsAccurate(
+	ChrName query_chr,
+	std::string query,
+	Strand strand,
+	uint_t query_offset,
+	uint_t min_anchor_length,
+	uint_t max_anchor_frequency)
+{
+
+	AnchorPtrListVec out;
+	uint_t query_length = query.length();
+
+	/* ---------- STEP-0：先跑 Fast 拿到顶层 MUM ---------- */
+	AnchorPtrListVec fast_mums =
+		findAnchorsFast(query_chr, query, strand,
+			query_offset, min_anchor_length, max_anchor_frequency);
+
+	if (fast_mums.empty()) return out;
+
+	/* ---------- 方向处理，与 fast 保持一致 ---------- */
+	if (strand == FORWARD)
+		std::reverse(query.begin(), query.end());
+	else
+		for (char& ch : query)
+			ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
+
+	out.reserve(fast_mums.size());
+
+	uint_t count;
+	for (const auto& lst : fast_mums)
+	{
+		bool left_is_mum = (lst.size() == 1);
+
+		const Anchor& a = *lst.front();
+		uint_t L = a.match.query_region.start - query_offset;
+		uint_t n = a.match.query_region.length;
+		uint_t R = L + n;
+
+		out.push_back(lst);                       // fast 结果入库
+
+		// 右端位置（R-1）再做一次搜索，作为 bisect 的 right 端点
+		uint_t right_pos = R - 1;
+		RegionVec regs;
+		uint_t right_len = findSubSeqAnchors(
+			query.c_str() + right_pos,
+			query_length - right_pos,
+			regs,
+			min_anchor_length,
+			max_anchor_frequency);
+
+		bool right_is_mum = (regs.size() == 1);
+
+		// 调用成员函数递归补搜
+		bisectAnchors(query, query_chr, strand, query_offset, query_length,
+			min_anchor_length, max_anchor_frequency,
+			{ L, n,  left_is_mum },
+			{ right_pos, right_len, right_is_mum },
+			out);
+		count++;
+		// std::cout << "(" << count << "/" << fast_mums.size() << ") " << std::endl;
+	}
+
+	return out;
+
+}
+
+
+
 
 //uint_t FM_Index::findSubSeqAnchorsFast(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)
 //{
@@ -329,6 +444,67 @@ AnchorPtrListVec FM_Index::findAnchors(ChrName query_chr, std::string query, Sea
 //	return match_length;
 //}
 
+// -------------------------------------------------------------
+// 递归二分：把 (left.pos, right.pos) 区间彻底搜索干净
+// -------------------------------------------------------------
+void FM_Index::bisectAnchors(const std::string& query,
+	ChrName   query_chr,
+	Strand    strand,
+	uint_t    query_offset,
+	uint_t    query_length,
+	uint_t    min_len,
+	uint_t    max_freq,
+	const MUMInfo& left,
+	const MUMInfo& right,
+	AnchorPtrListVec& out)
+{
+	if (right.pos <= left.pos + 1) return;          // 区间不足 1bp
+
+	uint_t mid = left.pos + (right.pos - left.pos) / 2;
+
+	RegionVec regs;
+	uint_t mid_len = findSubSeqAnchors(
+		query.c_str() + mid,
+		query_length - mid,
+		regs, min_len, max_freq);
+
+	bool mid_is_mum = (regs.size() == 1);
+	bool same_as_left = (left.pos + left.len == mid + mid_len);
+	bool same_as_right = (right.pos + right.len == mid + mid_len);
+	// 如果mid_is_mum是false，写入，如果是true，判断same_as_left和same_as_right都为false则写入，否则不写入
+	/* ---- 若找到匹配就写结果 ---- */
+	if (!mid_is_mum || (!same_as_left && !same_as_right)) {
+		Region qreg(query_chr, mid + query_offset, mid_len);
+		AnchorPtrList lst;
+		for (auto const& rg : regs) {
+			Match  m(rg, qreg, strand);
+			Score_t sc = caculateMatchScore(query.c_str() + mid, mid_len);
+			Cigar_t cg = { cigarToInt('=', mid_len) };
+			lst.emplace_back(std::make_shared<Anchor>(m, mid_len, cg, sc));
+		}
+		out.emplace_back(std::move(lst));
+	}
+
+	/* ---- 递归左侧 ---- */
+	if (!(left.is_mum && same_as_left)) {
+		bisectAnchors(query, query_chr, strand, query_offset, query_length,
+			min_len, max_freq,
+			left,
+			{ mid, mid_len, mid_is_mum },
+			out);
+	}
+
+	/* ---- 递归右侧 ---- */
+	if (!(right.is_mum && same_as_right)) {
+		bisectAnchors(query, query_chr, strand, query_offset, query_length,
+			min_len, max_freq,
+			{ mid, mid_len, mid_is_mum },
+			right,
+			out);
+	}
+}
+
+
 uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
 	uint_t match_length = 0;
@@ -345,6 +521,9 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, Regio
 	if (frequency > max_anchor_frequency || match_length < min_anchor_length) {
 		return 1;
 	}
+	//if (frequency > max_anchor_frequency) {
+	//	return 1;
+	//}
 
 	region_vec.reserve(region_vec.size() + frequency);
 	for (uint_t i = I.l; i < I.r; i++) {

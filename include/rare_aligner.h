@@ -26,6 +26,7 @@ public:
 
     AnchorPtrListVec findQueryFileAnchor(const std::string prefix, const FilePath fasta_path, SearchMode search_mode);
 	void filterAnchors(AnchorPtrListVec& anchors);
+
 };
 #endif
 

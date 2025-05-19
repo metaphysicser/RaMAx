@@ -47,20 +47,61 @@ std::vector<AnchorPtr> PairGenomeAnchor::query(const AnchorBox& region) const {
     return out;
 }
 
-// 返回 true/false 表示保存是否成功
-bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors) {
+// ------------------------------------------------------------------
+// 高速保存：先写外层数量，再写每个 list 数量，随后连续写 Anchor
+// ------------------------------------------------------------------
+bool saveAnchors(const std::string& filename,
+    const AnchorPtrListVec& anchors)
+{
     std::ofstream os(filename, std::ios::binary);
     if (!os) return false;
+
     cereal::BinaryOutputArchive oar(os);
-    oar(anchors);
+
+    // 1) 写外层 vector 大小
+    uint64_t outer = anchors.size();
+    oar(outer);
+
+    // 2) 逐 list 写入其大小和全部 Anchor
+    for (const auto& lst : anchors) {
+        uint64_t inner = lst.size();
+        oar(inner);
+        for (const auto& ap : lst) {
+            oar(*ap);            // 只序列化 Anchor 对象本身
+        }
+    }
     return static_cast<bool>(os);
 }
 
-// 将文件里的结果读到 anchors，返回是否成功
-bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors) {
+// ------------------------------------------------------------------
+// 高速加载：按同样格式读回，现场 new Anchor 并建 shared_ptr
+// ------------------------------------------------------------------
+bool loadAnchors(const std::string& filename,
+    AnchorPtrListVec& anchors)
+{
     std::ifstream is(filename, std::ios::binary);
     if (!is) return false;
+
     cereal::BinaryInputArchive iar(is);
-    iar(anchors);
+
+    uint64_t outer;
+    iar(outer);
+
+    anchors.clear();
+    anchors.reserve(static_cast<size_t>(outer));
+
+    for (uint64_t i = 0; i < outer; ++i) {
+        uint64_t inner;
+        iar(inner);
+
+        AnchorPtrList lst;
+        for (uint64_t j = 0; j < inner; ++j) {
+            auto ap = std::make_shared<Anchor>();
+            iar(*ap);             // 直接把内容读到 *ap
+            lst.push_back(std::move(ap));
+        }
+        anchors.emplace_back(std::move(lst));
+    }
     return static_cast<bool>(is);
 }
+

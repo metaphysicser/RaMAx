@@ -46,8 +46,18 @@ struct SAInterval {
 
 enum SearchMode {
     FAST_SEARCH,
+    MIDDLE_SEARCH,
     ACCURATE_SEARCH
 };
+
+inline const char* SearchModeToString(SearchMode mode) {
+    switch (mode) {
+    case FAST_SEARCH:     return "fast";
+    case MIDDLE_SEARCH:   return "middle";
+    case ACCURATE_SEARCH: return "accurate";
+    default:              return "unknown";
+    }
+}
 
 // ----------------------------------------------------------------------
 //  FM-Index 类
@@ -98,6 +108,25 @@ public:
     uint_t LF(uint_t pos)                  const;
     SAInterval backwardExtend(const SAInterval& I, char c);
     AnchorPtrListVec findAnchors(ChrName query_chr, std::string query, SearchMode search_mode, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    AnchorPtrListVec findAnchorsFast(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    AnchorPtrListVec findAnchorsAccurate(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    AnchorPtrListVec findAnchorsMiddle(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    struct MUMInfo {
+        uint_t pos;     // query 上的起点
+        uint_t len;     // 匹配长度
+        bool   is_mum;  // true=MUM, false=MEM
+    };
+
+    void bisectAnchors(const std::string& query,
+        ChrName   query_chr,
+        Strand    strand,
+        uint_t    query_offset,
+        uint_t    query_length,
+        uint_t    min_anchor_length,
+        uint_t    max_anchor_frequency,
+        const MUMInfo& left,
+        const MUMInfo& right,
+        AnchorPtrListVec& out);
     uint_t findSubSeqAnchorsFast(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
     uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
     

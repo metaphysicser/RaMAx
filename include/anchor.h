@@ -115,6 +115,7 @@ namespace cereal {
 
 } // namespace cereal
 
+
 // 返回 true/false 表示保存是否成功
 bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors);
 
@@ -141,4 +142,7 @@ private:
     AnchorPtrListVec  anchors{};
     AnchorRTree   anchor_rtree{};
 };
+
+
+
 #endif // ANCHOR_H

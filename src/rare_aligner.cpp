@@ -82,80 +82,90 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 
 	return ref_index_path;
 }
-AnchorPtrListVec PairRareAligner::findQueryFileAnchor(const std::string prefix,
-	const FilePath fasta_path, SearchMode search_mode)
+#include <chrono>
+
+AnchorPtrListVec PairRareAligner::findQueryFileAnchor(
+	const std::string prefix,
+	const FilePath fasta_path,
+	SearchMode         search_mode)
 {
-	FilePath reuslt_dir_path = work_dir / RESULT_DIR;
+	namespace ch = std::chrono;
+	FilePath result_dir_path = work_dir / RESULT_DIR;
+	std::filesystem::create_directories(result_dir_path);
 
-	if (!std::filesystem::exists(reuslt_dir_path)) {
-		std::filesystem::create_directories(reuslt_dir_path);
-	}
+	FilePath anchor_file = result_dir_path /
+		(prefix + "_" + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
-	FilePath anchor_file = reuslt_dir_path / (prefix + "." + ANCHOR_EXTENSION);
-
+	/* ---------- 若已存在结果文件，直接加载 ---------- */
 	if (std::filesystem::exists(anchor_file)) {
-		spdlog::info("Anchor file already exists, skipping indexing.");
 		AnchorPtrListVec result;
 		loadAnchors(anchor_file.string(), result);
 		return result;
 	}
-	
-	// 1) 打开 FASTA 并分片
-	FastaManager query_fasta_manager(fasta_path,
-		getFaiIndexPath(fasta_path));
-	RegionVec chunks = query_fasta_manager.preAllocateChunks(chunk_size,
-		overlap_size);
 
-	// 2) 启动线程池并提交任务
+	/* ---------- 读取 FASTA 并分片 ---------- */
+	FastaManager query_fasta_manager(fasta_path, getFaiIndexPath(fasta_path));
+	RegionVec chunks = query_fasta_manager.preAllocateChunks(chunk_size, overlap_size);
+
+	/* ---------- ① 计时：搜索 Anchor ---------- */
+	auto t_search0 = ch::steady_clock::now();
+
 	ThreadPool pool(thread_num);
 	std::vector<std::future<AnchorPtrListVec>> futures;
 	futures.reserve(chunks.size());
 
-	for (auto& chunk : chunks) {
-		std::string seq = query_fasta_manager.getSubSequence(
-			chunk.chr_name, chunk.start, chunk.length);
+	for (const auto& ck : chunks) {
+		std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk, seq, search_mode]() -> AnchorPtrListVec {
+				[this, ck, seq, search_mode]() -> AnchorPtrListVec {
 					return ref_index.findAnchors(
-						chunk.chr_name,      // query_chr
-						seq,                 // query 序列
-						search_mode,
-						Strand::FORWARD,     // strand
-						chunk.start,         // query_offset
-						min_anchor_length,   // 最小锚点长度
-						max_anchor_frequency // 最大频次过滤
-					);
-				}
-			)
-		);
+						ck.chr_name, seq, search_mode,
+						Strand::FORWARD,
+						ck.start,
+						min_anchor_length,
+						max_anchor_frequency);
+				}));
 	}
 
-	// 3) 等待所有任务完成
 	pool.waitAllTasksDone();
 
-	// 4) 合并所有 future 的结果到一个 AnchorPtrListVec
-	AnchorPtrListVec all_results;
-	// （可视情况预估总组数并 reserve，这里简单用 chunks.size() 预留最外层容量）
-	all_results.reserve(chunks.size());
-
+	auto t_search1 = ch::steady_clock::now();
+	double search_ms = ch::duration<double, std::milli>(t_search1 - t_search0).count();
+	spdlog::info("[findQueryFileAnchor] search  = {:.3f} ms", search_ms);
+	/* ---------- ② 计时：合并 ---------- */
+	auto t_merge0 = ch::steady_clock::now();
+	std::vector<AnchorPtrListVec> parts;
+	parts.reserve(futures.size());
+	size_t total_lists = 0;
 	for (auto& fut : futures) {
 		AnchorPtrListVec part = fut.get();
-		all_results.insert(
-			all_results.end(),
-			std::make_move_iterator(part.begin()),
-			std::make_move_iterator(part.end())
-		);
+		total_lists += part.size();
+		parts.emplace_back(std::move(part));
 	}
 
+	AnchorPtrListVec all_results;
+	all_results.reserve(total_lists);
+	for (auto& part : parts)
+		for (auto& lst : part)
+			all_results.emplace_back(std::move(lst));
 
+	auto t_merge1 = ch::steady_clock::now();
+	double merge_ms = ch::duration<double, std::milli>(t_merge1 - t_merge0).count();
+	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
+	/* ---------- ③ 计时：保存 ---------- */
+	auto t_save0 = ch::steady_clock::now();
 	saveAnchors(anchor_file.string(), all_results);
+	auto t_save1 = ch::steady_clock::now();
+	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
 
-	
-	return std::move(all_results);
+	/* ---------- 打印统计 ---------- */
+	spdlog::info("[findQueryFileAnchor] save    = {:.3f} ms", save_ms);
 
+	return all_results;          // NRVO / move-elided
 }
+
 
 void PairRareAligner::filterAnchors(AnchorPtrListVec& anchors)
 {
@@ -176,4 +186,3 @@ void PairRareAligner::filterAnchors(AnchorPtrListVec& anchors)
 	}
 	return;
 }
-
