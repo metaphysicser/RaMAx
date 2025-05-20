@@ -45,6 +45,7 @@ struct KseqDeleter {
 };
 using KseqPtr = std::unique_ptr<kseq_t, KseqDeleter>;
 
+
 class FastaManager {
 public:
     FilePath fasta_path_;  // FASTA ÎÄ¼şÂ·¾¶

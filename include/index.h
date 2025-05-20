@@ -133,9 +133,9 @@ public:
     bool saveToFile(const std::string& filename) const;
     bool loadFromFile(const std::string& filename);
 
-    bool encode_kmer(const char* kmer, uint_t length, uint64_t code);
+   /* bool encode_kmer(const char* kmer, uint_t length, uint64_t code);
 
-    void build_kmer_table(uint_t k, uint_t thread_count);
+    void build_kmer_table(uint_t k, uint_t thread_count);*/
 
 
 

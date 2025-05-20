@@ -156,7 +156,7 @@ AnchorPtrListVec PairRareAligner::findQueryFileAnchor(
 	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
 	/* ---------- ③ 计时：保存 ---------- */
 	auto t_save0 = ch::steady_clock::now();
-	saveAnchors(anchor_file.string(), all_results);
+	// saveAnchors(anchor_file.string(), all_results);
 	auto t_save1 = ch::steady_clock::now();
 	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
 
