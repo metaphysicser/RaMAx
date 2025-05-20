@@ -139,8 +139,6 @@ private:
     void loadFaiRecords(const FilePath& fai_path);
 };
 
-
-using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
 //using ChrPathMap = std::unordered_map<Chr, FilePath>;
 //using SpeciesChrPathMap = std::unordered_map<Chr, ChrPathMap>;
 //using ChunkInfoVec = std::vector<ChunkInfo>;

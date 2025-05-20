@@ -29,40 +29,37 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 ---
 
-## 当前优先任务
+## 当前优先任务（🔴🟠🟢）
 
-### 功能开发
+### 对接架构开发
+- [x] 🔴在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
+- [ ] 🔴在anchor.h中完成AnchorPtrListVec和MUMmer的delta格式的互相转换，完成后两个人可以各自独立开发，zpl使用MUMmer的结果进行all2all的开发，tqz完成整体项目架构的开发
+### 索引和比对功能开发
+- [ ] 🟠在rare_aligner.h中MultipeRareAligner中增加buildIndex功能，完成所有基因组fmidex索引的构建
+- [ ] 🟠在rare_aligner.h中MultipeRareAligner中增加all-all比对函数，完成簇内高效并行all-all比对
+- [ ] 🟢在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red),并确保被掩蔽的序列不在参考序列中参与比对
+- [ ] 🟢在index.h中优化 MUM（最大唯一匹配）搜索性能
 
-1. **完善比对过程（src/rare\_aligner.cpp, alignQueryFile）**
+### 锚点过滤功能开发
+- [ ] 🔴在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
+- [ ] 🔴支持 MUMmer delta 输出（结果转换为delta格式，完成两人的对接），支持 lastz lav/axt 输出
+- [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
 
-   * 增加反向链比对，正反链结果分开处理
-   * 掩蔽序列不参与查询（后续可切换策略，建议多版本实现）
-   * 优化 MUM（最大唯一匹配）搜索性能
+### 完善整体框架
+- [ ] 🟢 实现进化树读取与解析，构建比对指导树
+- [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 all 模式（全 all-all 比对）
+- [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
+- [ ] 🟢 实现比对模块 RaMA-G（子命令 build、align、map）
+- [ ] 🟢 实现合并模块 RaMA-merge
+- [ ] 🟠 完善单元测试模块
 
-2. **完善锚点过滤（src/rare\_aligner.cpp, filterAnchors）**
-
-   * 参考 [MUMmer4 mgaps.cc](https://github.com/mummer4/mummer) 实现锚点聚类
-   * 参考 [lastz](https://lastz.github.io/lastz/#stage_chaining) 或 MUMmer4，实现比对结果筛选
-   * 比对结果支持输出 MUMmer delta、lastz lav/axt 及自定义格式
-   * 实现自定义格式与其他格式的相互转换（开发独立可执行程序）
-
-3. **完善整体框架**
-
-   * 进化树读取与解析，构建渐进式比对指导树
-   * 支持两种模式：基于聚类的渐进式比对（group 子命令）和全 all-all 比对（all 子命令）
-   * 每个阶段开发对应子程序，形成标准 pipeline
-
-     * 预处理阶段：RaMA-preprocess
-     * 双基因组比对：RaMA-G（子命令：build、align、map，预留扩展）
-     * 合并阶段：RaMA-merge
-   * 补充完整的单元测试模块
-
-4. **完成 all-all 合并阶段开发**
+### all-all 合并阶段开发
+- [ ] 🔴 完成rare_aligner.h中mergeAll2AllHSP，确认后续的开发任务
 
 ### 性能与结构优化
 
-* 优化 MUM 搜索相关算法
-* 优化 fasta\_manager 类，将清洗与索引功能解耦
+- [ ] 🟢优化 MUM 搜索相关算法
+- [ ] 🟠优化 fasta\_manager 类，将清洗与索引功能解耦
 
 ---
 
