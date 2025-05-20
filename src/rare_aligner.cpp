@@ -166,7 +166,10 @@ AnchorPtrListVec PairRareAligner::findQueryFileAnchor(
 	return all_results;          // NRVO / move-elided
 }
 
-
+// TODO 这个函数是用于筛选初步得到的锚点
+// 现在已有的代码是把MUM和MEM分开
+// 优先处理MUM，MEM是对MUM比对结果的补充
+// 最后返回到结果应该是AnchorPtrListVec。(我们现在做的内容是比对结果是一个ref区域对应一个query区域，AnchorPtr够用了，但后续可能会扩展到多对多，所以预先留好这个接口)
 void PairRareAligner::filterAnchors(AnchorPtrListVec& anchors)
 {
 	// 清空上次的结果
