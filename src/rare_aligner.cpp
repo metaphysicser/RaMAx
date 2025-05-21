@@ -82,12 +82,12 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 
 	return ref_index_path;
 }
-#include <chrono>
 
 AnchorPtrListVec PairRareAligner::findQueryFileAnchor(
 	const std::string prefix,
 	const FilePath fasta_path,
-	SearchMode         search_mode)
+	SearchMode         search_mode,
+	bool allow_MEM)
 {
 	namespace ch = std::chrono;
 	FilePath result_dir_path = work_dir / RESULT_DIR;
@@ -119,10 +119,11 @@ AnchorPtrListVec PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, ck, seq, search_mode]() -> AnchorPtrListVec {
+				[this, ck, seq, search_mode, allow_MEM]() -> AnchorPtrListVec {
 					return ref_index.findAnchors(
 						ck.chr_name, seq, search_mode,
 						Strand::FORWARD,
+						allow_MEM,
 						ck.start,
 						min_anchor_length,
 						max_anchor_frequency);
@@ -182,7 +183,7 @@ void PairRareAligner::filterAnchors(AnchorPtrListVec& anchors)
 			// 只有一个 Anchor，那就是 MUM（唯一匹配）
 			unique_anchors.push_back(std::move(alist));
 		}
-		else {
+		else if((alist.size() > 1)) {
 			// 多于一个的，都归为重复匹配
 			repeat_anchors.push_back(std::move(alist));
 		}
