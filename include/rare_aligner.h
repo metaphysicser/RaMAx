@@ -4,9 +4,9 @@
 #include "index.h"
 #include "threadpool.h"
 
-using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
 
-// ´ËÀàÔİÍ£¿ª·¢
+
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í£ï¿½ï¿½ï¿½ï¿½
 class PairRareAligner {
 public:
     FilePath work_dir;
@@ -32,7 +32,7 @@ public:
 
 };
 
-// Õâ¸öÀàÓÃÀ´Íê³É¶à»ùÒò×é±È¶Ô£¬tqz¸ºÔğÍê³ÉÕûÌå¿ò¼Ü£¬zpl¸ºÔğstarAlignGroup
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¶Ô£ï¿½tqzï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü£ï¿½zplï¿½ï¿½ï¿½ï¿½starAlignGroup
 class MultipeRareAligner {
 public:
     FilePath work_dir;
@@ -53,7 +53,7 @@ public:
     MultipeRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
     FilePath buildIndex(SpeciesPathMap species_path_map, bool fast_build = false);
 
-    // Õâ¸öº¯Êı¾ÍÊÇĞÇ±È¶ÔµÄÈë¿Ú
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç±È¶Ôµï¿½ï¿½ï¿½ï¿½
     void starAlignGroup(SpeciesPathMap species_path_map, FilePath hal_path);
 
 };

@@ -15,7 +15,7 @@
 #include "kseq.h"
 
 KSEQ_INIT(gzFile, gzread)
-
+using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
 class GzFileWrapper {
 public:
     explicit GzFileWrapper(const std::string& filename, const std::string& mode = "r") {
@@ -30,14 +30,14 @@ public:
         }
     }
     gzFile get() const { return fp_; }
-    // ½ûÖ¹¸´ÖÆ
+    // ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½
     GzFileWrapper(const GzFileWrapper&) = delete;
     GzFileWrapper& operator=(const GzFileWrapper&) = delete;
 private:
     gzFile fp_{ nullptr };
 };
 
-// ·â×° kseq_t*£¬Ê¹ÓÃ×Ô¶¨ÒåÉ¾³ýÆ÷×Ô¶¯µ÷ÓÃ kseq_destroy
+// ï¿½ï¿½×° kseq_t*ï¿½ï¿½Ê¹ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½É¾ï¿½ï¿½ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ kseq_destroy
 struct KseqDeleter {
     void operator()(kseq_t* seq) const {
         if (seq) kseq_destroy(seq);
@@ -48,11 +48,11 @@ using KseqPtr = std::unique_ptr<kseq_t, KseqDeleter>;
 
 class FastaManager {
 public:
-    FilePath fasta_path_;  // FASTA ÎÄ¼þÂ·¾¶
-    FilePath fai_path_;    // ¿ÉÑ¡ .fai Ë÷ÒýÎÄ¼þÂ·¾¶
+    FilePath fasta_path_;  // FASTA ï¿½Ä¼ï¿½Â·ï¿½ï¿½
+    FilePath fai_path_;    // ï¿½ï¿½Ñ¡ .fai ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½Â·ï¿½ï¿½
     bool has_n_in_fasta = false;
 
-    // ¹¹Ôìº¯ÊýÓëÎö¹¹º¯Êý£º²ÉÓÃ RAII£¬²»ÔÙÐèÒªÔÚÎö¹¹º¯ÊýÖÐÊÖ¶¯ÊÍ·Å×ÊÔ´
+    // ï¿½ï¿½ï¿½ìº¯ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ RAIIï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¶ï¿½ï¿½Í·ï¿½ï¿½ï¿½Ô´
     FastaManager() = default;
     FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
         : fasta_path_(fasta_path), fai_path_(fai_path)
@@ -60,24 +60,24 @@ public:
         if (!fai_path.empty()) {
             loadFaiRecords(fai_path);
         }
-        fasta_open(); // ´ò¿ª FASTA ÎÄ¼þ²¢³õÊ¼»¯½âÎöÆ÷
+        fasta_open(); // ï¿½ï¿½ FASTA ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     }
-    ~FastaManager() = default; // unique_ptr ×Ô¶¯ÊÍ·Å×ÊÔ´
+    ~FastaManager() = default; // unique_ptr ï¿½Ô¶ï¿½ï¿½Í·ï¿½ï¿½ï¿½Ô´
 
     FastaManager(FastaManager&&) = default;
     FastaManager& operator=(FastaManager&&) = default;
 
-    // ¶ÁÈ¡ÏÂÒ»¸ö FASTA ¼ÇÂ¼£¨header ÓëÐòÁÐ£©
+    // ï¿½ï¿½È¡ï¿½ï¿½Ò»ï¿½ï¿½ FASTA ï¿½ï¿½Â¼ï¿½ï¿½header ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½
     bool nextRecord(std::string& header, std::string& sequence);
 
-    // ÖØÖÃ¶ÁÈ¡µ½ÎÄ¼þ¿ªÍ·£¨²ÉÓÃ RAII ÖØ½¨½âÎöÆ÷£©
+    // ï¿½ï¿½ï¿½Ã¶ï¿½È¡ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½Í·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ RAII ï¿½Ø½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     void reset();
 
-    // ½«ËùÓÐ¼ÇÂ¼Æ´½Ó³ÉÒ»¸ö×Ö·û´®£¨Ê¹ÓÃ ostringstream ÓÅ»¯×Ö·û´®Æ´½Ó£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¼ï¿½Â¼Æ´ï¿½Ó³ï¿½Ò»ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ ostringstream ï¿½Å»ï¿½ï¿½Ö·ï¿½ï¿½ï¿½Æ´ï¿½Ó£ï¿½
     std::string concatRecords(char terminator = '\0',
         size_t limit = std::numeric_limits<size_t>::max());
 
-    // FASTA ÎÄ¼þÍ³¼ÆÐÅÏ¢
+    // FASTA ï¿½Ä¼ï¿½Í³ï¿½ï¿½ï¿½ï¿½Ï¢
     struct Stats {
         size_t record_count = 0;
         size_t total_bases = 0;
@@ -87,28 +87,28 @@ public:
     };
     Stats getStats();
 
-    // ÇåÏ´ FASTA ÐòÁÐ²¢Ð´ÈëÐÂÎÄ¼þ
+    // ï¿½ï¿½Ï´ FASTA ï¿½ï¿½ï¿½Ð²ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
     FilePath writeCleanedFasta(const FilePath& output_file, uint64_t line_width = 60);
 
-    // ÇåÏ´²¢Éú³É FASTA Óë FAI ÎÄ¼þ
+    // ï¿½ï¿½Ï´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ FASTA ï¿½ï¿½ FAI ï¿½Ä¼ï¿½
     FilePath cleanAndIndexFasta(const FilePath& output_dir,
         const std::string& prefix,
         uint64_t line_width = 60);
 
-    // FAI ¼ÇÂ¼Êý¾Ý½á¹¹
+    // FAI ï¿½ï¿½Â¼ï¿½ï¿½ï¿½Ý½á¹¹
     struct FaiRecord {
-        std::string seq_name;    // ÐòÁÐÃû³Æ£¨ÀýÈç "chr1"£©
+        std::string seq_name;    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ£ï¿½ï¿½ï¿½ï¿½ï¿½ "chr1"ï¿½ï¿½
         uint_t global_start_pos;
-        uint_t length;           // ÐòÁÐ³¤¶È
-        uint_t offset;           // ÐòÁÐÔÚÎÄ¼þÖÐµÄ×Ö½ÚÆ«ÒÆÁ¿
-        uint_t line_bases;       // Ã¿ÐÐ¼î»ùÊý£¨ÀýÈç 60£©
-        uint_t line_bytes;       // Ã¿ÐÐ×Ö½ÚÊý£¨°üÀ¨»»ÐÐ·û£©
+        uint_t length;           // ï¿½ï¿½ï¿½Ð³ï¿½ï¿½ï¿½
+        uint_t offset;           // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½Ðµï¿½ï¿½Ö½ï¿½Æ«ï¿½ï¿½ï¿½ï¿½
+        uint_t line_bases;       // Ã¿ï¿½Ð¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 60ï¿½ï¿½
+        uint_t line_bytes;       // Ã¿ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð·ï¿½ï¿½ï¿½
     };
 
-    // Ê¹ÓÃ unordered_map ±£´æ FAI ¼ÇÂ¼
+    // Ê¹ï¿½ï¿½ unordered_map ï¿½ï¿½ï¿½ï¿½ FAI ï¿½ï¿½Â¼
     std::vector<FaiRecord> fai_records;
 
-    // ´ÓÖ¸¶¨ÐòÁÐÖÐ¸ù¾Ý·¶Î§ [start, end] ÌáÈ¡×ÓÐòÁÐ
+    // ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¸ï¿½ï¿½Ý·ï¿½Î§ [start, end] ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     std::string getSubSequence(const std::string& seq_name, size_t start, size_t length);
     std::string getSubConcatSequence(size_t start, size_t length);
 
@@ -118,24 +118,24 @@ public:
     RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
 private:
-    // RAII ·â×°ºó£¬²»ÔÙÖ±½ÓÊ¹ÓÃÔ­Ê¼Ö¸Õë
+    // RAII ï¿½ï¿½×°ï¿½ó£¬²ï¿½ï¿½ï¿½Ö±ï¿½ï¿½Ê¹ï¿½ï¿½Ô­Ê¼Ö¸ï¿½ï¿½
     std::unique_ptr<GzFileWrapper> gz_file_wrapper_;
     KseqPtr seq_;
 
     bool clean_data_{ false };
 
-    // ÐòÁÐÇåÏ´£º½«·Ç ACGTN µÄ×Ö·ûÌæ»»Îª N£¬Í¬Ê±¼ÇÂ¼ÊÇ·ñ´æÔÚ N
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ACGTN ï¿½ï¿½ï¿½Ö·ï¿½ï¿½æ»»Îª Nï¿½ï¿½Í¬Ê±ï¿½ï¿½Â¼ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ N
     void cleanSequence(std::string& seq);
 
-    // ´ò¿ª FASTA ÎÄ¼þºÍ³õÊ¼»¯ kseq ½âÎöÆ÷
+    // ï¿½ï¿½ FASTA ï¿½Ä¼ï¿½ï¿½Í³ï¿½Ê¼ï¿½ï¿½ kseq ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     void fasta_open();
 
-    // ÖØÐÂÉ¨Ãè FASTA ²¢Ð´Èë .fai ÎÄ¼þ
+    // ï¿½ï¿½ï¿½ï¿½É¨ï¿½ï¿½ FASTA ï¿½ï¿½Ð´ï¿½ï¿½ .fai ï¿½Ä¼ï¿½
     bool reScanAndWriteFai(const FilePath& fa_path,
         const FilePath& fai_path,
         size_t line_width) const;
 
-    // ¼ÓÔØ .fai ÎÄ¼þÖÐµÄ¼ÇÂ¼µ½ fai_records
+    // ï¿½ï¿½ï¿½ï¿½ .fai ï¿½Ä¼ï¿½ï¿½ÐµÄ¼ï¿½Â¼ï¿½ï¿½ fai_records
     void loadFaiRecords(const FilePath& fai_path);
 };
 
