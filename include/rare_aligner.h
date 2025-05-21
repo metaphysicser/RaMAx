@@ -32,7 +32,7 @@ public:
 
 };
 
-// 这个类用来完成多基因组比对，tqz负责完成整体框架，zpl负责mergeAll2AllHSP函数的实现
+// 这个类用来完成多基因组比对，tqz负责完成整体框架，zpl负责starAlignGroup
 class MultipeRareAligner {
 public:
     FilePath work_dir;
@@ -53,8 +53,8 @@ public:
     MultipeRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
     FilePath buildIndex(SpeciesPathMap species_path_map, bool fast_build = false);
 
-    // 这个函数输入是all-all比对过滤后的比对结果，我会把比对结果的hal文件指定的输入文件路径中，HSP就是过滤出的高分匹配
-    void mergeAll2AllHSP(AnchorPtrListVec& anchors, FilePath hal_path);
+    // 这个函数就是星比对的入口
+    void starAlignGroup(SpeciesPathMap species_path_map, FilePath hal_path);
 
 };
 #endif

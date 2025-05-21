@@ -17,10 +17,9 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 #### 比对阶段
 
-1. 为每组基因组构建 FM-index 索引。
-2. 将切片序列比对到组内所有基因组索引。
-3. 过滤比对所得锚点，完善比对结果。
-4. 合并所有比对结果为 hal 文件。
+1. 对组内找到中心星序列构建索引，把其他序列比对到中心星序列行
+2. 过滤比对结果，得到初步结果。对于剩下基因组的剩下部分，继续完成星比对，依次迭代
+3. 最后输出为hal文件
 
 #### 合并阶段
 
@@ -33,13 +32,11 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 ### 对接架构开发
 - [x] 🔴在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
-- [ ] 🔴在anchor.h中完成AnchorPtrListVec和MUMmer的delta格式的互相转换，完成后两个人可以各自独立开发，zpl使用MUMmer的结果进行all2all的开发，tqz完成整体项目架构的开发
 ### 索引和比对功能开发
-- [ ] 🟠在rare_aligner.h中MultipeRareAligner中增加buildIndex功能，完成所有基因组fmidex索引的构建
-- [ ] 🟠在rare_aligner.h中MultipeRareAligner中增加all-all比对函数，完成簇内高效并行all-all比对
+- [ ] 🟠在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
 - [ ] 🟢在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red),并确保被掩蔽的序列不在参考序列中参与比对
-- [ ] 🟢在index.h中优化 MUM（最大唯一匹配）搜索性能
-
+- [ ] 🟢在index.h中完成fmidex的优化，支持拼接的序列用\01作为分割符号
+- [ ] 🟢在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
 ### 锚点过滤功能开发
 - [ ] 🔴在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
 - [ ] 🔴支持 MUMmer delta 输出（结果转换为delta格式，完成两人的对接），支持 lastz lav/axt 输出
@@ -47,19 +44,15 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 ### 完善整体框架
 - [ ] 🟢 实现进化树读取与解析，构建比对指导树
-- [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 all 模式（全 all-all 比对）
+- [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
-- [ ] 🟢 实现比对模块 RaMA-G（子命令 build、align、map）
+- [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge
+- [ ] 🟢 实现pipeline模块RaMA-prepare，输出所有命令完成比对
 - [ ] 🟠 完善单元测试模块
 
-### all-all 合并阶段开发
+### 星比对合并阶段开发
 - [ ] 🔴 完成rare_aligner.h中mergeAll2AllHSP，确认后续的开发任务
-
-### 性能与结构优化
-
-- [ ] 🟢优化 MUM 搜索相关算法
-- [ ] 🟠优化 fasta\_manager 类，将清洗与索引功能解耦
 
 ---
 
