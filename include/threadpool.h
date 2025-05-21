@@ -9,6 +9,47 @@
 #include <functional>
 #include <stdexcept>
 
+/* 一个简单的例子
+#include "threadpool.h"
+#include <iostream>
+#include <chrono>
+#include <vector>
+
+// 假设的任务函数：模拟每个线程处理一个文件
+void processFastaChunk(int id, int duration_ms) {
+	std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));  // 模拟耗时任务
+	std::cout << "任务 " << id << " 完成，耗时 " << duration_ms << "ms\n";
+}
+
+int main() {
+	// 创建一个包含 4 个线程的线程池
+	ThreadPool pool(4);
+
+	// 存储 future 对象，用于获取返回值或等待完成
+	std::vector<std::future<void>> futures;
+
+	// 启动多个任务
+	for (int i = 0; i < 10; ++i) {
+		int duration = 100 + (i % 5) * 100; // 每个任务持续 100~500ms
+		futures.emplace_back(
+			pool.enqueue(processFastaChunk, i, duration)
+		);
+	}
+
+	// 等待所有任务完成（可选，若不关心结果可以省略）
+	for (auto& fut : futures) {
+		fut.get();  // 等待并捕获异常
+	}
+
+	// 或者使用 ThreadPool 提供的等待方法
+	// pool.waitAllTasksDone();
+
+	std::cout << "所有任务完成。\n";
+	return 0;
+}
+
+*/
+
 // modified from https://github.com/progschj/ThreadPool.git
 class ThreadPool {
 public:

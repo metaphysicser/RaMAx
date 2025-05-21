@@ -1,34 +1,36 @@
-﻿// RaMA-G.cpp: 定义应用程序的入口点。
-//
+﻿// RaMAx.cpp: 定义应用程序的入口点。
+// 主程序：负责解析命令行参数，初始化配置，执行基因组比对流程
 
 #include "data_process.h"
 #include "config.hpp"
 #include "index.h"
 #include "anchor.h"
 #include "rare_aligner.h"
+
 using namespace std;
 
-
 int main(int argc, char** argv) {
-	// Initialize logger and thread pool
-	spdlog::init_thread_pool(8192, 1);
-	// setupLogger();
+	// 初始化异步日志线程池（spdlog）
+	spdlog::init_thread_pool(8192, 1);  // 日志缓冲区容量 8192，单线程日志写入
+	// setupLogger();  // 控制台输出日志（不带文件）
 
-	CLI::App app{ "RaMA-G: A High-performance Genome Alignment Tool" };
+	// 初始化 CLI 命令行应用
+	CLI::App app{ "RaMAx: A High-performance Genome Alignment Tool" };
 
-	CommonArgs common_args;
-	setupCommonOptions(&app, common_args);
-	CLI11_PARSE(app, argc, argv);
-
+	CommonArgs common_args;  // 存储用户输入的参数
+	setupCommonOptions(&app, common_args);  // 注册参数解析
+	CLI11_PARSE(app, argc, argv);  // 开始解析命令行参数
 
 	try {
-		// === Restart Mode Logic ===
+		// ------------------------------
+		// 模式 1：重启模式（--restart）
+		// ------------------------------
 		if (common_args.restart) {
 			if (common_args.work_dir_path.empty()) {
 				throw CLI::RequiredError("In restart mode, --workdir (-w) is required.");
 			}
 
-			// Check or create work directory (must be empty if exists)
+			// 检查工作目录是否存在
 			if (std::filesystem::exists(common_args.work_dir_path)) {
 				if (!std::filesystem::is_directory(common_args.work_dir_path)) {
 					throw CLI::ValidationError("Work directory is not valid: " + common_args.work_dir_path.string());
@@ -37,10 +39,13 @@ int main(int argc, char** argv) {
 			else {
 				std::filesystem::create_directories(common_args.work_dir_path);
 			}
+
+			// 初始化日志器
 			setupLoggerWithFile(common_args.work_dir_path);
-			spdlog::info("RaMA-G version {}", VERSION);
+			spdlog::info("RaMAx version {}", VERSION);
 			spdlog::info("Restart mode enabled.");
 
+			// 加载之前保存的参数配置文件
 			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
 			std::ifstream is(config_path);
 			if (!is) {
@@ -48,12 +53,15 @@ int main(int argc, char** argv) {
 				return false;
 			}
 			cereal::JSONInputArchive archive(is);
-			archive(common_args);
+			archive(common_args);  // 反序列化参数
 			spdlog::info("CommonArgs loaded from {}", config_path.string());
 		}
-		// === Normal Alignment Mode Logic ===
+
+		// ------------------------------
+		// 模式 2：正常运行模式
+		// ------------------------------
 		else {
-			// Validate required arguments
+			// 检查必要参数
 			if (common_args.reference_path.empty())
 				throw CLI::RequiredError("Missing required option: --reference (-r)");
 			if (common_args.query_path.empty())
@@ -62,8 +70,9 @@ int main(int argc, char** argv) {
 				throw CLI::RequiredError("Missing required option: --output (-o)");
 			if (common_args.work_dir_path.empty())
 				throw CLI::RequiredError("Missing required option: --workdir (-w)");
+
 #ifndef _DEBUG_
-			// Check or create work directory (must be empty if exists)
+			// 非调试模式下：确保工作目录为空
 			if (std::filesystem::exists(common_args.work_dir_path)) {
 				if (!std::filesystem::is_directory(common_args.work_dir_path)) {
 					throw CLI::ValidationError("Work directory is not valid: " + common_args.work_dir_path.string());
@@ -76,23 +85,21 @@ int main(int argc, char** argv) {
 				std::filesystem::create_directories(common_args.work_dir_path);
 			}
 #endif
+
 			setupLoggerWithFile(common_args.work_dir_path);
-			// Logging information for normal alignment mode
-			spdlog::info("RaMA-G version {}", VERSION);
+			spdlog::info("RaMAx version {}", VERSION);
 			spdlog::info("Alignment mode enabled.");
 
-			// 针对参考序列路径 (-r) 的验证
+			// 验证参考文件路径
 			std::string ref_str = common_args.reference_path.string();
 			if (isUrl(ref_str)) {
-				// 如果是 URL，检查是否可下载
 				verifyUrlReachable(ref_str);
 			}
 			else {
-				// 如果是本地文件，检查文件是否存在且为常规文件
 				verifyLocalFile(common_args.reference_path);
 			}
 
-			// 针对查询序列路径 (-q) 的验证
+			// 验证查询文件路径
 			std::string qry_str = common_args.query_path.string();
 			if (isUrl(qry_str)) {
 				verifyUrlReachable(qry_str);
@@ -101,18 +108,18 @@ int main(int argc, char** argv) {
 				verifyLocalFile(common_args.query_path);
 			}
 
-			// Detect output format from file extension
+			// 自动识别输出格式（支持 .sam / .maf / .paf）
 			common_args.output_format = detectOutputFormat(common_args.output_path);
 			if (common_args.output_format == OutputFormat::UNKNOWN) {
 				throw std::runtime_error("Invalid output file extension. Supported: .sam, .maf, .paf");
 			}
 
-			// overlap should be less than chunk_size
+			// 检查 chunk 和 overlap 参数
 			if (common_args.overlap_size >= common_args.chunk_size) {
 				throw std::runtime_error("Overlap size must be less than chunk size.");
 			}
 
-
+			// 保存参数配置文件（用于 --restart）
 			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
 			std::ofstream os(config_path);
 			if (!os) {
@@ -122,19 +129,18 @@ int main(int argc, char** argv) {
 			cereal::JSONOutputArchive archive(os);
 			archive(cereal::make_nvp("common_args", common_args));
 			spdlog::info("CommonArgs saved to {}", config_path.string());
-
 		}
 	}
 	catch (const std::runtime_error& e) {
-		// Catch CLI parsing/validation errors and log
 		spdlog::error("{}", e.what());
 		spdlog::error("Use --help for usage information.");
 		spdlog::error("Exiting with error code 1.");
 		return 1;
 	}
 
-
-	// TODO: Add alignment execution or restart handling here
+	// ------------------------------
+	// 主流程开始
+	// ------------------------------
 	spdlog::info("Command: {}", getCommandLine(argc, argv));
 
 	spdlog::info("Reference: {} (size: {})",
@@ -149,49 +155,66 @@ int main(int argc, char** argv) {
 	spdlog::info("Work directory: {}", common_args.work_dir_path.string());
 	spdlog::info("Threads: {}", common_args.thread_num);
 
+	// ------------------------------
+	// 数据预处理阶段
+	// ------------------------------
 	SpeciesPathMap species_path_map;
-	//SpeciesChrPathMap species_chr_path_map;
-	//SpeciesChunkInfoMap species_chunk_info_map;
 	species_path_map["reference"] = common_args.reference_path;
 	species_path_map["query"] = common_args.query_path;
 
+	// 拷贝或下载原始文件（并行执行）
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
+
+	// 清洗 FASTA 文件（统一格式，替换非法字符）
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-	//splitRawDataToChr(common_args.work_dir_path, species_path_map, species_chr_path_map, common_args.thread_num);
+	// 可选：按染色体拆分、按 chunk 切割（目前注释掉）
+	// splitRawDataToChr(...)
+	// splitChrToChunk(...)
 
-	//SpeciesChrPathMap tmp_species_chr_path_map = species_chr_path_map;
-	//// remove reference
-	//tmp_species_chr_path_map.erase("reference");
-	//splitChrToChunk(common_args.work_dir_path, tmp_species_chr_path_map, species_chunk_info_map, common_args.chunk_size, common_args.overlap_size, common_args.thread_num);
-	
-	PairRareAligner pra(common_args.work_dir_path, common_args.thread_num, 
-		common_args.chunk_size, common_args.overlap_size, 
-		common_args.min_anchor_length, common_args.max_anchor_frequency);
-	// PairRareAligner pra(common_args.work_dir_path, 1, 10000000, 100000, 20, 50);
+	// ------------------------------
+	// 初始化比对器
+	// ------------------------------
+	PairRareAligner pra(
+		common_args.work_dir_path,
+		common_args.thread_num,
+		common_args.chunk_size,
+		common_args.overlap_size,
+		common_args.min_anchor_length,
+		common_args.max_anchor_frequency
+	);
 
-// 记录构建开始时间
+	// ------------------------------
+	// 步骤 1：构建索引
+	// ------------------------------
 	auto t_start_build = std::chrono::steady_clock::now();
-	pra.buildIndex("reference", species_path_map["reference"], false);
+	pra.buildIndex("reference", species_path_map["reference"], false);  // 可切换 CaPS / divsufsort
 	auto t_end_build = std::chrono::steady_clock::now();
 	std::chrono::duration<double> build_time = t_end_build - t_start_build;
 	spdlog::info("Index built in {:.3f} seconds.", build_time.count());
 
-	// 记录比对开始时间
+	// ------------------------------
+	// 步骤 2：查询序列比对
+	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
-	AnchorPtrListVec anchors = pra.findQueryFileAnchor("query", species_path_map["query"], 
-		ACCURATE_SEARCH);
+	AnchorPtrListVec anchors = pra.findQueryFileAnchor(
+		"query", species_path_map["query"], ACCURATE_SEARCH);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
 
+	// ------------------------------
+	// 步骤 3：过滤锚点
+	// ------------------------------
 	auto t_start_filer = std::chrono::steady_clock::now();
 	pra.filterAnchors(anchors);
 	auto t_end_filer = std::chrono::steady_clock::now();
 	std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
 	spdlog::info("Anchors filtered in {:.3f} seconds.", filter_time.count());
 
-	spdlog::info("RaMA-G exits!");
-
+	// ------------------------------
+	// 退出
+	// ------------------------------
+	spdlog::info("RaMAx exits!");
 	return 0;
 }

@@ -1,26 +1,31 @@
 ﻿#ifndef CONFIG_HPP
 #define CONFIG_HPP
 
-
-#include "threadpool.h"
-#include "CLI/CLI.hpp"
+// ------------------------------------------------------------------
+// 引入头文件：功能模块包括线程池、命令行解析、日志系统、序列化库等
+// ------------------------------------------------------------------
+#include "threadpool.h"                          // 自定义线程池（可能用于并行加速）
+#include "CLI/CLI.hpp"                           // CLI11 命令行解析库
 #include "CLI/Formatter.hpp"
 #include "CLI/Config.hpp"
-#include "spdlog/spdlog.h"
-#include "spdlog/sinks/stdout_color_sinks.h"
-#include "spdlog/sinks/basic_file_sink.h"
-#include "spdlog/async.h"
-#include <cereal/archives/json.hpp> 
+
+#include "spdlog/spdlog.h"                       // spdlog 主头文件
+#include "spdlog/sinks/stdout_color_sinks.h"     // 控制台彩色输出 sink
+#include "spdlog/sinks/basic_file_sink.h"        // 文件输出 sink
+#include "spdlog/async.h"                        // 异步日志支持
+
+#include <cereal/archives/json.hpp>              // JSON 格式序列化
 #include <cereal/types/unordered_map.hpp>
 #include <cereal/types/vector.hpp>
 #include <cereal/types/string.hpp>
-#include <cereal/archives/binary.hpp>
+#include <cereal/archives/binary.hpp>            // 二进制格式支持
 #include <cereal/types/array.hpp>
 
-#include <sdsl/int_vector.hpp>
+#include <sdsl/int_vector.hpp>                   // SDSL 索引支持
 #include <sdsl/wt_huff.hpp>
 #include <sdsl/util.hpp>
 #include <sdsl/suffix_arrays.hpp>
+
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -29,13 +34,15 @@
 #include <filesystem>
 #include <unordered_map>
 
+// ------------------------------------------------------------------
+// 通用配置常量
+// ------------------------------------------------------------------
+#define VERSION "1.0.0"                   // 版本号
+#define LOGGER_NAME "logger"              // 默认日志器名称
+#define LOGGER_FILE "RaMAx.log"          // 默认日志文件名
+#define CONFIG_FILE "config.json"         // 配置文件路径
 
-#define VERSION "1.0.0"
-
-#define LOGGER_NAME "logger"
-#define LOGGER_FILE "RaMA-G.log"
-#define CONFIG_FILE "config.json"
-
+// 数据文件和工作路径定义
 #define DATA_DIR "data"	
 #define RAW_DATA_DIR "raw_data"
 #define CLEAN_DATA_DIR "clean_data"
@@ -46,148 +53,158 @@
 #define INDEX_DIR "index"
 #define RESULT_DIR "result"
 
-using FilePath = std::filesystem::path;
-using SpeciesName = std::string;
-using ChrName = std::string;
+// ------------------------------------------------------------------
+// 类型别名
+// ------------------------------------------------------------------
+using FilePath = std::filesystem::path;   // 文件路径
+using SpeciesName = std::string;          // 物种名称
+using ChrName = std::string;              // 染色体名称
 
+// ------------------------------------------------------------------
+// 调试与整数精度配置
+// ------------------------------------------------------------------
 #ifndef DEBUG
-	#define DEBUG 0
+#define DEBUG 0
 #endif
 
 #ifndef M64
-	#define M64 0
+#define M64 0
 #endif
 
+// 根据宏定义切换 32 位或 64 位整数
 #if M64
-	typedef int64_t	int_t;
-	typedef uint64_t uint_t;
-	#define PRIdN	PRId64
-	#define U_MAX	UINT64_MAX
-	#define I_MAX	INT64_MAX
-	#define I_MIN	INT64_MIN
+typedef int64_t	int_t;
+typedef uint64_t uint_t;
+#define PRIdN	PRId64
+#define U_MAX	UINT64_MAX
+#define I_MAX	INT64_MAX
+#define I_MIN	INT64_MIN
 #else
-	typedef int32_t int_t;
-	typedef uint32_t uint_t;
-	#define PRIdN	PRId32
-	#define U_MAX	UINT32_MAX
-	#define I_MAX	INT32_MAX
-	#define I_MIN	INT32_MIN
+typedef int32_t int_t;
+typedef uint32_t uint_t;
+#define PRIdN	PRId32
+#define U_MAX	UINT32_MAX
+#define I_MAX	INT32_MAX
+#define I_MIN	INT32_MIN
 #endif
 
+// ------------------------------------------------------------------
+// 常量：碱基互补表（大写、小写都支持）
+// 使用 C++17 constexpr lambda 构建 256 字节映射表
+// ------------------------------------------------------------------
 inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
 	std::array<char, 256> m{};
-
-	for (auto& c : m) c = 'N';
-	// 再覆盖 A/T, C/G, 大小写
+	for (auto& c : m) c = 'N'; // 默认所有字符都映射为 'N'
 	m['A'] = 'T';  m['T'] = 'A';
 	m['C'] = 'G';  m['G'] = 'C';
 	m['a'] = 't';  m['t'] = 'a';
 	m['c'] = 'g';  m['g'] = 'c';
 	return m;
-}();
+	}();
 
-namespace cereal
-{
-	// ---------- std::filesystem::path ----------
+// TODO 这部分序列化内容放在这里不合适，更改到其他位置
+// ------------------------------------------------------------------
+// cereal 序列化扩展：支持文件路径与 SDSL 结构
+// ------------------------------------------------------------------
+namespace cereal {
+
+	// std::filesystem::path 的序列化和反序列化
 	template<class Archive>
-	void save(Archive& ar, const std::filesystem::path& p)
-	{
+	void save(Archive& ar, const std::filesystem::path& p) {
 		ar(p.string());
 	}
 
 	template<class Archive>
-	void load(Archive& ar, std::filesystem::path& p)
-	{
+	void load(Archive& ar, std::filesystem::path& p) {
 		std::string tmp;  ar(tmp);
 		p = std::filesystem::path(tmp);
 	}
 
-	// ===============================================================
-	//  帮助函数：把 *任意* SDSL 对象转成字节串，再转回来
-	// ===============================================================
+	// 将 SDSL 对象序列化为字符串
 	template<typename SdslObj>
-	inline std::string sdsl_to_string(const SdslObj& obj)
-	{
+	inline std::string sdsl_to_string(const SdslObj& obj) {
 		std::ostringstream oss(std::ios::binary);
-		sdsl::serialize(obj, oss);          // 由 SDSL 决定写多少字节
+		sdsl::serialize(obj, oss);
 		return oss.str();
 	}
 
+	// 从字符串反序列化回 SDSL 对象
 	template<typename SdslObj>
-	inline void string_to_sdsl(const std::string& buf, SdslObj& obj)
-	{
+	inline void string_to_sdsl(const std::string& buf, SdslObj& obj) {
 		std::istringstream iss(buf, std::ios::binary);
-		sdsl::load(obj, iss);               // 由 SDSL 负责解析
+		sdsl::load(obj, iss);
 	}
 
-	// ---------- sdsl::int_vector<0> ----------
+	// 特化：sdsl::int_vector<0> 的序列化
 	template<class Archive>
-	void save(Archive& ar, const sdsl::int_vector<0>& v)
-	{
+	void save(Archive& ar, const sdsl::int_vector<0>& v) {
 		ar(sdsl_to_string(v));
 	}
 
 	template<class Archive>
-	void load(Archive& ar, sdsl::int_vector<0>& v)
-	{
+	void load(Archive& ar, sdsl::int_vector<0>& v) {
 		std::string buf;  ar(buf);
 		string_to_sdsl(buf, v);
 	}
 
-	// ---------- sdsl::wt_huff<bit_vector> ----------
+	// 特化：sdsl::wt_huff<bit_vector> 的序列化
 	template<class Archive>
-	void save(Archive& ar, const sdsl::wt_huff<sdsl::bit_vector>& wt)
-	{
+	void save(Archive& ar, const sdsl::wt_huff<sdsl::bit_vector>& wt) {
 		ar(sdsl_to_string(wt));
 	}
 
 	template<class Archive>
-	void load(Archive& ar, sdsl::wt_huff<sdsl::bit_vector>& wt)
-	{
+	void load(Archive& ar, sdsl::wt_huff<sdsl::bit_vector>& wt) {
 		std::string buf;  ar(buf);
 		string_to_sdsl(buf, wt);
 	}
 
-	
 } // namespace cereal
 
-// Custom formatter for CLI11, unify option display style
+// ------------------------------------------------------------------
+// CLI11 自定义格式器（美化选项输出）
+// ------------------------------------------------------------------
 class CustomFormatter : public CLI::Formatter {
 public:
 	CustomFormatter() : Formatter() {}
 
-	// Display option format as [VALUE], remove "TEXT REQUIRED" style
+	// 自定义参数展示样式（带默认值）
 	std::string make_option_opts(const CLI::Option* opt) const override {
-		if (opt->get_type_size() == 0) return "";  // No display for flag options
+		if (opt->get_type_size() == 0) return "";
 		std::ostringstream out;
-		out << " " << opt->get_type_name();  // Automatically display <path> or <int>
+		out << " " << opt->get_type_name();
 		if (!opt->get_default_str().empty())
 			out << " (default: " << opt->get_default_str() << ")";
 		return out.str();
 	}
 
-	// Customize usage example for better readability
+	// 提供使用示例
 	std::string make_usage(const CLI::App* app, std::string name) const override {
 		std::ostringstream out;
 		out << "Usage:\n"
-			<< "  ./RaMA-G -r <ref.fa> -q <query.fa> -o <out_dir> [options]\n\n"
+			<< "  ./RaMAx -r <ref.fa> -q <query.fa> -o <out_dir> [options]\n\n"
 			<< "Example:\n"
-			<< "  ./RaMA-G -r ref.fa -q query.fa -o output/ -t 8\n\n";
+			<< "  ./RaMAx -r ref.fa -q query.fa -o output/ -t 8\n\n";
 		return out.str();
 	}
 };
 
-// Whitespace trimming validator for CLI11
+// ------------------------------------------------------------------
+// CLI11 自定义 validator：自动去除参数两侧空白
+// ------------------------------------------------------------------
 inline CLI::Validator trim_whitespace = CLI::Validator(
 	[](std::string& s) {
 		auto start = s.find_first_not_of(" \t\n\r");
 		auto end = s.find_last_not_of(" \t\n\r");
 		s = (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
-		return std::string();  // empty means valid
+		return std::string();  // 空字符串表示验证通过
 	}, ""
 );
 
-// Enum for output format types
+// TODO 这是双基因组比对格式的枚举，可能需要根据实际需求进行修改
+// ------------------------------------------------------------------
+// 枚举：输出格式
+// ------------------------------------------------------------------
 enum class OutputFormat {
 	SAM,
 	MAF,
@@ -195,7 +212,7 @@ enum class OutputFormat {
 	UNKNOWN
 };
 
-// Auto detect output format based on file extension
+// 根据输出文件扩展名自动判断输出格式
 inline OutputFormat detectOutputFormat(const std::filesystem::path& output_path) {
 	std::string ext = output_path.extension().string();
 	if (ext == ".sam") return OutputFormat::SAM;
@@ -204,7 +221,9 @@ inline OutputFormat detectOutputFormat(const std::filesystem::path& output_path)
 	return OutputFormat::UNKNOWN;
 }
 
-// Structure to store common command-line arguments
+// ------------------------------------------------------------------
+// 通用命令行参数结构体（可序列化）
+// ------------------------------------------------------------------
 struct CommonArgs {
 	std::filesystem::path reference_path = "";
 	std::filesystem::path query_path = "";
@@ -216,9 +235,10 @@ struct CommonArgs {
 	uint_t min_anchor_length = 20;
 	uint_t max_anchor_frequency = 50;
 	bool restart = false;
-	int thread_num = std::thread::hardware_concurrency();  // Default to hardware concurrency
+	int thread_num = std::thread::hardware_concurrency();  // 默认使用所有 CPU 核心
 	OutputFormat output_format = OutputFormat::UNKNOWN;
 
+	// 支持 cereal 序列化
 	template<class Archive>
 	void serialize(Archive& ar) {
 		ar(
@@ -234,37 +254,16 @@ struct CommonArgs {
 		);
 	}
 };
-//bool saveCommonArgs(const CommonArgs& args, const std::string& filename) {
-//	std::ofstream os(filename);
-//	if (!os) {
-//		spdlog::error("Failed to open {} for saving CommonArgs", filename);
-//		return false;
-//	}
-//	cereal::JSONOutputArchive archive(os);
-//	archive(args);
-//	spdlog::info("CommonArgs saved to {}", filename);
-//	return true;
-//}
-//
-//bool loadCommonArgs(CommonArgs& args, const std::string& filename) {
-//	std::ifstream is(filename);
-//	if (!is) {
-//		spdlog::error("Failed to open {} for loading CommonArgs", filename);
-//		return false;
-//	}
-//	cereal::JSONInputArchive archive(is);
-//	archive(args);
-//	spdlog::info("CommonArgs loaded from {}", filename);
-//	return true;
-//}
 
-// Setup CLI11 common options
+// ------------------------------------------------------------------
+// CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
+// ------------------------------------------------------------------
 inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 	auto fmt = std::make_shared<CustomFormatter>();
 	fmt->column_width(50);
 	cmd->formatter(fmt);
 
-	cmd->set_version_flag("-v,--version", std::string("RaMA-G version ") + VERSION);
+	cmd->set_version_flag("-v,--version", std::string("RaMAx version ") + VERSION);
 
 	auto* ref_opt = cmd->add_option("-r,--reference", args.reference_path,
 		"Path to the reference genome file (FASTA format).")
@@ -346,7 +345,11 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 		min_anchor_length_opt, max_anchor_frequency_opt);
 }
 
-// Setup logger with optional file output
+// ------------------------------------------------------------------
+// 日志系统初始化
+// ------------------------------------------------------------------
+
+// 控制台 + 文件日志
 inline void setupLoggerWithFile(std::filesystem::path log_dir) {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [%l] %v%$");
@@ -364,7 +367,7 @@ inline void setupLoggerWithFile(std::filesystem::path log_dir) {
 	spdlog::flush_every(std::chrono::seconds(3));
 }
 
-// Setup console-only logger
+// 控制台日志
 inline void setupLogger() {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 	console_sink->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [%l] %v%$");
@@ -378,7 +381,7 @@ inline void setupLogger() {
 	spdlog::flush_every(std::chrono::seconds(3));
 }
 
-// Get full command-line string for logging and reproducibility
+// 获取完整命令行字符串（用于日志记录和重现）
 inline std::string getCommandLine(int argc, char** argv) {
 	std::ostringstream cmd;
 	for (int i = 0; i < argc; ++i) {

@@ -6,7 +6,7 @@
 
 
 
-// ������ͣ����
+// 暂时废弃
 class PairRareAligner {
 public:
     FilePath work_dir;
@@ -32,7 +32,7 @@ public:
 
 };
 
-// �����������ɶ������ȶԣ�tqz������������ܣ�zpl����starAlignGroup
+// 多基因组比对核心调度类
 class MultipeRareAligner {
 public:
     FilePath work_dir;
@@ -53,7 +53,6 @@ public:
     MultipeRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
     FilePath buildIndex(SpeciesPathMap species_path_map, bool fast_build = false);
 
-    // ������������ǱȶԵ����
     void starAlignGroup(SpeciesPathMap species_path_map, FilePath hal_path);
 
 };

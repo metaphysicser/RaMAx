@@ -1,5 +1,5 @@
 
-#  RaMA-G
+#  RaMAx
 
 ##  Build Instructions
 
@@ -29,8 +29,8 @@ sudo apt install -y \
 
 ```bash
 # Clone the repository
-git clone https://your.repo/RaMA-G.git
-cd RaMA-G
+git clone https://github.com/metaphysicser/RaMAx --recursive
+cd RaMAx
 
 # Create a build directory
 mkdir build && cd build
@@ -42,5 +42,5 @@ cmake ..
 make -j$(nproc)
 ```
 
-After successful build, the executable `RaMA-G` will be located in the `build/` directory.
+After successful build, the executable `RaMAx` will be located in the `build/` directory.
 
