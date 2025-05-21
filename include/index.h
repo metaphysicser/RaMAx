@@ -125,6 +125,7 @@ public:
         std::string query,
         SearchMode search_mode,
         Strand strand,
+        bool allow_MEM,
         uint_t query_offset,
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
@@ -133,6 +134,7 @@ public:
         ChrName query_chr,
         std::string query,
         Strand strand,
+        bool allow_MEM,
         uint_t query_offset,
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
@@ -141,6 +143,7 @@ public:
         ChrName query_chr,
         std::string query,
         Strand strand,
+        bool allow_MEM,
         uint_t query_offset,
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
@@ -149,6 +152,7 @@ public:
         ChrName query_chr,
         std::string query,
         Strand strand,
+        bool allow_MEM,
         uint_t query_offset,
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
@@ -166,6 +170,7 @@ public:
         const std::string& query,
         ChrName   query_chr,
         Strand    strand,
+        bool allow_MEM,
         uint_t    query_offset,
         uint_t    query_length,
         uint_t    min_anchor_length,
@@ -177,16 +182,18 @@ public:
     // -------------------------
     // 子串查找（返回匹配长度与区域）
     // -------------------------
-    uint_t findSubSeqAnchorsFast(
-        const char* query,
-        uint_t query_length,
-        RegionVec& region_vec,
-        uint_t min_anchor_length,
-        uint_t max_anchor_frequency);
+    //uint_t findSubSeqAnchorsFast(
+    //    const char* query,
+    //    uint_t query_length,
+    //    bool allow_MEM,
+    //    RegionVec& region_vec,
+    //    uint_t min_anchor_length,
+    //    uint_t max_anchor_frequency);
 
     uint_t findSubSeqAnchors(
         const char* query,
         uint_t query_length,
+        bool allow_MEM,
         RegionVec& region_vec,
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);

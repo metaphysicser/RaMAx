@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
 	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
 	AnchorPtrListVec anchors = pra.findQueryFileAnchor(
-		"query", species_path_map["query"], ACCURATE_SEARCH);
+		"query", species_path_map["query"], ACCURATE_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());

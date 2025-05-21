@@ -38,6 +38,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟠 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
 - [ ] 🟠 确保被掩蔽的序列不在参考序列中参与比对
 - [ ] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
+- [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
 
 ### 锚点过滤功能开发
 - [ ] 🔴 在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
