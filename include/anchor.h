@@ -9,15 +9,15 @@
 #include <cereal/types/vector.hpp>
 #include <cereal/types/list.hpp>
 #include <cereal/types/memory.hpp>
-#include <boost/geometry.hpp>
-#include <boost/geometry/geometries/point.hpp>
-#include <boost/geometry/geometries/box.hpp>
-#include <boost/geometry/index/rtree.hpp>
+//#include <boost/geometry.hpp>
+//#include <boost/geometry/geometries/point.hpp>
+//#include <boost/geometry/geometries/box.hpp>
+//#include <boost/geometry/index/rtree.hpp>
 
 #define ANCHOR_EXTENSION "anchor"
 
-namespace bg = boost::geometry;
-namespace bgi = boost::geometry::index;
+//namespace bg = boost::geometry;
+//namespace bgi = boost::geometry::index;
 
 // ------------------------------------------------------------------
 // 基础别名
@@ -77,18 +77,18 @@ using AnchorPtrList = std::list<AnchorPtr>;
 using AnchorPtrListVec = std::vector<AnchorPtrList>;
 
 // 空间索引类型
-using AnchorPoint = bg::model::point<Coord_t, 2, bg::cs::cartesian>;
-using AnchorBox = bg::model::box<AnchorPoint>;
-using AnchorEntry = std::pair<AnchorBox, AnchorPtr>;
-using AnchorRTree = bgi::rtree<AnchorEntry, bgi::quadratic<64>>;
-
-inline AnchorBox make_box(const Anchor& a) {
-    const auto& r = a.match.ref_region;
-    const auto& q = a.match.query_region;
-    AnchorPoint min_pt{ r.start, q.start };
-    AnchorPoint max_pt{ r.start + r.length, q.start + q.length };
-    return AnchorBox{ min_pt, max_pt };
-}
+//using AnchorPoint = bg::model::point<Coord_t, 2, bg::cs::cartesian>;
+//using AnchorBox = bg::model::box<AnchorPoint>;
+//using AnchorEntry = std::pair<AnchorBox, AnchorPtr>;
+//using AnchorRTree = bgi::rtree<AnchorEntry, bgi::quadratic<64>>;
+//
+//inline AnchorBox make_box(const Anchor& a) {
+//    const auto& r = a.match.ref_region;
+//    const auto& q = a.match.query_region;
+//    AnchorPoint min_pt{ r.start, q.start };
+//    AnchorPoint max_pt{ r.start + r.length, q.start + q.length };
+//    return AnchorBox{ min_pt, max_pt };
+//}
 
 namespace cereal {
 
@@ -125,24 +125,24 @@ bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors);
 // ------------------------------------------------------------------
 // 类：PairGenomeAnchor
 // ------------------------------------------------------------------
-class PairGenomeAnchor {
-public:
-    PairGenomeAnchor() = default;
-    PairGenomeAnchor(SpeciesName ref, SpeciesName query,
-        AnchorPtrListVec init_anchors);
-
-    void rebuild();
-    void insertAnchorRtree(AnchorPtr ap);
-    void removeAnchorRtree(AnchorPtr ap);
-    std::vector<AnchorPtr> query(const AnchorBox& region) const;
-
-private:
-    SpeciesName       ref_species{};
-    SpeciesName       query_species{};
-    AnchorPtrListVec  anchors{};
-    AnchorRTree   anchor_rtree{};
-};
-
+//class PairGenomeAnchor {
+//public:
+//    PairGenomeAnchor() = default;
+//    PairGenomeAnchor(SpeciesName ref, SpeciesName query,
+//        AnchorPtrListVec init_anchors);
+//
+//    void rebuild();
+//    void insertAnchorRtree(AnchorPtr ap);
+//    void removeAnchorRtree(AnchorPtr ap);
+//    std::vector<AnchorPtr> query(const AnchorBox& region) const;
+//
+//private:
+//    SpeciesName       ref_species{};
+//    SpeciesName       query_species{};
+//    AnchorPtrListVec  anchors{};
+//    AnchorRTree   anchor_rtree{};
+//};
+//
 
 
 #endif // ANCHOR_H

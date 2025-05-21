@@ -1,54 +1,54 @@
 #include "anchor.h"
 
-PairGenomeAnchor::PairGenomeAnchor(SpeciesName ref,
-    SpeciesName query,
-    AnchorPtrListVec init_anchors)
-    : ref_species(ref)
-    , query_species(query)
-    , anchors(std::move(init_anchors))
-{
-    rebuild();
-}
-
-void PairGenomeAnchor::rebuild() {
-    // 1) Çå¿Õ¾ÉµÄÊ÷
-    anchor_rtree.clear();
-
-    // 2) ±âÆ½»¯µØ°ÑËùÓÐ list ÖÐµÄ AnchorPtr ²åÈë R-tree
-    for (auto const& list_group : anchors) {
-        for (auto const& ap : list_group) {
-            anchor_rtree.insert({ make_box(*ap), ap });
-        }
-    }
-}
-
-void PairGenomeAnchor::insertAnchorRtree(AnchorPtr ap) {
-    anchor_rtree.insert({ make_box(*ap), ap });
-}
-
-void PairGenomeAnchor::removeAnchorRtree(AnchorPtr ap) {
-    // 1) ´Ó R-tree ÖÐÒÆ³ý
-    anchor_rtree.remove({ make_box(*ap), ap });
-
-}
-
-std::vector<AnchorPtr> PairGenomeAnchor::query(const AnchorBox& region) const {
-    // ÔÚ R-tree ÖÐ²éÕÒËùÓÐÏà½»µÄ AnchorEntry
-    std::vector<AnchorEntry> hits;
-    anchor_rtree.query(bgi::intersects(region),
-        std::back_inserter(hits));
-
-    // ³éÈ¡³öËùÓÐµÄ AnchorPtr
-    std::vector<AnchorPtr> out;
-    out.reserve(hits.size());
-    for (auto const& e : hits) {
-        out.push_back(e.second);
-    }
-    return out;
-}
+//PairGenomeAnchor::PairGenomeAnchor(SpeciesName ref,
+//    SpeciesName query,
+//    AnchorPtrListVec init_anchors)
+//    : ref_species(ref)
+//    , query_species(query)
+//    , anchors(std::move(init_anchors))
+//{
+//    rebuild();
+//}
+//
+//void PairGenomeAnchor::rebuild() {
+//    // 1) ï¿½ï¿½Õ¾Éµï¿½ï¿½ï¿½
+//    anchor_rtree.clear();
+//
+//    // 2) ï¿½ï¿½Æ½ï¿½ï¿½ï¿½Ø°ï¿½ï¿½ï¿½ï¿½ï¿½ list ï¿½Ðµï¿½ AnchorPtr ï¿½ï¿½ï¿½ï¿½ R-tree
+//    for (auto const& list_group : anchors) {
+//        for (auto const& ap : list_group) {
+//            anchor_rtree.insert({ make_box(*ap), ap });
+//        }
+//    }
+//}
+//
+//void PairGenomeAnchor::insertAnchorRtree(AnchorPtr ap) {
+//    anchor_rtree.insert({ make_box(*ap), ap });
+//}
+//
+//void PairGenomeAnchor::removeAnchorRtree(AnchorPtr ap) {
+//    // 1) ï¿½ï¿½ R-tree ï¿½ï¿½ï¿½Æ³ï¿½
+//    anchor_rtree.remove({ make_box(*ap), ap });
+//
+//}
+//
+//std::vector<AnchorPtr> PairGenomeAnchor::query(const AnchorBox& region) const {
+//    // ï¿½ï¿½ R-tree ï¿½Ð²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½à½»ï¿½ï¿½ AnchorEntry
+//    std::vector<AnchorEntry> hits;
+//    anchor_rtree.query(bgi::intersects(region),
+//        std::back_inserter(hits));
+//
+//    // ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½Ðµï¿½ AnchorPtr
+//    std::vector<AnchorPtr> out;
+//    out.reserve(hits.size());
+//    for (auto const& e : hits) {
+//        out.push_back(e.second);
+//    }
+//    return out;
+//}
 
 // ------------------------------------------------------------------
-// ¸ßËÙ±£´æ£ºÏÈÐ´Íâ²ãÊýÁ¿£¬ÔÙÐ´Ã¿¸ö list ÊýÁ¿£¬ËæºóÁ¬ÐøÐ´ Anchor
+// ï¿½ï¿½ï¿½Ù±ï¿½ï¿½æ£ºï¿½ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´Ã¿ï¿½ï¿½ list ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´ Anchor
 // ------------------------------------------------------------------
 bool saveAnchors(const std::string& filename,
     const AnchorPtrListVec& anchors)
@@ -58,23 +58,23 @@ bool saveAnchors(const std::string& filename,
 
     cereal::BinaryOutputArchive oar(os);
 
-    // 1) Ð´Íâ²ã vector ´óÐ¡
+    // 1) Ð´ï¿½ï¿½ï¿½ vector ï¿½ï¿½Ð¡
     uint64_t outer = anchors.size();
     oar(outer);
 
-    // 2) Öð list Ð´ÈëÆä´óÐ¡ºÍÈ«²¿ Anchor
+    // 2) ï¿½ï¿½ list Ð´ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½È«ï¿½ï¿½ Anchor
     for (const auto& lst : anchors) {
         uint64_t inner = lst.size();
         oar(inner);
         for (const auto& ap : lst) {
-            oar(*ap);            // Ö»ÐòÁÐ»¯ Anchor ¶ÔÏó±¾Éí
+            oar(*ap);            // Ö»ï¿½ï¿½ï¿½Ð»ï¿½ Anchor ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         }
     }
     return static_cast<bool>(os);
 }
 
 // ------------------------------------------------------------------
-// ¸ßËÙ¼ÓÔØ£º°´Í¬Ñù¸ñÊ½¶Á»Ø£¬ÏÖ³¡ new Anchor ²¢½¨ shared_ptr
+// ï¿½ï¿½ï¿½Ù¼ï¿½ï¿½Ø£ï¿½ï¿½ï¿½Í¬ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½Ø£ï¿½ï¿½Ö³ï¿½ new Anchor ï¿½ï¿½ï¿½ï¿½ shared_ptr
 // ------------------------------------------------------------------
 bool loadAnchors(const std::string& filename,
     AnchorPtrListVec& anchors)
@@ -97,7 +97,7 @@ bool loadAnchors(const std::string& filename,
         AnchorPtrList lst;
         for (uint64_t j = 0; j < inner; ++j) {
             auto ap = std::make_shared<Anchor>();
-            iar(*ap);             // Ö±½Ó°ÑÄÚÈÝ¶Áµ½ *ap
+            iar(*ap);             // Ö±ï¿½Ó°ï¿½ï¿½ï¿½ï¿½Ý¶ï¿½ï¿½ï¿½ *ap
             lst.push_back(std::move(ap));
         }
         anchors.emplace_back(std::move(lst));
