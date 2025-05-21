@@ -371,3 +371,9 @@ FodyWeavers.xsd
 /workdir-alignathon
 /workdir-alignathon2
 /submodule/
+/cmake-build-debug-wsl/
+/.idea/
+/test/data/simChimp.fa
+/test/data/simGorilla.fa
+/test/data/simHuman.fa
+/test/data/simOrang.fa
