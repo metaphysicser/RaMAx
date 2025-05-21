@@ -33,7 +33,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ### 对接架构开发
 - [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
 ### 索引和比对功能开发
-- [ ] 🟠 在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
+- [ ] 🔴 在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
 - [ ] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
 - [ ] 🟠 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
 - [ ] 🟠 确保被掩蔽的序列不在参考序列中参与比对
@@ -51,6 +51,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 实现合并模块 RaMA-merge
 - [ ] 🟢 实现pipeline模块RaMA-prepare，输出所有命令完成比对
 - [ ] 🟠 完善单元测试模块
+- [ ] 🟢 优化cmkae(如sdsl的编译速度)
 
 ### 星比对合并阶段开发
 - [ ] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务

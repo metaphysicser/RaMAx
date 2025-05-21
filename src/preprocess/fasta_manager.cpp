@@ -1,5 +1,8 @@
 #include "data_process.h"
 
+// -----------------------------
+// FastaManager: 管理 FASTA 文件的读取、清洗、索引等操作
+// -----------------------------
 //FastaManager::FastaManager()
 //{
 //
@@ -26,10 +29,9 @@
 //        fp_ = nullptr;
 //    }
 //}
-
+// 加载 .fai 索引文件，填充到 fai_records 中
 void FastaManager::loadFaiRecords(const FilePath& fai_path)
 {
-    // Open the .fai file
     std::ifstream in(fai_path);
     if (!in) {
         spdlog::error("Failed to open fai file: {}", fai_path.string());
@@ -37,44 +39,44 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
     }
 
     std::string line;
-    
+
+    // 读取第一行：是否包含 'N' 字符（YES 或 NO）
     std::getline(in, line);
-	if (line == "YES") {
-		has_n_in_fasta = true;
-	}
-	else if (line == "NO") {
-		has_n_in_fasta = false;
-	}
-	else {
-		spdlog::error("Invalid FAI file format: {}", fai_path.string());
-		throw std::runtime_error("Invalid FAI file format: " + fai_path.string());
-	}
+    if (line == "YES") {
+        has_n_in_fasta = true;
+    }
+    else if (line == "NO") {
+        has_n_in_fasta = false;
+    }
+    else {
+        spdlog::error("Invalid FAI file format: {}", fai_path.string());
+        throw std::runtime_error("Invalid FAI file format: " + fai_path.string());
+    }
+
     fai_records.clear();
+
+    // 每一行一个序列记录
     while (std::getline(in, line)) {
         if (line.empty()) continue;
-
-        // Parse the FAI line format: name length offset line_bases line_bytes
         std::istringstream iss(line);
 
         FaiRecord rec;
-        iss >> rec.seq_name >> rec.global_start_pos >>rec.length >> rec.offset >> rec.line_bases >> rec.line_bytes;
+        iss >> rec.seq_name >> rec.global_start_pos >> rec.length >> rec.offset >> rec.line_bases >> rec.line_bytes;
+
         if (iss.fail()) {
             spdlog::warn("Skipping malformed line in {}: {}", fai_path.string(), line);
             continue;
         }
-
-        // Insert the record into the unordered_map, using seq_name as the key
         fai_records.push_back(rec);
     }
-
     in.close();
 }
 
+// 读取下一个序列记录（通过 kseq），返回 false 表示读完
 bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
     int ret = kseq_read(seq_.get());
-    if (ret < 0) {
-        return false; // 无更多记录
-    }
+    if (ret < 0) return false;
+
     header.assign(seq_->name.s);
     sequence.assign(seq_->seq.s, seq_->seq.l);
 
@@ -84,13 +86,14 @@ bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
     return true;
 }
 
+// 关闭并重新打开 fasta 文件流，重置读取状态
 void FastaManager::reset() {
-    // 通过 unique_ptr 的 reset 释放旧资源，然后重新打开
     gz_file_wrapper_.reset();
     seq_.reset();
     fasta_open();
 }
 
+// 读取若干序列片段并拼接成一个长序列，设置终止符 terminator
 std::string FastaManager::concatRecords(char terminator, size_t limit) {
     reset();
     std::ostringstream oss;
@@ -98,17 +101,18 @@ std::string FastaManager::concatRecords(char terminator, size_t limit) {
     size_t count = 0;
 
     while (nextRecord(hdr, seq) && count < limit) {
-        oss << seq;  // 使用 ostringstream 拼接，减少不必要的内存拷贝
+        oss << seq;
         ++count;
     }
     std::string result = oss.str();
     if (!result.empty()) {
-        result.back() = terminator; // 替换最后一个分隔符为终止符
+        result.back() = terminator;
     }
     return result;
 }
 
-typename FastaManager::Stats FastaManager::getStats() {
+// 统计所有序列的数量、长度、最小值、最大值、平均值
+FastaManager::Stats FastaManager::getStats() {
     reset();
     Stats s;
     std::string hdr, seq;
@@ -128,6 +132,7 @@ typename FastaManager::Stats FastaManager::getStats() {
     return s;
 }
 
+// 将所有碱基字符转为大写，非法字符统一设为 N
 void FastaManager::cleanSequence(std::string& seq) {
     for (char& c : seq) {
         unsigned char uc = static_cast<unsigned char>(c);
@@ -135,7 +140,6 @@ void FastaManager::cleanSequence(std::string& seq) {
         if (!has_n_in_fasta && uc == 'N') {
             has_n_in_fasta = true;
         }
-        // 可加入 OpenMP 并行化优化（需要确定线程安全）
         if (uc != 'A' && uc != 'C' && uc != 'G' && uc != 'T' && uc != 'N') {
             uc = 'N';
         }
@@ -143,30 +147,31 @@ void FastaManager::cleanSequence(std::string& seq) {
     }
 }
 
+// 打开 gzip 格式的 fasta 文件，创建 kseq 结构体
 void FastaManager::fasta_open() {
-    // 使用 RAII 封装自动管理 gzFile 和 kseq_t 的生命周期
     gz_file_wrapper_ = std::make_unique<GzFileWrapper>(fasta_path_.string());
     seq_.reset(kseq_init(gz_file_wrapper_->get()));
 }
 
+// 如果 FAI 文件不存在，重新扫描 fasta 生成 FAI 文件（写入 YES/NO + 多行记录）
 bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     const FilePath& fai_path,
-    size_t line_width) const
-{
+    size_t line_width) const {
     if (std::filesystem::exists(fai_path)) {
         spdlog::warn("Fai file already exists: {}", fai_path.string());
         return true;
     }
+
     std::ifstream in(fa_path);
     if (!in) {
-        spdlog::error("Failed to open {} for reading in reScanAndWriteFai", fa_path.string());
+        spdlog::error("Failed to open {} for reading", fa_path.string());
         return false;
     }
 
     FilePath tmp_fai_path = getTempFilePath(fai_path);
     std::ofstream out(tmp_fai_path);
     if (!out) {
-        spdlog::error("Failed to open {} for writing .fai", fai_path.string());
+        spdlog::error("Failed to open {} for writing", tmp_fai_path.string());
         return false;
     }
 
@@ -179,8 +184,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     size_t seq_len = 0;
     size_t seq_start = 0;
     bool reading_seq = false;
-
-    size_t line_bytes_in_fasta = line_width + 1;
+    size_t line_bytes_in_fasta = line_width + 1; // 包括换行符
 
     while (std::getline(in, line)) {
         size_t this_line_bytes = line.size() + 1;
@@ -188,9 +192,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
         if (!line.empty() && line[0] == '>') {
             if (reading_seq) {
                 out << seq_name << "\t" << global_start_pos << "\t" << seq_len << "\t"
-                    << seq_start << "\t"
-                    << line_width << "\t"
-                    << line_bytes_in_fasta << "\n";
+                    << seq_start << "\t" << line_width << "\t" << line_bytes_in_fasta << "\n";
                 global_start_pos += seq_len;
             }
             seq_name = line.substr(1);
@@ -203,21 +205,19 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
         }
         global_offset += this_line_bytes;
     }
-    
+
     if (reading_seq) {
         out << seq_name << "\t" << global_start_pos << "\t" << seq_len << "\t"
-            << seq_start << "\t"
-            << line_width << "\t"
-            << line_bytes_in_fasta << "\n";
+            << seq_start << "\t" << line_width << "\t" << line_bytes_in_fasta << "\n";
     }
 
     in.close();
     out.close();
-
     std::filesystem::rename(tmp_fai_path, fai_path);
     spdlog::info("FAI index created: {}", fai_path.string());
     return true;
 }
+
 
 FilePath FastaManager::writeCleanedFasta(const FilePath& output_file, uint64_t line_width) {
     if (std::filesystem::exists(output_file)) {

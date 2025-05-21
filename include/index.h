@@ -1,55 +1,63 @@
 ﻿#ifndef INDEX_H
 #define INDEX_H
 
+// -------------------------
+// 依赖头文件
+// -------------------------
 #include "data_process.h"
 #include "anchor.h"
 #include "newscan.hpp"
 #include "bwtparse.hpp"
 #include "pfbwt.hpp"
+
 extern "C" {
-#include "gsa/gsacak_wrapper.h"
+#include "gsa/gsacak_wrapper.h"  // C语言实现的后缀数组构造器
 }
-#include "CaPS-SA/Suffix_Array.hpp"
+
+#include "CaPS-SA/Suffix_Array.hpp"  // 并行后缀数组构造器（CaPS）
 #include <sdsl/int_vector.hpp>
 #include <sdsl/wt_huff.hpp>
 #include <sdsl/util.hpp>
 #include <sdsl/suffix_arrays.hpp>
+
 #include "divsufsort64.h"
 #include "divsufsort.h"
 #include <cstdlib>
 
-// ----------------------------------------------------------------------
-//  Constants
-// ----------------------------------------------------------------------
-#define WINDOW_SIZE   10u
-#define STOP_MODULUS 100u
+// -------------------------
+// 常量定义
+// -------------------------
+#define WINDOW_SIZE   10u          // 默认滑动窗口大小
+#define STOP_MODULUS 100u          // 停止匹配阈值（用于 MEM/MUM）
+#define FMINDEX_EXTESION "fmidx"   // 索引文件后缀名
 
-#define FMINDEX_EXTESION "fmidx"
+// -------------------------
+// 类型定义
+// -------------------------
+using SampledSA_t = sdsl::int_vector<0>;                         // 压缩采样 SA
+using WtHuff_t = sdsl::wt_huff<sdsl::bit_vector>;                // BWT 的波形树表示（Huffman 编码）
 
-// ----------------------------------------------------------------------
-//  Type aliases
-// ----------------------------------------------------------------------
-using SampledSA_t = sdsl::int_vector<0>;
-// using KmerTable_t = sdsl::int_vector<0>;
-using WtHuff_t = sdsl::wt_huff<sdsl::bit_vector>;
-
-// ----------------------------------------------------------------------
-//  Suffix‑array 区间
-// ----------------------------------------------------------------------
+// -------------------------
+// 后缀数组区间结构（闭区间）
+// -------------------------
 struct SAInterval {
-    uint_t l{ 0 };
-    uint_t r{ 0 };
+    uint_t l{ 0 };   // 左端点
+    uint_t r{ 0 };   // 右端点（不包含）
 
     bool empty()    const noexcept { return l == r; }
     bool isUnique() const noexcept { return (r - l) == 1; }
 };
 
+// -------------------------
+// 枚举：锚点查找模式
+// -------------------------
 enum SearchMode {
-    FAST_SEARCH,
-    MIDDLE_SEARCH,
-    ACCURATE_SEARCH
+    FAST_SEARCH,      // 快速模式：一次一段，跳跃推进
+    MIDDLE_SEARCH,    // 中速模式：允许一定重复
+    ACCURATE_SEARCH   // 精确匹配：全局最优
 };
 
+// 将枚举转为字符串表示
 inline const char* SearchModeToString(SearchMode mode) {
     switch (mode) {
     case FAST_SEARCH:     return "fast";
@@ -59,65 +67,103 @@ inline const char* SearchModeToString(SearchMode mode) {
     }
 }
 
-// ----------------------------------------------------------------------
-//  FM-Index 类
-// ----------------------------------------------------------------------
+// -------------------------
+// FM-Index 主类
+// -------------------------
 class FM_Index {
 public:
-    // -------- 构造 & 析构 --------
+    // -------------------------
+    // 构造与初始化
+    // -------------------------
     FM_Index() = default;
     FM_Index(SpeciesName species_name, FastaManager* fasta_manager, uint_t sample_rate = 32);
 
-    // -------- 索引构建 --------
-    bool buildIndex(FilePath        output_path,
-        bool            fast_mode,
-        uint_t          thread);
+    // -------------------------
+    // 索引构建函数
+    // -------------------------
+    bool buildIndex(FilePath output_path, bool fast_mode, uint_t thread);
 
-    bool buildIndexUsingBigBWT(
-        const FilePath& output_path,
-        uint_t          thread);
+    // 使用外部工具构建大型 BWT
+    bool buildIndexUsingBigBWT(const FilePath& output_path, uint_t thread);
 
-    bool buildIndexUsingDivsufsort(
-        uint_t          thread);
+    // 使用 divsufsort 构建索引（适合小数据）
+    bool buildIndexUsingDivsufsort(uint_t thread);
 
-    bool buildIndexUsingCaPS(
-        uint_t          thread);
+    // 使用 CaPS 构建索引（并行后缀数组）
+    bool buildIndexUsingCaPS(uint_t thread);
 
+    // 模板化的 CaPS 实现（适配 32/64 位）
     template<typename index_t>
     bool buildIndexUsingCaPSImpl(const std::string& T, uint_t thread_count);
 
-
+    // -------------------------
+    // BWT/SA 从文件加载（快速恢复索引）
+    // -------------------------
     bool read_and_build_sampled_sa(const FilePath& sa_file_path);
     bool read_and_build_bwt(const FilePath& bwt_file_path);
 
-    bool newScan(const FilePath& fasta_path,
-        const FilePath& output_path,
-        uint_t          thread);
+    // -------------------------
+    // 高级构建方案（性能优化）- 实验性
+    // -------------------------
+    bool newScan(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
+    bool bwtParse(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
+    bool pfBWT(const FilePath& fasta_path, const FilePath& output_path, uint_t thread);
 
-    bool bwtParse(const FilePath& fasta_path,
-        const FilePath& output_path,
-        uint_t          thread);
+    // -------------------------
+    // SA / BWT 操作接口
+    // -------------------------
+    BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k); // 计算 SA（实验性）
+    uint_t getSA(uint_t pos) const;        // 从 BWT 位置反向求原始位置
+    uint_t LF(uint_t pos) const;           // LF 映射函数
+    SAInterval backwardExtend(const SAInterval& I, char c); // 扩展后缀区间
 
-    bool pfBWT(const FilePath& fasta_path,
-        const FilePath& output_path,
-        uint_t          thread);
+    // -------------------------
+    // 锚点查找接口（FAST/MIDDLE/ACCURATE 模式）
+    // -------------------------
+    AnchorPtrListVec findAnchors(
+        ChrName query_chr,
+        std::string query,
+        SearchMode search_mode,
+        Strand strand,
+        uint_t query_offset,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
 
-    // -------- SA 操作 --------
-    BWTParse::sa_index_t* compute_SA(uint32_t* Text, long n, long k);
-    uint_t getSA(uint_t pos)               const;
-    uint_t LF(uint_t pos)                  const;
-    SAInterval backwardExtend(const SAInterval& I, char c);
-    AnchorPtrListVec findAnchors(ChrName query_chr, std::string query, SearchMode search_mode, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    AnchorPtrListVec findAnchorsFast(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    AnchorPtrListVec findAnchorsAccurate(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    AnchorPtrListVec findAnchorsMiddle(ChrName query_chr, std::string query, Strand strand, uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    AnchorPtrListVec findAnchorsFast(
+        ChrName query_chr,
+        std::string query,
+        Strand strand,
+        uint_t query_offset,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
+
+    AnchorPtrListVec findAnchorsAccurate(
+        ChrName query_chr,
+        std::string query,
+        Strand strand,
+        uint_t query_offset,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
+
+    AnchorPtrListVec findAnchorsMiddle(
+        ChrName query_chr,
+        std::string query,
+        Strand strand,
+        uint_t query_offset,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
+
+    // -------------------------
+    // MEM / MUM 区间拆分辅助结构与算法
+    // -------------------------
     struct MUMInfo {
         uint_t pos;     // query 上的起点
         uint_t len;     // 匹配长度
         bool   is_mum;  // true=MUM, false=MEM
     };
 
-    void bisectAnchors(const std::string& query,
+    void bisectAnchors(
+        const std::string& query,
         ChrName   query_chr,
         Strand    strand,
         uint_t    query_offset,
@@ -127,9 +173,27 @@ public:
         const MUMInfo& left,
         const MUMInfo& right,
         AnchorPtrListVec& out);
-    uint_t findSubSeqAnchorsFast(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    uint_t findSubSeqAnchors(const char* query, uint_t query_length, RegionVec& region_vec, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    
+
+    // -------------------------
+    // 子串查找（返回匹配长度与区域）
+    // -------------------------
+    uint_t findSubSeqAnchorsFast(
+        const char* query,
+        uint_t query_length,
+        RegionVec& region_vec,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
+
+    uint_t findSubSeqAnchors(
+        const char* query,
+        uint_t query_length,
+        RegionVec& region_vec,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency);
+
+    // -------------------------
+    // 索引序列化 / 反序列化
+    // -------------------------
     bool saveToFile(const std::string& filename) const;
     bool loadFromFile(const std::string& filename);
 
