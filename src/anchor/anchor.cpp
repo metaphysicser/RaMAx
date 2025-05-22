@@ -112,3 +112,148 @@ bool loadAnchors(const std::string& filename,
     }
     return static_cast<bool>(is); // 返回读取是否成功
 }
+
+// ------------------------------------------------------------------
+// (1) 保存 std::vector<AnchorPtrListVec> 到文件
+// ------------------------------------------------------------------
+bool saveAnchorsSets(const std::string& filename,
+    const std::vector<AnchorPtrListVec>& all_sets)
+{
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) return false;
+
+    cereal::BinaryOutputArchive oar(os);
+
+    /* ---------- 写入最外层大小 ---------- */
+    uint64_t lvl0 = all_sets.size();
+    oar(lvl0);
+
+    /* ---------- 逐层写入 ---------- */
+    for (const auto& anchors : all_sets)
+    {
+        /* ---- 第二层：AnchorPtrListVec 大小 ---- */
+        uint64_t lvl1 = anchors.size();
+        oar(lvl1);
+
+        for (const auto& lst : anchors)
+        {
+            /* -- 第三层：AnchorPtrList 大小 -- */
+            uint64_t lvl2 = lst.size();
+            oar(lvl2);
+
+            for (const auto& ap : lst)
+                oar(*ap);          // 仅写 Anchor 对象内容
+        }
+    }
+    return static_cast<bool>(os);
+}
+
+// ------------------------------------------------------------------
+// (2) 从文件读取 std::vector<AnchorPtrListVec>
+// ------------------------------------------------------------------
+bool loadAnchorsSets(const std::string& filename,
+    std::vector<AnchorPtrListVec>& all_sets)
+{
+    std::ifstream is(filename, std::ios::binary);
+    if (!is) return false;
+
+    cereal::BinaryInputArchive iar(is);
+
+    uint64_t lvl0;
+    iar(lvl0);                         // 读取最外层大小
+
+    all_sets.clear();
+    all_sets.reserve(static_cast<size_t>(lvl0));
+
+    for (uint64_t i = 0; i < lvl0; ++i)
+    {
+        uint64_t lvl1;
+        iar(lvl1);                     // 读取第二层大小
+
+        AnchorPtrListVec anchors;
+        anchors.reserve(static_cast<size_t>(lvl1));
+
+        for (uint64_t j = 0; j < lvl1; ++j)
+        {
+            uint64_t lvl2;
+            iar(lvl2);                 // 读取第三层大小
+
+            AnchorPtrList lst;
+            for (uint64_t k = 0; k < lvl2; ++k)
+            {
+                auto ap = std::make_shared<Anchor>();
+                iar(*ap);              // 反序列化到对象
+                lst.push_back(std::move(ap));
+            }
+            anchors.emplace_back(std::move(lst));
+        }
+        all_sets.emplace_back(std::move(anchors));
+    }
+    return static_cast<bool>(is);
+}
+
+bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data) {
+    if (!data) return false;
+
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) return false;
+
+    cereal::BinaryOutputArchive oar(os);
+
+    uint64_t dim0 = data->size();  // 最外层维度
+    oar(dim0);
+
+    for (const auto& layer : *data) {
+        uint64_t dim1 = layer.size();  // 中间层维度
+        oar(dim1);
+
+        for (const auto& vec : layer) {
+            uint64_t dim2 = vec.size();  // 最内层 Anchor 数
+            oar(dim2);
+
+            for (const auto& anchor : vec) {
+                oar(anchor);  // 注意不是指针，这里是值类型 Anchor
+            }
+        }
+    }
+
+    return static_cast<bool>(os);
+}
+
+bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data) {
+    std::ifstream is(filename, std::ios::binary);
+    if (!is) return false;
+
+    cereal::BinaryInputArchive iar(is);
+
+    uint64_t dim0;
+    iar(dim0);
+
+    data = std::make_shared<AnchorVec3D>();
+    data->resize(dim0);
+
+    for (uint64_t i = 0; i < dim0; ++i) {
+        uint64_t dim1;
+        iar(dim1);
+
+        (*data)[i].resize(dim1);
+
+        for (uint64_t j = 0; j < dim1; ++j) {
+            uint64_t dim2;
+            iar(dim2);
+
+            AnchorVec vec;
+            vec.reserve(dim2);
+
+            for (uint64_t k = 0; k < dim2; ++k) {
+                Anchor a;
+                iar(a);
+                vec.push_back(std::move(a));
+            }
+
+            (*data)[i][j] = std::move(vec);
+        }
+    }
+
+    return static_cast<bool>(is);
+}

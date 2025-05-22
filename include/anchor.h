@@ -91,9 +91,16 @@ struct Anchor {
 
 using AnchorVec = std::vector<Anchor>;           // 一组 Anchor
 using AnchorPtr = std::shared_ptr<Anchor>;       // Anchor 的智能指针
+using AnchorPtrVec = std::vector<AnchorPtr>;    // Anchor 智能指针的集合
 using AnchorPtrList = std::list<AnchorPtr>;      // Anchor 指针链表
 using AnchorPtrListVec = std::vector<AnchorPtrList>; // Anchor 指针链表的集合（如按染色体分组）
+using AnchorVec2D = std::vector<AnchorVec>;
+using AnchorVec2DPtr = std::shared_ptr<AnchorVec2D>;
+using AnchorVec3D = std::vector<std::vector<AnchorVec>>;
+using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
 
+using AnchorsByRef = std::vector<AnchorVec>;
+using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------
@@ -149,6 +156,16 @@ bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors);
 // 从文件中读取 anchors（返回 true 表示成功）
 bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors);
 
+// 保存：all_sets -> filename
+bool saveAnchorsSets(const std::string& filename,
+    const std::vector<AnchorPtrListVec>& all_sets);
+
+// 读取：filename -> all_sets
+bool loadAnchorsSets(const std::string& filename,
+    std::vector<AnchorPtrListVec>& all_sets);
+
+bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data);
+bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data);
 // ------------------------------------------------------------------
 // （注释掉）双基因组比对结构体：用于管理两个物种之间的 Anchor 信息
 // ------------------------------------------------------------------

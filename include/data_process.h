@@ -22,6 +22,7 @@ KSEQ_INIT(gzFile, gzread)
 
 // 物种名到文件路径的映射
 using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
+using ChrIndexMap = std::unordered_map<ChrName, std::size_t>;
 
 // -----------------------------
 // GzFileWrapper：RAII 封装 gzopen/gzclose
@@ -69,6 +70,7 @@ public:
     FilePath fasta_path_;  // FASTA 文件路径
     FilePath fai_path_;    // 可选 .fai 索引文件路径
     bool has_n_in_fasta = false;
+    ChrIndexMap idx_map;
 
     // 构造函数与析构函数：采用 RAII，不再需要在析构函数中手动释放资源
     FastaManager() = default;
@@ -79,6 +81,10 @@ public:
             loadFaiRecords(fai_path);
         }
         fasta_open(); // 打开 FASTA 文件并初始化解析器
+        idx_map.reserve(fai_records.size());          // 预留桶，避免重复 rehash
+
+        for (std::size_t i = 0; i < fai_records.size(); ++i)
+            idx_map.emplace(fai_records[i].seq_name, i);  // 若有重复名称，后插入会被忽略
     }
     ~FastaManager() = default; // unique_ptr 自动释放资源
 
@@ -117,7 +123,7 @@ public:
     // FAI 索引记录结构
     // -----------------------------
     struct FaiRecord {
-        std::string seq_name;        // 序列名（如 chr1）
+        ChrName seq_name;        // 序列名（如 chr1）
         uint_t global_start_pos;    // 该序列在拼接序列中的全局起始坐标
         uint_t length;              // 碱基总数
         uint_t offset;              // 在文件中的偏移量（跳过注释）
