@@ -1,7 +1,7 @@
 #include "data_process.h"
 
 // -----------------------------
-// ¹¤¾ßº¯Êı£ºÅĞ¶Ï×Ö·û´®ÊÇ·ñÎª URL
+// å·¥å…·å‡½æ•°ï¼šåˆ¤æ–­å­—ç¬¦ä¸²æ˜¯å¦ä¸º URL
 // -----------------------------
 bool isUrl(const std::string& path_str) {
     static const std::regex url_pattern(R"(^(https?|ftp)://)");
@@ -9,7 +9,7 @@ bool isUrl(const std::string& path_str) {
 }
 
 // -----------------------------
-// ÑéÖ¤ URL ÊÇ·ñ¿É´ï£¨Í¨¹ı CURL ·¢ËÍ HEAD ÇëÇó£©
+// éªŒè¯ URL æ˜¯å¦å¯è¾¾ï¼ˆé€šè¿‡ CURL å‘é€ HEAD è¯·æ±‚ï¼‰
 // -----------------------------
 bool verifyUrlReachable(const std::string& url) {
     if (url.empty()) {
@@ -49,7 +49,7 @@ bool verifyUrlReachable(const std::string& url) {
 }
 
 // -----------------------------
-// ÑéÖ¤±¾µØÎÄ¼şÊÇ·ñ´æÔÚÇÒÎª³£¹æÎÄ¼ş
+// éªŒè¯æœ¬åœ°æ–‡ä»¶æ˜¯å¦å­˜åœ¨ä¸”ä¸ºå¸¸è§„æ–‡ä»¶
 // -----------------------------
 void verifyLocalFile(const FilePath& file_path) {
     if (!std::filesystem::exists(file_path)) {
@@ -61,8 +61,8 @@ void verifyLocalFile(const FilePath& file_path) {
     spdlog::info("Verified local file exists: {}", file_path.string());
 }
 
-// -----------------------------
-// CURL Ğ´Èë»Øµ÷º¯Êı£¬ÓÃÓÚÏÂÔØÊ±Ğ´ÈëÎÄ¼şÁ÷
+// ------------------------------
+// CURL å†™å…¥å›è°ƒå‡½æ•°ï¼Œç”¨äºä¸‹è½½æ—¶å†™å…¥æ–‡ä»¶æµ
 // -----------------------------
 size_t writeData(void* ptr, size_t size, size_t nmemb, void* stream) {
     std::ofstream* output_stream = static_cast<std::ofstream*>(stream);
@@ -72,7 +72,7 @@ size_t writeData(void* ptr, size_t size, size_t nmemb, void* stream) {
 }
 
 // -----------------------------
-// Ê¹ÓÃ CURL ÏÂÔØÎÄ¼şµ½Ö¸¶¨Â·¾¶
+// ä½¿ç”¨ CURL ä¸‹è½½æ–‡ä»¶åˆ°æŒ‡å®šè·¯å¾„
 // -----------------------------
 void downloadFile(const std::string& url, const FilePath& destination) {
     spdlog::info("Downloading {} to {}", url, destination.string());
@@ -107,7 +107,7 @@ void downloadFile(const std::string& url, const FilePath& destination) {
 }
 
 // -----------------------------
-// ¿½±´±¾µØÎÄ¼şµ½Ä¿±êÂ·¾¶
+// æ‹·è´æœ¬åœ°æ–‡ä»¶åˆ°ç›®æ ‡è·¯å¾„
 // -----------------------------
 void copyLocalFile(const FilePath& source, const FilePath& destination) {
     try {
@@ -120,18 +120,18 @@ void copyLocalFile(const FilePath& source, const FilePath& destination) {
 }
 
 // -----------------------------
-// »ñÈ¡ÎÄ¼şÀ©Õ¹Ãû×Ö·û´®
+// è·å–æ–‡ä»¶æ‰©å±•åå­—ç¬¦ä¸²
 // -----------------------------
 std::string getFileExtension(const FilePath& file_path) {
     return file_path.extension().string();
 }
 
 // -----------------------------
-// Ö÷Á÷³Ìº¯Êı£º¸´ÖÆ»òÏÂÔØËùÓĞÔ­Ê¼Êı¾İÎÄ¼ş
+// ä¸»æµç¨‹å‡½æ•°ï¼šå¤åˆ¶æˆ–ä¸‹è½½æ‰€æœ‰åŸå§‹æ•°æ®æ–‡ä»¶
 // -----------------------------
 bool copyRawData(const FilePath workdir_path, SpeciesPathMap& species_path_map, int thread_num) {
     try {
-        // Ô¤ÑéÖ¤ÎÄ¼şÂ·¾¶»ò URL
+        // é¢„éªŒè¯æ–‡ä»¶è·¯å¾„æˆ– URL
         for (const auto& [key, path] : species_path_map) {
             if (isUrl(path.string())) {
                 verifyUrlReachable(path.string());
@@ -141,12 +141,12 @@ bool copyRawData(const FilePath workdir_path, SpeciesPathMap& species_path_map, 
             }
         }
 
-        // ´´½¨Ô­Ê¼Êı¾İÎÄ¼ş¼Ğ
+        // åˆ›å»ºåŸå§‹æ•°æ®æ–‡ä»¶å¤¹
         FilePath raw_data_dir = workdir_path / DATA_DIR / RAW_DATA_DIR;
         std::filesystem::create_directories(raw_data_dir);
         spdlog::info("Created directory: {}", raw_data_dir.string());
 
-        // Ê¹ÓÃÏß³Ì³Ø²¢·¢Ö´ĞĞÏÂÔØ»ò¸´ÖÆ
+        // ä½¿ç”¨çº¿ç¨‹æ± å¹¶å‘æ‰§è¡Œä¸‹è½½æˆ–å¤åˆ¶
         ThreadPool pool(thread_num);
         for (auto it = species_path_map.begin(); it != species_path_map.end(); ++it) {
             const std::string& key = it->first;
@@ -186,7 +186,7 @@ bool copyRawData(const FilePath workdir_path, SpeciesPathMap& species_path_map, 
 }
 
 // -----------------------------
-// ÇåÏ´Ô­Ê¼Êı¾İ£ºµ÷ÓÃ FastaManager ÇåÀí²¢Ë÷Òı
+// æ¸…æ´—åŸå§‹æ•°æ®ï¼šè°ƒç”¨ FastaManager æ¸…ç†å¹¶ç´¢å¼•
 // -----------------------------
 bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_map, int thread_num) {
     ThreadPool pool(thread_num);
@@ -208,12 +208,12 @@ bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_m
 
 
 // -----------------------------
-// »ñÈ¡ÈËÀà¿É¶ÁµÄÎÄ¼ş´óĞ¡×Ö·û´®£¨×Ô¶¯×ª»¯Îª KB / MB / GB£©
+// è·å–äººç±»å¯è¯»çš„æ–‡ä»¶å¤§å°å­—ç¬¦ä¸²ï¼ˆè‡ªåŠ¨è½¬åŒ–ä¸º KB / MB / GBï¼‰
 // -----------------------------
 std::string getReadableFileSize(const FilePath& filePath) {
     std::string pathStr = filePath.string();
 
-    // ´¦ÀíÔ¶³Ì URL ÎÄ¼ş
+    // å¤„ç†è¿œç¨‹ URL æ–‡ä»¶
     if (pathStr.rfind("http://", 0) == 0 || pathStr.rfind("https://", 0) == 0) {
         CURL* curl = curl_easy_init();
         if (!curl) {
@@ -241,7 +241,7 @@ std::string getReadableFileSize(const FilePath& filePath) {
             return "0 B";
         }
 
-        // ×ª»»Îª¿É¶Áµ¥Î»
+        // è½¬æ¢ä¸ºå¯è¯»å•ä½
         size_t size = static_cast<size_t>(content_length);
         const char* units[] = { "B", "KB", "MB", "GB", "TB" };
         int unit_index = 0;
@@ -254,7 +254,7 @@ std::string getReadableFileSize(const FilePath& filePath) {
         snprintf(buf, sizeof(buf), "%.2f %s", display_size, units[unit_index]);
         return std::string(buf);
 
-        // ´¦Àí±¾µØÎÄ¼ş
+        // å¤„ç†æœ¬åœ°æ–‡ä»¶
     }
     else {
         try {
@@ -278,13 +278,13 @@ std::string getReadableFileSize(const FilePath& filePath) {
 }
 
 // -----------------------------
-// ÅĞ¶ÏÎÄ¼şÊÇ·ñĞ¡ÓÚÖ¸¶¨´óĞ¡£¨µ¥Î»£ºMB£©
+// åˆ¤æ–­æ–‡ä»¶æ˜¯å¦å°äºæŒ‡å®šå¤§å°ï¼ˆå•ä½ï¼šMBï¼‰
 // -----------------------------
 bool isFileSmallerThan(const FilePath& filePath, size_t maxSizeMB) {
     const std::string pathStr = filePath.string();
     const curl_off_t maxBytes = static_cast<curl_off_t>(maxSizeMB) * 1024 * 1024;
 
-    // ¶Ô URL ÎÄ¼şÊ¹ÓÃ CURL »ñÈ¡ Content-Length
+    // å¯¹ URL æ–‡ä»¶ä½¿ç”¨ CURL è·å– Content-Length
     if (pathStr.rfind("http://", 0) == 0 || pathStr.rfind("https://", 0) == 0) {
         CURL* curl = curl_easy_init();
         if (!curl) {
@@ -313,7 +313,7 @@ bool isFileSmallerThan(const FilePath& filePath, size_t maxSizeMB) {
 
         return content_length < maxBytes;
 
-        // ±¾µØÎÄ¼şÖ±½Ó»ñÈ¡´óĞ¡
+        // æœ¬åœ°æ–‡ä»¶ç›´æ¥è·å–å¤§å°
     }
     else {
         try {
@@ -328,8 +328,8 @@ bool isFileSmallerThan(const FilePath& filePath, size_t maxSizeMB) {
 }
 
 // -----------------------------
-// Éú³ÉÁÙÊ±ÎÄ¼şÂ·¾¶£¨ÓÃÓÚ´¦ÀíÖĞ¼äÎÄ¼ş£©
-// ÀıÈç a.fasta -> a_in_process.fasta
+// ç”Ÿæˆä¸´æ—¶æ–‡ä»¶è·¯å¾„ï¼ˆç”¨äºå¤„ç†ä¸­é—´æ–‡ä»¶ï¼‰
+// ä¾‹å¦‚ a.fasta -> a_in_process.fasta
 // -----------------------------
 FilePath getTempFilePath(const FilePath& input_path) {
     FilePath temp_file;
@@ -345,8 +345,8 @@ FilePath getTempFilePath(const FilePath& input_path) {
 }
 
 // -----------------------------
-// »ñÈ¡¶ÔÓ¦µÄ .fai Ë÷ÒıÎÄ¼şÂ·¾¶
-// ÀıÈç test.fasta -> test.fasta.fai
+// è·å–å¯¹åº”çš„ .fai ç´¢å¼•æ–‡ä»¶è·¯å¾„
+// ä¾‹å¦‚ test.fasta -> test.fasta.fai
 // -----------------------------
 FilePath getFaiIndexPath(const FilePath& fasta_path) {
     FilePath fai_path = fasta_path;

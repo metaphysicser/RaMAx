@@ -9,42 +9,42 @@
 #include <functional>
 #include <stdexcept>
 
-/* Ò»¸ö¼òµ¥µÄÀı×Ó
+/* ä¸€ä¸ªç®€å•çš„ä¾‹å­
 #include "threadpool.h"
 #include <iostream>
 #include <chrono>
 #include <vector>
 
-// ¼ÙÉèµÄÈÎÎñº¯Êı£ºÄ£ÄâÃ¿¸öÏß³Ì´¦ÀíÒ»¸öÎÄ¼ş
+//  å‡è®¾çš„ä»»åŠ¡å‡½æ•°ï¼šæ¨¡æ‹Ÿæ¯ä¸ªçº¿ç¨‹å¤„ç†ä¸€ä¸ªæ–‡ä»¶
 void processFastaChunk(int id, int duration_ms) {
-	std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));  // Ä£ÄâºÄÊ±ÈÎÎñ
-	std::cout << "ÈÎÎñ " << id << " Íê³É£¬ºÄÊ± " << duration_ms << "ms\n";
+	std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));  // æ¨¡æ‹Ÿè€—æ—¶ä»»åŠ¡
+	std::cout << "ä»»åŠ¡ " << id << " å®Œæˆï¼Œè€—æ—¶ " << duration_ms << "ms\n";
 }
 
 int main() {
-	// ´´½¨Ò»¸ö°üº¬ 4 ¸öÏß³ÌµÄÏß³Ì³Ø
+	// åˆ›å»ºä¸€ä¸ªåŒ…å« 4 ä¸ªçº¿ç¨‹çš„çº¿ç¨‹æ± 
 	ThreadPool pool(4);
 
-	// ´æ´¢ future ¶ÔÏó£¬ÓÃÓÚ»ñÈ¡·µ»ØÖµ»òµÈ´ıÍê³É
+	// å­˜å‚¨ future å¯¹è±¡ï¼Œç”¨äºè·å–è¿”å›å€¼æˆ–ç­‰å¾…å®Œæˆ
 	std::vector<std::future<void>> futures;
 
-	// Æô¶¯¶à¸öÈÎÎñ
+	// å¯åŠ¨å¤šä¸ªä»»åŠ¡
 	for (int i = 0; i < 10; ++i) {
-		int duration = 100 + (i % 5) * 100; // Ã¿¸öÈÎÎñ³ÖĞø 100~500ms
+		int duration = 100 + (i % 5) * 100; // æ¯ä¸ªä»»åŠ¡æŒç»­ 100~500ms
 		futures.emplace_back(
 			pool.enqueue(processFastaChunk, i, duration)
 		);
 	}
 
-	// µÈ´ıËùÓĞÈÎÎñÍê³É£¨¿ÉÑ¡£¬Èô²»¹ØĞÄ½á¹û¿ÉÒÔÊ¡ÂÔ£©
+	// ç­‰å¾…æ‰€æœ‰ä»»åŠ¡å®Œæˆï¼ˆå¯é€‰ï¼Œè‹¥ä¸å…³å¿ƒç»“æœå¯ä»¥çœç•¥ï¼‰
 	for (auto& fut : futures) {
-		fut.get();  // µÈ´ı²¢²¶»ñÒì³£
+		fut.get();  // ç­‰å¾…å¹¶æ•è·å¼‚å¸¸
 	}
 
-	// »òÕßÊ¹ÓÃ ThreadPool Ìá¹©µÄµÈ´ı·½·¨
+	// æˆ–è€…ä½¿ç”¨ ThreadPool æä¾›çš„ç­‰å¾…æ–¹æ³•
 	// pool.waitAllTasksDone();
 
-	std::cout << "ËùÓĞÈÎÎñÍê³É¡£\n";
+	std::cout << "æ‰€æœ‰ä»»åŠ¡å®Œæˆã€‚\n";
 	return 0;
 }
 

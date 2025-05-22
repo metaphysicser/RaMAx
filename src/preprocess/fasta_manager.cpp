@@ -1,7 +1,7 @@
 #include "data_process.h"
 
 // -----------------------------
-// FastaManager: ¹ÜÀí FASTA ÎÄ¼şµÄ¶ÁÈ¡¡¢ÇåÏ´¡¢Ë÷ÒıµÈ²Ù×÷
+// FastaManager: ç®¡ç† FASTA æ–‡ä»¶çš„è¯»å–ã€æ¸…æ´—ã€ç´¢å¼•ç­‰æ“ä½œ
 // -----------------------------
 //FastaManager::FastaManager()
 //{
@@ -29,7 +29,7 @@
 //        fp_ = nullptr;
 //    }
 //}
-// ¼ÓÔØ .fai Ë÷ÒıÎÄ¼ş£¬Ìî³äµ½ fai_records ÖĞ
+// åŠ è½½ .fai ç´¢å¼•æ–‡ä»¶ï¼Œå¡«å……åˆ° fai_records ä¸­
 void FastaManager::loadFaiRecords(const FilePath& fai_path)
 {
     std::ifstream in(fai_path);
@@ -40,7 +40,7 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
 
     std::string line;
 
-    // ¶ÁÈ¡µÚÒ»ĞĞ£ºÊÇ·ñ°üº¬ 'N' ×Ö·û£¨YES »ò NO£©
+    // è¯»å–ç¬¬ä¸€è¡Œï¼šæ˜¯å¦åŒ…å« 'N' å­—ç¬¦ï¼ˆYES æˆ– NOï¼‰
     std::getline(in, line);
     if (line == "YES") {
         has_n_in_fasta = true;
@@ -55,7 +55,7 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
 
     fai_records.clear();
 
-    // Ã¿Ò»ĞĞÒ»¸öĞòÁĞ¼ÇÂ¼
+    // æ¯ä¸€è¡Œä¸€ä¸ªåºåˆ—è®°å½•
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         std::istringstream iss(line);
@@ -72,7 +72,7 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
     in.close();
 }
 
-// ¶ÁÈ¡ÏÂÒ»¸öĞòÁĞ¼ÇÂ¼£¨Í¨¹ı kseq£©£¬·µ»Ø false ±íÊ¾¶ÁÍê
+// è¯»å–ä¸‹ä¸€ä¸ªåºåˆ—è®°å½•ï¼ˆé€šè¿‡ kseqï¼‰ï¼Œè¿”å› false è¡¨ç¤ºè¯»å®Œ
 bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
     int ret = kseq_read(seq_.get());
     if (ret < 0) return false;
@@ -86,14 +86,14 @@ bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
     return true;
 }
 
-// ¹Ø±Õ²¢ÖØĞÂ´ò¿ª fasta ÎÄ¼şÁ÷£¬ÖØÖÃ¶ÁÈ¡×´Ì¬
+// å…³é—­å¹¶é‡æ–°æ‰“å¼€ fasta æ–‡ä»¶æµï¼Œé‡ç½®è¯»å–çŠ¶æ€
 void FastaManager::reset() {
     gz_file_wrapper_.reset();
     seq_.reset();
     fasta_open();
 }
 
-// ¶ÁÈ¡Èô¸ÉĞòÁĞÆ¬¶Î²¢Æ´½Ó³ÉÒ»¸ö³¤ĞòÁĞ£¬ÉèÖÃÖÕÖ¹·û terminator
+// è¯»å–è‹¥å¹²åºåˆ—ç‰‡æ®µå¹¶æ‹¼æ¥æˆä¸€ä¸ªé•¿åºåˆ—ï¼Œè®¾ç½®ç»ˆæ­¢ç¬¦ terminator
 std::string FastaManager::concatRecords(char terminator, size_t limit) {
     reset();
     std::ostringstream oss;
@@ -111,7 +111,7 @@ std::string FastaManager::concatRecords(char terminator, size_t limit) {
     return result;
 }
 
-// Í³¼ÆËùÓĞĞòÁĞµÄÊıÁ¿¡¢³¤¶È¡¢×îĞ¡Öµ¡¢×î´óÖµ¡¢Æ½¾ùÖµ
+// ç»Ÿè®¡æ‰€æœ‰åºåˆ—çš„æ•°é‡ã€é•¿åº¦ã€æœ€å°å€¼ã€æœ€å¤§å€¼ã€å¹³å‡å€¼
 FastaManager::Stats FastaManager::getStats() {
     reset();
     Stats s;
@@ -132,7 +132,7 @@ FastaManager::Stats FastaManager::getStats() {
     return s;
 }
 
-// ½«ËùÓĞ¼î»ù×Ö·û×ªÎª´óĞ´£¬·Ç·¨×Ö·ûÍ³Ò»ÉèÎª N
+// å°†æ‰€æœ‰ç¢±åŸºå­—ç¬¦è½¬ä¸ºå¤§å†™ï¼Œéæ³•å­—ç¬¦ç»Ÿä¸€è®¾ä¸º N
 void FastaManager::cleanSequence(std::string& seq) {
     for (char& c : seq) {
         unsigned char uc = static_cast<unsigned char>(c);
@@ -147,13 +147,13 @@ void FastaManager::cleanSequence(std::string& seq) {
     }
 }
 
-// ´ò¿ª gzip ¸ñÊ½µÄ fasta ÎÄ¼ş£¬´´½¨ kseq ½á¹¹Ìå
+// æ‰“å¼€ gzip æ ¼å¼çš„ fasta æ–‡ä»¶ï¼Œåˆ›å»º kseq ç»“æ„ä½“
 void FastaManager::fasta_open() {
     gz_file_wrapper_ = std::make_unique<GzFileWrapper>(fasta_path_.string());
     seq_.reset(kseq_init(gz_file_wrapper_->get()));
 }
 
-// Èç¹û FAI ÎÄ¼ş²»´æÔÚ£¬ÖØĞÂÉ¨Ãè fasta Éú³É FAI ÎÄ¼ş£¨Ğ´Èë YES/NO + ¶àĞĞ¼ÇÂ¼£©
+// å¦‚æœ FAI æ–‡ä»¶ä¸å­˜åœ¨ï¼Œé‡æ–°æ‰«æ fasta ç”Ÿæˆ FAI æ–‡ä»¶ï¼ˆå†™å…¥ YES/NO + å¤šè¡Œè®°å½•ï¼‰
 bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     const FilePath& fai_path,
     size_t line_width) const {
@@ -184,7 +184,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
     size_t seq_len = 0;
     size_t seq_start = 0;
     bool reading_seq = false;
-    size_t line_bytes_in_fasta = line_width + 1; // °üÀ¨»»ĞĞ·û
+    size_t line_bytes_in_fasta = line_width + 1; // åŒ…æ‹¬æ¢è¡Œç¬¦
 
     while (std::getline(in, line)) {
         size_t this_line_bytes = line.size() + 1;
@@ -275,61 +275,61 @@ FilePath FastaManager::cleanAndIndexFasta(const FilePath& output_dir,
 
 std::string FastaManager::getSubConcatSequence(size_t start, size_t length)
 {
-    // Èç¹ûÇëÇó³¤¶ÈÎª 0£¬Ö±½Ó·µ»Ø¿Õ
+    // å¦‚æœè¯·æ±‚é•¿åº¦ä¸º 0ï¼Œç›´æ¥è¿”å›ç©º
     if (length == 0) {
         return "";
     }
 
-    // ½«½á¹û´æ´¢ÔÚ result ÖĞ
+    // å°†ç»“æœå­˜å‚¨åœ¨ result ä¸­
     std::string result;
-    result.reserve(length); // Ô¤Áô³¤¶È, ±ÜÃâ·´¸´·ÖÅä
+    result.reserve(length); // é¢„ç•™é•¿åº¦, é¿å…åå¤åˆ†é…
 
-    // current_offset ±íÊ¾µ±Ç°±éÀúµ½µÄĞòÁĞÔÚ¡°È«¾Ö×ø±ê¡±ÖĞµÄÆğÊ¼Î»ÖÃ
+    // current_offset è¡¨ç¤ºå½“å‰éå†åˆ°çš„åºåˆ—åœ¨â€œå…¨å±€åæ ‡â€ä¸­çš„èµ·å§‹ä½ç½®
     size_t current_offset = 0;
 
-    // Ê£ÓàĞèÒª¶ÁÈ¡µÄ³¤¶È
+    // å‰©ä½™éœ€è¦è¯»å–çš„é•¿åº¦
     size_t remain = length;
 
-    // ±éÀú FAI ÖĞËùÓĞ¼ÇÂ¼£¨¼ÙÉèË³ĞòÓëÔ­Ê¼ÎÄ¼şÒ»ÖÂ£©
+    // éå† FAI ä¸­æ‰€æœ‰è®°å½•ï¼ˆå‡è®¾é¡ºåºä¸åŸå§‹æ–‡ä»¶ä¸€è‡´ï¼‰
     for (const auto& rec : fai_records) {
-        // Ã¿ÌõĞòÁĞÔÚÈ«¾Ö×ø±êÖĞµÄ·¶Î§ÊÇ [current_offset, current_offset + rec.length - 1]
+        // æ¯æ¡åºåˆ—åœ¨å…¨å±€åæ ‡ä¸­çš„èŒƒå›´æ˜¯ [current_offset, current_offset + rec.length - 1]
         size_t seq_start_global = current_offset;
         size_t seq_end_global = current_offset + rec.length - 1;
 
-        // ÅĞ¶ÏÇëÇóµÄ start ÊÇ·ñÂäÔÚÕâÌõĞòÁĞÉÏ£¨»òÕß²¿·ÖÇø¼äÓëÕâÌõĞòÁĞÖØµş£©
+        // åˆ¤æ–­è¯·æ±‚çš„ start æ˜¯å¦è½åœ¨è¿™æ¡åºåˆ—ä¸Šï¼ˆæˆ–è€…éƒ¨åˆ†åŒºé—´ä¸è¿™æ¡åºåˆ—é‡å ï¼‰
         if (start <= seq_end_global && (start + remain - 1) >= seq_start_global) {
-            // ¼ÆËãÔÚ±¾ĞòÁĞÖĞµÄ¾Ö²¿ÆğÊ¼Î»ÖÃ local_start
-            // ÀıÈç£¬Èç¹û start=1500 ¶øÕâÌõĞòÁĞ global Çø¼ä [1000..2999]£¬Ôò local_start=1500-1000=500
+            // è®¡ç®—åœ¨æœ¬åºåˆ—ä¸­çš„å±€éƒ¨èµ·å§‹ä½ç½® local_start
+            // ä¾‹å¦‚ï¼Œå¦‚æœ start=1500 è€Œè¿™æ¡åºåˆ— global åŒºé—´ [1000..2999]ï¼Œåˆ™ local_start=1500-1000=500
             size_t local_start = (start > seq_start_global) ? (start - seq_start_global) : 0;
 
-            // µ±Ç°ĞòÁĞ´Ó local_start µ½Ä©¶Ë»¹Ê£¶àÉÙ¼î»ù
+            // å½“å‰åºåˆ—ä» local_start åˆ°æœ«ç«¯è¿˜å‰©å¤šå°‘ç¢±åŸº
             size_t can_read_in_this_seq = rec.length - local_start;
 
-            // ÎÒÃÇÊµ¼ÊÒª´Ó±¾ĞòÁĞ¶Á³öµÄ³¤¶È
+            // æˆ‘ä»¬å®é™…è¦ä»æœ¬åºåˆ—è¯»å‡ºçš„é•¿åº¦
             size_t to_read = (remain < can_read_in_this_seq) ? remain : can_read_in_this_seq;
 
-            // µ÷ÓÃÒÑÓĞµÄº¯Êı£¬´Óµ±Ç°ĞòÁĞÖĞ¶Á³öÇø¼ä
-            // ×¢Òâ¸Ãº¯ÊıÊÇ»ùÓÚ ¡°ĞòÁĞ±¾µØ×ø±ê¡±(start_in_seq, length_in_seq)
+            // è°ƒç”¨å·²æœ‰çš„å‡½æ•°ï¼Œä»å½“å‰åºåˆ—ä¸­è¯»å‡ºåŒºé—´
+            // æ³¨æ„è¯¥å‡½æ•°æ˜¯åŸºäº â€œåºåˆ—æœ¬åœ°åæ ‡â€(start_in_seq, length_in_seq)
             std::string part = getSubSequence(rec.seq_name, local_start, to_read);
             result += part;
 
-            // ¸üĞÂÊ£ÓàĞèÒª¶ÁÈ¡µÄ³¤¶È
+            // æ›´æ–°å‰©ä½™éœ€è¦è¯»å–çš„é•¿åº¦
             remain -= to_read;
-            // ¸üĞÂÈ«¾Ö×ø±êµÄÆğµã£¨ÒòÎªÎÒÃÇÒÑ¾­¶ÁÍêÕâ²¿·Ö£©
+            // æ›´æ–°å…¨å±€åæ ‡çš„èµ·ç‚¹ï¼ˆå› ä¸ºæˆ‘ä»¬å·²ç»è¯»å®Œè¿™éƒ¨åˆ†ï¼‰
             start += to_read;
 
-            // Èç¹ûÊ£Óà³¤¶ÈÎª 0£¬ËµÃ÷ÒÑÍê³É¶ÁÈ¡
+            // å¦‚æœå‰©ä½™é•¿åº¦ä¸º 0ï¼Œè¯´æ˜å·²å®Œæˆè¯»å–
             if (remain == 0) {
                 break;
             }
         }
 
-        // ¸üĞÂÏÂÒ»ÌõĞòÁĞµÄ global offset
+        // æ›´æ–°ä¸‹ä¸€æ¡åºåˆ—çš„ global offset
         current_offset += rec.length;
     }
 
-    // Èç¹ûÑ­»·½áÊøºó remain »¹²»Îª 0£¬ËµÃ÷ÇëÇóÇø¼ä³¬³öÁËËùÓĞĞòÁĞ×Ü³¤¶È
-    // Äã¿ÉÒÔÑ¡ÔñÅ×³öÒì³£»ò½ö·µ»ØÒÑÄÜ¶ÁÈ¡µÄ²¿·Ö
+    // å¦‚æœå¾ªç¯ç»“æŸå remain è¿˜ä¸ä¸º 0ï¼Œè¯´æ˜è¯·æ±‚åŒºé—´è¶…å‡ºäº†æ‰€æœ‰åºåˆ—æ€»é•¿åº¦
+    // ä½ å¯ä»¥é€‰æ‹©æŠ›å‡ºå¼‚å¸¸æˆ–ä»…è¿”å›å·²èƒ½è¯»å–çš„éƒ¨åˆ†
     if (remain > 0) {
         throw std::runtime_error("Requested range exceeds total length of all sequences.");
     }
@@ -339,7 +339,7 @@ std::string FastaManager::getSubConcatSequence(size_t start, size_t length)
 
 std::string FastaManager::getSubSequence(const std::string& seq_name, size_t start, size_t length)
 {
-    // Ê¹ÓÃ std::vector ²éÕÒÄ¿±êĞòÁĞ
+    // ä½¿ç”¨ std::vector æŸ¥æ‰¾ç›®æ ‡åºåˆ—
     FaiRecord rec;
     bool find = false;
     for (const auto& fai_record : fai_records) {
@@ -359,30 +359,30 @@ std::string FastaManager::getSubSequence(const std::string& seq_name, size_t sta
             "] for sequence " + seq_name);
     }
 
-    // Ê¹ÓÃ mmap Ó³Éä FASTA ÎÄ¼şµ½ÄÚ´æ
+    // ä½¿ç”¨ mmap æ˜ å°„ FASTA æ–‡ä»¶åˆ°å†…å­˜
     int fd = open(fasta_path_.c_str(), O_RDONLY);
     if (fd == -1) {
         throw std::runtime_error("Failed to open " + fasta_path_.string() + " for reading sub-sequence.");
     }
 
-    // »ñÈ¡ÎÄ¼ş´óĞ¡
+    // è·å–æ–‡ä»¶å¤§å°
     off_t file_size = lseek(fd, 0, SEEK_END);
     if (file_size == -1) {
         close(fd);
         throw std::runtime_error("Failed to determine the size of " + fasta_path_.string());
     }
 
-    // ½«ÎÄ¼şÓ³Éäµ½ÄÚ´æ
+    // å°†æ–‡ä»¶æ˜ å°„åˆ°å†…å­˜ä¸­
     char* file_data = (char*)mmap(NULL, file_size, PROT_READ, MAP_SHARED, fd, 0);
     if (file_data == MAP_FAILED) {
         close(fd);
         throw std::runtime_error("Failed to mmap file " + fasta_path_.string());
     }
 
-    // ¹Ø±ÕÎÄ¼şÃèÊö·û£¬mmap ºó²»ÔÙĞèÒªËü
+    // å…³é—­æ–‡ä»¶æè¿°ç¬¦ï¼Œmmap åä¸å†éœ€è¦å®ƒ
     close(fd);
 
-    // ¼ÆËãÇëÇóµÄ×ÓĞòÁĞµÄÆğÊ¼Î»ÖÃ
+    // è®¡ç®—è¯·æ±‚çš„å­åºåˆ—çš„èµ·å§‹ä½ç½®
     size_t line_bases = rec.line_bases;
     size_t line_bytes = rec.line_bytes;
     size_t seq_offset = rec.offset;
@@ -391,28 +391,28 @@ std::string FastaManager::getSubSequence(const std::string& seq_name, size_t sta
     size_t colIndex = start % line_bases;
     size_t filePos = seq_offset + rowIndex * line_bytes + colIndex;
 
-    // ¼ÆËãĞèÒª¶ÁÈ¡µÄ×Ö·ûÊı
+    // è®¡ç®—éœ€è¦è¯»å–çš„å­—ç¬¦æ•°
     size_t req_len = length;
     std::string result;
     result.reserve(req_len);
 
-    // Ê¹ÓÃÄÚ´æÓ³ÉäµÄÊı¾İ½øĞĞ¶ÁÈ¡
+    // ä½¿ç”¨å†…å­˜æ˜ å°„çš„æ•°æ®è¿›è¡Œè¯»å–
     size_t to_read = req_len;
     size_t current_pos = filePos;
 
     while (to_read > 0) {
         char c = file_data[current_pos];
-        if (c != '\n' && c != '\r') {  // ºöÂÔ»»ĞĞ·û
+        if (c != '\n' && c != '\r') {  // å¿½ç•¥æ¢è¡Œç¬¦
             result.push_back(c);
             --to_read;
         }
         ++current_pos;
         if (current_pos >= file_size) {
-            break; // Èç¹û³¬³öÎÄ¼ş·¶Î§
+            break; // å¦‚æœè¶…å‡ºæ–‡ä»¶èŒƒå›´
         }
     }
 
-    // ÊÍ·ÅÄÚ´æÓ³Éä
+    // é‡Šæ”¾å†…å­˜æ˜ å°„
     munmap(file_data, file_size);
 
     if (to_read > 0) {
@@ -431,9 +431,9 @@ uint_t FastaManager::getConcatSeqLength() {
 }
 
 ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
-    // fai_records ±ØĞë°´ global_start_pos ÉıĞòÅÅÁĞ
+    // fai_records å¿…é¡»æŒ‰ global_start_pos å‡åºæ’åˆ—
     size_t l = 0, r = fai_records.size();
-    // ¶ş·Ö²éÕÒ£ºÕÒµ½µÚÒ»¸ö global_start_pos > global_start
+    // äºŒåˆ†æŸ¥æ‰¾ï¼šæ‰¾åˆ°ç¬¬ä¸€ä¸ª global_start_pos > global_start
     while (l < r) {
         size_t m = l + (r - l) / 2;
         if (fai_records[m].global_start_pos > global_start)
@@ -442,17 +442,17 @@ ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
             l = m + 1;
     }
     if (l == 0) {
-        throw std::out_of_range("ÇëÇóµÄ global_start ÔÚµÚÒ»¸öÈ¾É«ÌåÖ®Ç°");
+        throw std::out_of_range("è¯·æ±‚çš„ global_start åœ¨ç¬¬ä¸€ä¸ªæŸ“è‰²ä½“ä¹‹å‰");
     }
     const FaiRecord& rec = fai_records[l - 1];
 
-    // ¼ì²éÕâ¶ÎÇø¼äÊÇ·ñÔ½½çµ½ÏÂÒ»¸öÈ¾É«Ìå
+    // æ£€æŸ¥è¿™æ®µåŒºé—´æ˜¯å¦è¶Šç•Œåˆ°ä¸‹ä¸€ä¸ªæŸ“è‰²ä½“
     uint_t chr_end_global = rec.global_start_pos + rec.length;
     if (global_start + length > chr_end_global) {
         return "";
     }
 
-    // ¼ÆËãÔÚ¸ÃÈ¾É«ÌåÉÏµÄ¾Ö²¿×ø±ê
+    // è®¡ç®—åœ¨è¯¥æŸ“è‰²ä½“ä¸Šçš„å±€éƒ¨åæ ‡
     return rec.seq_name;
 }
 
@@ -461,36 +461,36 @@ ChrName FastaManager::getChrName(uint_t global_start, uint_t length) {
 RegionVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size)
 {
     RegionVec chunks;
-    // Ô¤¹À×Ü chunk ÊıÒÔ¼õÉÙ realloc£¨¿ÉÑ¡£©
+    // é¢„ä¼°æ€» chunk æ•°ä»¥å‡å°‘ reallocï¼ˆå¯é€‰ï¼‰
     size_t total_len = getConcatSeqLength();
     size_t est_chunks = (total_len + chunk_size - 1) / chunk_size;
     chunks.reserve(est_chunks);
 
-    // ¶ÔÃ¿ÌõÈ¾É«Ìå·Ö±ğÇĞ·Ö
+    // å¯¹æ¯æ¡æŸ“è‰²ä½“åˆ†åˆ«åˆ‡åˆ†
     for (const auto& rec : fai_records) {
         const auto& chr = rec.seq_name;
         size_t chr_len = rec.length;
 
-        // Èç¹ûÈ¾É«Ìå³¤¶ÈĞ¡ÓÚµÈÓÚ chunk_size£¬ÔòÖ»Éú³ÉÒ»¸ö²»ÖØµş chunk
+        // å¦‚æœæŸ“è‰²ä½“é•¿åº¦å°äºç­‰äº chunk_sizeï¼Œåˆ™åªç”Ÿæˆä¸€ä¸ªä¸é‡å  chunk
         if (chr_len <= chunk_size) {
             chunks.push_back({ chr, 0, chr_len });
             continue;
         }
 
-        // ¶à¸ö chunk£¬ĞèÒªÔÚËüÃÇÖ®¼ä±£Áô overlap_size
+        // å¤šä¸ª chunkï¼Œéœ€è¦åœ¨å®ƒä»¬ä¹‹é—´ä¿ç•™ overlap_size
         size_t start = 0;
         while (start < chr_len) {
-            // ±¾ chunk µÄÊµ¼Ê³¤¶È£¨×îºóÒ»¿é¿ÉÄÜ²»×ã chunk_size£©
+            // æœ¬ chunk çš„å®é™…é•¿åº¦ï¼ˆæœ€åä¸€å—å¯èƒ½ä¸è¶³ chunk_sizeï¼‰
             size_t this_len = std::min<size_t>(chunk_size,
                 chr_len - start);
             chunks.push_back({ chr, start, this_len });
 
-            // ¼ÆËãÏÂÒ»¸ö chunk µÄÆğÊ¼Î»ÖÃ£ºÇ°½ø chunk_size£¬È»ºó»ØÍË overlap_size
+            // è®¡ç®—ä¸‹ä¸€ä¸ª chunk çš„èµ·å§‹ä½ç½®ï¼šå‰è¿› chunk_sizeï¼Œç„¶åå›é€€ overlap_size
             if (start + this_len >= chr_len) {
                 break;
             }
             start += chunk_size;
-            // ±£Ö¤²»»ØÍË³¬¹ıÒÑ¾­×ß¹ıµÄ¾àÀë
+            // ä¿è¯ä¸å›é€€è¶…è¿‡å·²ç»èµ°è¿‡çš„è·ç¦»
             start = (start >= overlap_size ? start - overlap_size : 0);
         }
     }
