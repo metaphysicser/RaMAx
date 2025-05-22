@@ -286,8 +286,9 @@ int main(int argc, char** argv) {
 	// 步骤 2：查询序列比对
 	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
-	AnchorPtrListVec anchors = pra.findQueryFileAnchor(
-		"query", species_path_map["query"], ACCURATE_SEARCH, false);
+	FastaManager query_fasta_manager(species_path_map["query"], getFaiIndexPath(species_path_map["query"]));
+	AnchorVec3DPtr anchors = pra.findQueryFileAnchor(
+		"query", query_fasta_manager, ACCURATE_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
@@ -296,7 +297,7 @@ int main(int argc, char** argv) {
 	// 步骤 3：过滤锚点
 	// ------------------------------
 	auto t_start_filer = std::chrono::steady_clock::now();
-	pra.filterAnchors(anchors);
+	pra.groupAnchorsByQueryRef(anchors, query_fasta_manager);
 	auto t_end_filer = std::chrono::steady_clock::now();
 	std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
 	spdlog::info("Anchors filtered in {:.3f} seconds.", filter_time.count());
