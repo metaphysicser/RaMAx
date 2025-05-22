@@ -30,24 +30,37 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 ## 当前优先任务（🔴🟠🟢）
 
-### 对接架构开发
-- [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
-### 索引和比对功能开发
-- [ ] 🔴 在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
+### 预处理阶段
 - [ ] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
+- [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
+- [ ] 🟢 实现进化树读取与解析，构建比对指导树
+- [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
+
+### 索引阶段
+- [ ] 🔴 在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
 - [ ] 🟠 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
+
+### 锚点寻找阶段
 - [ ] 🟠 确保被掩蔽的序列不在参考序列中参与比对
 - [ ] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
 - [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
 
 ### 锚点过滤功能开发
 - [ ] 🔴 在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
-- [ ] 🟢 支持 MUMmer delta 输出（结果转换为delta格式，完成两人的对接），支持 lastz lav/axt 输出
+- [ ] 🟠 在align.h中完成双序列比对类的开发，支持锚点的延伸和细化
+
+### 星比对合并阶段开发
+- [ ] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
+- [ ] 🔴 完成初步的星比对
+- [ ] 🔴 完成星比对结果的合并
+- [ ] 🟢 完成迭代补充星比对结果
+
+### 结果输出
+- [ ] 🟢 多基因组比对完成hal文件的输出，并支持maf文件的输出格式
+- [ ] 🟢 双基因组比对支持sam，maf，paf，delta，lav，axt格式的输出
 - [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
 
 ### 完善整体框架
-- [ ] 🟢 实现进化树读取与解析，构建比对指导树
-- [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
 - [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge
@@ -57,11 +70,6 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 增加conda和docker的安装方式
 - [ ] 🟢 完善README文档，包含安装、使用、开发等说明
 
-### 星比对合并阶段开发
-- [ ] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
-- [ ] 🔴 完成初步的星比对
-- [ ] 🔴 完成星比对结果的合并
-- [ ] 🟢 完成迭代补充星比对结果
 
 ### 未来计划
 - [ ] 🟢 增加对重复序列的比对支持

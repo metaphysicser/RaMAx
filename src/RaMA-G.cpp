@@ -1,5 +1,5 @@
-// RaMAx.cpp: ¶¨ÒåÓ¦ÓÃ³ÌĞòµÄÈë¿Úµã¡£
-// Ö÷³ÌĞò£º¸ºÔğ½âÎöÃüÁîĞĞ²ÎÊı£¬³õÊ¼»¯ÅäÖÃ£¬Ö´ĞĞ»ùÒò×é±È¶ÔÁ÷³Ì
+ï»¿// RaMAx.cpp: å®šä¹‰åº”ç”¨ç¨‹åºçš„å…¥å£ç‚¹ã€‚
+// ä¸»ç¨‹åºï¼šè´Ÿè´£è§£æå‘½ä»¤è¡Œå‚æ•°ï¼Œåˆå§‹åŒ–é…ç½®ï¼Œæ‰§è¡ŒåŸºå› ç»„æ¯”å¯¹æµç¨‹
 
 #include "data_process.h"
 #include "config.hpp"
@@ -8,7 +8,7 @@
 #include "rare_aligner.h"
 
 // ------------------------------------------------------------------
-// CLI11 ²ÎÊı×¢²á£ºÅäÖÃ³£ÓÃÃüÁîĞĞ²ÎÊı£¨²Î¿¼ RaMAx Ö÷³ÌĞò£©
+// CLI11 å‚æ•°æ³¨å†Œï¼šé…ç½®å¸¸ç”¨å‘½ä»¤è¡Œå‚æ•°ï¼ˆå‚è€ƒ RaMAx ä¸»ç¨‹åºï¼‰
 // ------------------------------------------------------------------
 inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 	auto fmt = std::make_shared<CustomFormatter>();
@@ -99,27 +99,27 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 
 
 int main(int argc, char** argv) {
-	// ³õÊ¼»¯Òì²½ÈÕÖ¾Ïß³Ì³Ø£¨spdlog£©
-	spdlog::init_thread_pool(8192, 1);  // ÈÕÖ¾»º³åÇøÈİÁ¿ 8192£¬µ¥Ïß³ÌÈÕÖ¾Ğ´Èë
-	// setupLogger();  // ¿ØÖÆÌ¨Êä³öÈÕÖ¾£¨²»´øÎÄ¼ş£©
+	// åˆå§‹åŒ–å¼‚æ­¥æ—¥å¿—çº¿ç¨‹æ± ï¼ˆspdlogï¼‰
+	spdlog::init_thread_pool(8192, 1);  // æ—¥å¿—ç¼“å†²åŒºå®¹é‡ 8192ï¼Œå•çº¿ç¨‹æ—¥å¿—å†™å…¥
+	// setupLogger();  // æ§åˆ¶å°è¾“å‡ºæ—¥å¿—ï¼ˆä¸å¸¦æ–‡ä»¶ï¼‰
 
-	// ³õÊ¼»¯ CLI ÃüÁîĞĞÓ¦ÓÃ
+	// åˆå§‹åŒ– CLI å‘½ä»¤è¡Œåº”ç”¨
 	CLI::App app{ "RaMA-G: A High-performance Genome Alignment Tool" };
 
-	CommonArgs common_args;  // ´æ´¢ÓÃ»§ÊäÈëµÄ²ÎÊı
-	setupCommonOptions(&app, common_args);  // ×¢²á²ÎÊı½âÎö
-	CLI11_PARSE(app, argc, argv);  // ¿ªÊ¼½âÎöÃüÁîĞĞ²ÎÊı
+	CommonArgs common_args;  // å­˜å‚¨ç”¨æˆ·è¾“å…¥çš„å‚æ•°
+	setupCommonOptions(&app, common_args);  // æ³¨å†Œå‚æ•°è§£æ
+	CLI11_PARSE(app, argc, argv);  // å¼€å§‹è§£æå‘½ä»¤è¡Œå‚æ•°
 
 	try {
 		// ------------------------------
-		// Ä£Ê½ 1£ºÖØÆôÄ£Ê½£¨--restart£©
+		// æ¨¡å¼ 1ï¼šé‡å¯æ¨¡å¼ï¼ˆ--restartï¼‰
 		// ------------------------------
 		if (common_args.restart) {
 			if (common_args.work_dir_path.empty()) {
 				throw CLI::RequiredError("In restart mode, --workdir (-w) is required.");
 			}
 
-			// ¼ì²é¹¤×÷Ä¿Â¼ÊÇ·ñ´æÔÚ
+			// æ£€æŸ¥å·¥ä½œç›®å½•æ˜¯å¦å­˜åœ¨
 			if (std::filesystem::exists(common_args.work_dir_path)) {
 				if (!std::filesystem::is_directory(common_args.work_dir_path)) {
 					throw CLI::ValidationError("Work directory is not valid: " + common_args.work_dir_path.string());
@@ -129,12 +129,12 @@ int main(int argc, char** argv) {
 				std::filesystem::create_directories(common_args.work_dir_path);
 			}
 
-			// ³õÊ¼»¯ÈÕÖ¾Æ÷
+			// åˆå§‹åŒ–æ—¥å¿—å™¨
 			setupLoggerWithFile(common_args.work_dir_path);
 			spdlog::info("RaMA-G version {}", VERSION);
 			spdlog::info("Restart mode enabled.");
 
-			// ¼ÓÔØÖ®Ç°±£´æµÄ²ÎÊıÅäÖÃÎÄ¼ş
+			// åŠ è½½ä¹‹å‰ä¿å­˜çš„å‚æ•°é…ç½®æ–‡ä»¶
 			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
 			std::ifstream is(config_path);
 			if (!is) {
@@ -142,15 +142,15 @@ int main(int argc, char** argv) {
 				return false;
 			}
 			cereal::JSONInputArchive archive(is);
-			archive(common_args);  // ·´ĞòÁĞ»¯²ÎÊı
+			archive(common_args);  // ååºåˆ—åŒ–å‚æ•°
 			spdlog::info("CommonArgs loaded from {}", config_path.string());
 		}
 
 		// ------------------------------
-		// Ä£Ê½ 2£ºÕı³£ÔËĞĞÄ£Ê½
+		// æ¨¡å¼ 2ï¼šæ­£å¸¸è¿è¡Œæ¨¡å¼
 		// ------------------------------
 		else {
-			// ¼ì²é±ØÒª²ÎÊı
+			// æ£€æŸ¥å¿…è¦å‚æ•°
 			if (common_args.reference_path.empty())
 				throw CLI::RequiredError("Missing required option: --reference (-r)");
 			if (common_args.query_path.empty())
@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
 				throw CLI::RequiredError("Missing required option: --workdir (-w)");
 
 #ifndef _DEBUG_
-			// ·Çµ÷ÊÔÄ£Ê½ÏÂ£ºÈ·±£¹¤×÷Ä¿Â¼Îª¿Õ
+			// éè°ƒè¯•æ¨¡å¼ä¸‹ï¼šç¡®ä¿å·¥ä½œç›®å½•ä¸ºç©º
 			if (std::filesystem::exists(common_args.work_dir_path)) {
 				if (!std::filesystem::is_directory(common_args.work_dir_path)) {
 					throw CLI::ValidationError("Work directory is not valid: " + common_args.work_dir_path.string());
@@ -179,7 +179,7 @@ int main(int argc, char** argv) {
 			spdlog::info("RaMA-G version {}", VERSION);
 			spdlog::info("Alignment mode enabled.");
 
-			// ÑéÖ¤²Î¿¼ÎÄ¼şÂ·¾¶
+			// éªŒè¯å‚è€ƒæ–‡ä»¶è·¯å¾„
 			std::string ref_str = common_args.reference_path.string();
 			if (isUrl(ref_str)) {
 				verifyUrlReachable(ref_str);
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
 				verifyLocalFile(common_args.reference_path);
 			}
 
-			// ÑéÖ¤²éÑ¯ÎÄ¼şÂ·¾¶
+			// éªŒè¯æŸ¥è¯¢æ–‡ä»¶è·¯å¾„
 			std::string qry_str = common_args.query_path.string();
 			if (isUrl(qry_str)) {
 				verifyUrlReachable(qry_str);
@@ -197,18 +197,18 @@ int main(int argc, char** argv) {
 				verifyLocalFile(common_args.query_path);
 			}
 
-			// ×Ô¶¯Ê¶±ğÊä³ö¸ñÊ½£¨Ö§³Ö .sam / .maf / .paf£©
+			// è‡ªåŠ¨è¯†åˆ«è¾“å‡ºæ ¼å¼ï¼ˆæ”¯æŒ .sam / .maf / .pafï¼‰
 			common_args.output_format = detectOutputFormat(common_args.output_path);
 			if (common_args.output_format == OutputFormat::UNKNOWN) {
 				throw std::runtime_error("Invalid output file extension. Supported: .sam, .maf, .paf");
 			}
 
-			// ¼ì²é chunk ºÍ overlap ²ÎÊı
+			// æ£€æŸ¥ chunk å’Œ overlap å‚æ•°
 			if (common_args.overlap_size >= common_args.chunk_size) {
 				throw std::runtime_error("Overlap size must be less than chunk size.");
 			}
 
-			// ±£´æ²ÎÊıÅäÖÃÎÄ¼ş£¨ÓÃÓÚ --restart£©
+			// ä¿å­˜å‚æ•°é…ç½®æ–‡ä»¶ï¼ˆç”¨äº --restartï¼‰
 			FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
 			std::ofstream os(config_path);
 			if (!os) {
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
 	}
 
 	// ------------------------------
-	// Ö÷Á÷³Ì¿ªÊ¼
+	// ä¸»æµç¨‹å¼€å§‹
 	// ------------------------------
 	spdlog::info("Command: {}", getCommandLine(argc, argv));
 
@@ -245,24 +245,24 @@ int main(int argc, char** argv) {
 	spdlog::info("Threads: {}", common_args.thread_num);
 
 	// ------------------------------
-	// Êı¾İÔ¤´¦Àí½×¶Î
+	// æ•°æ®é¢„å¤„ç†é˜¶æ®µ
 	// ------------------------------
 	SpeciesPathMap species_path_map;
 	species_path_map["reference"] = common_args.reference_path;
 	species_path_map["query"] = common_args.query_path;
 
-	// ¿½±´»òÏÂÔØÔ­Ê¼ÎÄ¼ş£¨²¢ĞĞÖ´ĞĞ£©
+	// æ‹·è´æˆ–ä¸‹è½½åŸå§‹æ–‡ä»¶ï¼ˆå¹¶è¡Œæ‰§è¡Œï¼‰
 	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-	// ÇåÏ´ FASTA ÎÄ¼ş£¨Í³Ò»¸ñÊ½£¬Ìæ»»·Ç·¨×Ö·û£©
+	// æ¸…æ´— FASTA æ–‡ä»¶ï¼ˆç»Ÿä¸€æ ¼å¼ï¼Œæ›¿æ¢éæ³•å­—ç¬¦ï¼‰
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-	// ¿ÉÑ¡£º°´È¾É«Ìå²ğ·Ö¡¢°´ chunk ÇĞ¸î£¨Ä¿Ç°×¢ÊÍµô£©
+	// å¯é€‰ï¼šæŒ‰æŸ“è‰²ä½“æ‹†åˆ†ã€æŒ‰ chunk åˆ‡å‰²ï¼ˆç›®å‰æ³¨é‡Šæ‰ï¼‰
 	// splitRawDataToChr(...)
 	// splitChrToChunk(...)
 
 	// ------------------------------
-	// ³õÊ¼»¯±È¶ÔÆ÷
+	// åˆå§‹åŒ–æ¯”å¯¹å™¨
 	// ------------------------------
 	PairRareAligner pra(
 		common_args.work_dir_path,
@@ -274,16 +274,16 @@ int main(int argc, char** argv) {
 	);
 
 	// ------------------------------
-	// ²½Öè 1£º¹¹½¨Ë÷Òı
+	// æ­¥éª¤ 1ï¼šæ„å»ºç´¢å¼•
 	// ------------------------------
 	auto t_start_build = std::chrono::steady_clock::now();
-	pra.buildIndex("reference", species_path_map["reference"], false);  // ¿ÉÇĞ»» CaPS / divsufsort
+	pra.buildIndex("reference", species_path_map["reference"], false);  // å¯åˆ‡æ¢ CaPS / divsufsort
 	auto t_end_build = std::chrono::steady_clock::now();
 	std::chrono::duration<double> build_time = t_end_build - t_start_build;
 	spdlog::info("Index built in {:.3f} seconds.", build_time.count());
 
 	// ------------------------------
-	// ²½Öè 2£º²éÑ¯ĞòÁĞ±È¶Ô
+	// æ­¥éª¤ 2ï¼šæŸ¥è¯¢åºåˆ—æ¯”å¯¹
 	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
 	AnchorPtrListVec anchors = pra.findQueryFileAnchor(
@@ -293,7 +293,7 @@ int main(int argc, char** argv) {
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
 
 	// ------------------------------
-	// ²½Öè 3£º¹ıÂËÃªµã
+	// æ­¥éª¤ 3ï¼šè¿‡æ»¤é”šç‚¹
 	// ------------------------------
 	auto t_start_filer = std::chrono::steady_clock::now();
 	pra.filterAnchors(anchors);
@@ -302,7 +302,7 @@ int main(int argc, char** argv) {
 	spdlog::info("Anchors filtered in {:.3f} seconds.", filter_time.count());
 
 	// ------------------------------
-	// ÍË³ö
+	// é€€å‡º
 	// ------------------------------
 	spdlog::info("RaMA-G exits!");
 	return 0;
