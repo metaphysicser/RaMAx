@@ -237,6 +237,7 @@ struct CommonArgs {
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // 默认使用所有 CPU 核心
 	OutputFormat output_format = OutputFormat::UNKNOWN;
+	bool enable_repeat_masking = false; // 是否启用重复序列遮蔽，默认为 false
 
 	// 支持 cereal 序列化
 	template<class Archive>
@@ -250,7 +251,8 @@ struct CommonArgs {
 			CEREAL_NVP(overlap_size),
 			CEREAL_NVP(restart),
 			CEREAL_NVP(thread_num),
-			CEREAL_NVP(output_format)
+			CEREAL_NVP(output_format),
+			CEREAL_NVP(enable_repeat_masking)
 		);
 	}
 };

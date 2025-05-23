@@ -16,6 +16,7 @@
 #include "config.hpp"
 #include "anchor.h"
 #include "kseq.h"           // 用于解析 FASTA 格式
+#include <cstdlib>
 
 // 初始化 kseq 使用 gzFile 类型
 KSEQ_INIT(gzFile, gzread)
@@ -201,6 +202,12 @@ bool copyRawData(const FilePath workdir_path, SpeciesPathMap& species_path_map, 
 
 // 清洗原始数据集，并更新路径映射
 bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_map, int thread_num);
+
+// 运行 WindowMasker 生成重复区域的 interval 文件
+std::map<SpeciesName, FilePath> repeatSeqMasking(const FilePath workdir_path, const SpeciesPathMap& species_path_map, int thread_num);
+
+// 根据 interval 文件应用掩码到 FASTA 文件，并更新路径映射
+bool apply_masking_and_update_paths(const FilePath workdir_path, SpeciesPathMap& species_path_map, const std::map<SpeciesName, FilePath>& interval_files_map, int thread_num);
 
 // 获取文件大小（支持本地和 URL），输出带单位字符串
 std::string getReadableFileSize(const FilePath& filePath);
