@@ -207,7 +207,7 @@ bool cleanRawDataset(const FilePath workdir_path, SpeciesPathMap& species_path_m
 std::map<SpeciesName, FilePath> repeatSeqMasking(const FilePath workdir_path, const SpeciesPathMap& species_path_map, int thread_num);
 
 // 根据 interval 文件应用掩码到 FASTA 文件，并更新路径映射
-bool apply_masking_and_update_paths(const FilePath workdir_path, SpeciesPathMap& species_path_map, const std::map<SpeciesName, FilePath>& interval_files_map, int thread_num);
+bool applyMaskingAndUpdatePaths(const FilePath workdir_path, SpeciesPathMap& species_path_map, const std::map<SpeciesName, FilePath>& interval_files_map, int thread_num);
 
 // 获取文件大小（支持本地和 URL），输出带单位字符串
 std::string getReadableFileSize(const FilePath& filePath);
