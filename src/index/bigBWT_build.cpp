@@ -406,31 +406,31 @@ bool FM_Index::buildIndexUsingBigBWT(const FilePath& output_path, uint_t thread)
 }
 
 bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
-	// ´ò¿ªÎÄ¼ş£¬¼ì²éÊÇ·ñ³É¹¦
+	// æ‰“å¼€æ–‡ä»¶ï¼Œæ£€æŸ¥æ˜¯å¦æˆåŠŸ
 	std::ifstream bwt_file(bwt_file_path, std::ios::binary | std::ios::ate);
 	if (!bwt_file.is_open()) {
 		throw std::runtime_error("Error: Cannot open file " + bwt_file_path.string());
 	}
 
-	// »ñÈ¡ÎÄ¼ş´óĞ¡£¬¼ì²éÎÄ¼ş´óĞ¡ÊÇ·ñºÏÀí
+	// è·å–æ–‡ä»¶å¤§å°ï¼Œæ£€æŸ¥æ–‡ä»¶å¤§å°æ˜¯å¦åˆç†
 	std::streamsize size = bwt_file.tellg();
 	if (size <= 0) {
 		throw std::runtime_error("Error: Invalid file size for " + bwt_file_path.string());
 	}
 
-	// ½«ÎÄ¼şÖ¸ÕëÖØÖÃµ½ÎÄ¼ş¿ªÍ·
+	// å°†æ–‡ä»¶æŒ‡é’ˆé‡ç½®åˆ°æ–‡ä»¶å¼€å¤´
 	bwt_file.seekg(0, std::ios::beg);
 
-	// Ò»´ÎĞÔ½«Õû¸öÎÄ¼ş¶ÁÈë std::string ÖĞ
+	// ä¸€æ¬¡æ€§å°†æ•´ä¸ªæ–‡ä»¶è¯»å…¥ std::string ä¸­
 	std::string bwt(size, '\0');
 	if (!bwt_file.read(&bwt[0], size)) {
 		throw std::runtime_error("Error: Failed to read file " + bwt_file_path.string());
 	}
 
-	// ¹Ø±ÕÎÄ¼ş£¬ÒÔÊÍ·ÅÎÄ¼ş¾ä±ú
+	// å…³é—­æ–‡ä»¶ï¼Œä»¥é‡Šæ”¾æ–‡ä»¶å¥æŸ„
 	bwt_file.close();
 
-	// ¸ù¾İĞèÇóÉ¾³ıË÷Òı 0 ´¦µÄ1¸ö×Ö·û
+	// æ ¹æ®éœ€æ±‚åˆ é™¤ç´¢å¼• 0 å¤„çš„1ä¸ªå­—ç¬¦
 	if (!bwt.empty()) {
 		bwt.erase(0, 1);
 	}
@@ -438,36 +438,36 @@ bool FM_Index::read_and_build_bwt(const FilePath& bwt_file_path) {
 		throw std::runtime_error("Error: BWT string is empty after reading file " + bwt_file_path.string());
 	}
 
-	// ½« std::string ×ª»»Îª sdsl::int_vector<8>
+	// å°† std::string è½¬æ¢ä¸º sdsl::int_vector<8>
 	sdsl::int_vector<8> sdsl_bwt(bwt.size());
 	for (size_t i = 0; i < bwt.size(); ++i) {
 		sdsl_bwt[i] = static_cast<uint8_t>(bwt[i]);
 	}
 
-	// ¼°Ê±ÊÍ·ÅÔ­Ê¼ BWT ×Ö·û´®Õ¼ÓÃµÄÄÚ´æ
+	// åŠæ—¶é‡Šæ”¾åŸå§‹ BWT å­—ç¬¦ä¸²å ç”¨çš„å†…å­˜
 	bwt.clear();
 	bwt.shrink_to_fit();
 
-	// ¹¹Ôì»ùÓÚ wt_huff µÄ²¨ÁĞÊ÷£¨ÄÚ²¿Ä¬ÈÏÊ¹ÓÃ sdsl::bit_vector£©
-	// this->wt_bwt ÊÇ FM_Index ÀàÖĞµÄ³ÉÔ±±äÁ¿£¬ÀıÈç£º
+	// æ„é€ åŸºäº wt_huff çš„æ³¢åˆ—æ ‘ï¼ˆå†…éƒ¨é»˜è®¤ä½¿ç”¨ sdsl::bit_vectorï¼‰
+	// this->wt_bwt æ˜¯ FM_Index ç±»ä¸­çš„æˆå‘˜å˜é‡ï¼Œä¾‹å¦‚ï¼š
 	// sdsl::wt_huff<sdsl::bit_vector> wt_bwt;
 	sdsl::construct_im(this->wt_bwt, sdsl_bwt);
 	//std::cout << "---- Access Operation Demo ----\n";
 	//for (size_t i = 0; i < std::min<size_t>(10, sdsl_bwt.size()); ++i) {
-	//	// ÓÉÓÚ wt ´æ´¢µÄÊÇ uint8_t£¬ÕâÀï×ª»»Îª char ½øĞĞÊä³ö
+	//	// ç”±äº wt å­˜å‚¨çš„æ˜¯ uint8_tï¼Œè¿™é‡Œè½¬æ¢ä¸º char è¿›è¡Œè¾“å‡º
 	//	std::cout << "wt.access(" << i << ") = " << static_cast<char>(wt_bwt[i]) << "\n";
 	//}
 
-	//// ÑİÊ¾ rank ²Ù×÷
-	//// ±ÈÈçÍ³¼ÆÇ° 20 ¸ö×Ö·ûÖĞ 'A' ³öÏÖµÄ´ÎÊı
-	//uint8_t symbol = static_cast<uint8_t>('C');  // ¿ÉÒÔ»»³ÉÆäËû×Ö·ûÈç 'C', 'G', 'T'
+	//// æ¼”ç¤º rank æ“ä½œ
+	//// æ¯”å¦‚ç»Ÿè®¡å‰ 20 ä¸ªå­—ç¬¦ä¸­ 'A' å‡ºç°çš„æ¬¡æ•°
+	//uint8_t symbol = static_cast<uint8_t>('C');  // å¯ä»¥æ¢æˆå…¶ä»–å­—ç¬¦å¦‚ 'C', 'G', 'T'
 	//size_t pos = 20;
 	//size_t count = wt_bwt.rank(pos, symbol);
 	//std::cout << "Rank of '" << static_cast<char>(symbol)
 	//	<< "' in positions [0, " << pos << ") = " << count << "\n";
 
-	//// ÑİÊ¾ select ²Ù×÷
-	//// ²éÕÒµÚ 2 ´Î³öÏÖ 'A' µÄÎ»ÖÃ£¬×¢Òâ select Ë÷Òı´Ó1¿ªÊ¼¼ÆÊı
+	//// æ¼”ç¤º select æ“ä½œ
+	//// æŸ¥æ‰¾ç¬¬ 2 æ¬¡å‡ºç° 'A' çš„ä½ç½®ï¼Œæ³¨æ„ select ç´¢å¼•ä»1å¼€å§‹è®¡æ•°
 	//size_t kth = 2;
 	//size_t pos_sel = wt_bwt.select(kth, symbol);
 	//std::cout << "Select(" << kth << ", '" << static_cast<char>(symbol)
