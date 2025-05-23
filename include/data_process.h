@@ -64,33 +64,24 @@ struct KseqDeleter {
 using KseqPtr = std::unique_ptr<kseq_t, KseqDeleter>;
 
 // -----------------------------
-// FastaManager 类：用于读取、清洗、索引 fasta 序列数据
+// FastaProcessor 类：用于读取、清洗、写入 fasta 序列数据
 // -----------------------------
-class FastaManager {
+class FastaProcessor {
 public:
     FilePath fasta_path_;  // FASTA 文件路径
-    FilePath fai_path_;    // 可选 .fai 索引文件路径
     bool has_n_in_fasta = false;
-    ChrIndexMap idx_map;
 
     // 构造函数与析构函数：采用 RAII，不再需要在析构函数中手动释放资源
-    FastaManager() = default;
-    FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
-        : fasta_path_(fasta_path), fai_path_(fai_path)
+    FastaProcessor() = default;
+    explicit FastaProcessor(const FilePath& fasta_path)
+        : fasta_path_(fasta_path)
     {
-        if (!fai_path.empty()) {
-            loadFaiRecords(fai_path);
-        }
         fasta_open(); // 打开 FASTA 文件并初始化解析器
-        idx_map.reserve(fai_records.size());          // 预留桶，避免重复 rehash
-
-        for (std::size_t i = 0; i < fai_records.size(); ++i)
-            idx_map.emplace(fai_records[i].seq_name, i);  // 若有重复名称，后插入会被忽略
     }
-    ~FastaManager() = default; // unique_ptr 自动释放资源
+    ~FastaProcessor() = default; // unique_ptr 自动释放资源
 
-    FastaManager(FastaManager&&) = default;
-    FastaManager& operator=(FastaManager&&) = default;
+    FastaProcessor(FastaProcessor&&) = default;
+    FastaProcessor& operator=(FastaProcessor&&) = default;
 
     // 获取下一个序列记录（返回 false 表示读完）
     bool nextRecord(std::string& header, std::string& sequence);
@@ -114,6 +105,42 @@ public:
 
     // 将清洗后的序列写入新的 fasta 文件
     FilePath writeCleanedFasta(const FilePath& output_file, uint64_t line_width = 60);
+
+protected:
+    // 内部成员变量：gzip 文件包装和 kseq_t 管理器
+    std::unique_ptr<GzFileWrapper> gz_file_wrapper_;
+    KseqPtr seq_;
+
+    bool clean_data_{ false }; // 是否启用清洗
+
+    // 清洗序列（全部转大写 + 过滤非法字符）
+    void cleanSequence(std::string& seq);
+
+    // 打开 fasta 文件并初始化 kseq_t
+    void fasta_open();
+};
+
+// -----------------------------
+// FastaManager 类：用于索引和管理 fasta 序列数据
+// -----------------------------
+class FastaManager : public FastaProcessor {
+public:
+    FilePath fai_path_;    // 可选 .fai 索引文件路径
+    ChrIndexMap idx_map;
+
+    // 构造函数
+    FastaManager() = default;
+    FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
+        : FastaProcessor(fasta_path), fai_path_(fai_path)
+    {
+        if (!fai_path.empty()) {
+            loadFaiRecords(fai_path);
+        }
+        idx_map.reserve(fai_records.size());          // 预留桶，避免重复 rehash
+
+        for (std::size_t i = 0; i < fai_records.size(); ++i)
+            idx_map.emplace(fai_records[i].seq_name, i);  // 若有重复名称，后插入会被忽略
+    }
 
     // 清洗并生成 .fai 索引，返回新 fasta 文件路径
     FilePath cleanAndIndexFasta(const FilePath& output_dir,
@@ -151,18 +178,6 @@ public:
     RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
 private:
-    // 内部成员变量：gzip 文件包装和 kseq_t 管理器
-    std::unique_ptr<GzFileWrapper> gz_file_wrapper_;
-    KseqPtr seq_;
-
-    bool clean_data_{ false }; // 是否启用清洗
-
-    // 清洗序列（全部转大写 + 过滤非法字符）
-    void cleanSequence(std::string& seq);
-
-    // 打开 fasta 文件并初始化 kseq_t
-    void fasta_open();
-
     // 若不存在 .fai 索引则重新扫描并生成
     bool reScanAndWriteFai(const FilePath& fa_path,
         const FilePath& fai_path,
