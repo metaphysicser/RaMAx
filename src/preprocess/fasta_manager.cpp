@@ -73,7 +73,7 @@ void FastaManager::loadFaiRecords(const FilePath& fai_path)
 }
 
 // 读取下一个序列记录（通过 kseq），返回 false 表示读完
-bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
+bool FastaProcessor::nextRecord(std::string& header, std::string& sequence) {
     int ret = kseq_read(seq_.get());
     if (ret < 0) return false;
 
@@ -87,14 +87,14 @@ bool FastaManager::nextRecord(std::string& header, std::string& sequence) {
 }
 
 // 关闭并重新打开 fasta 文件流，重置读取状态
-void FastaManager::reset() {
+void FastaProcessor::reset() {
     gz_file_wrapper_.reset();
     seq_.reset();
     fasta_open();
 }
 
 // 读取若干序列片段并拼接成一个长序列，设置终止符 terminator
-std::string FastaManager::concatRecords(char terminator, size_t limit) {
+std::string FastaProcessor::concatRecords(char terminator, size_t limit) {
     reset();
     std::ostringstream oss;
     std::string hdr, seq;
@@ -112,7 +112,7 @@ std::string FastaManager::concatRecords(char terminator, size_t limit) {
 }
 
 // 统计所有序列的数量、长度、最小值、最大值、平均值
-FastaManager::Stats FastaManager::getStats() {
+FastaProcessor::Stats FastaProcessor::getStats() {
     reset();
     Stats s;
     std::string hdr, seq;
@@ -133,7 +133,7 @@ FastaManager::Stats FastaManager::getStats() {
 }
 
 // 将所有碱基字符转为大写，非法字符统一设为 N
-void FastaManager::cleanSequence(std::string& seq) {
+void FastaProcessor::cleanSequence(std::string& seq) {
     for (char& c : seq) {
         unsigned char uc = static_cast<unsigned char>(c);
         uc = std::toupper(uc);
@@ -148,7 +148,7 @@ void FastaManager::cleanSequence(std::string& seq) {
 }
 
 // 打开 gzip 格式的 fasta 文件，创建 kseq 结构体
-void FastaManager::fasta_open() {
+void FastaProcessor::fasta_open() {
     gz_file_wrapper_ = std::make_unique<GzFileWrapper>(fasta_path_.string());
     seq_.reset(kseq_init(gz_file_wrapper_->get()));
 }
@@ -219,7 +219,7 @@ bool FastaManager::reScanAndWriteFai(const FilePath& fa_path,
 }
 
 
-FilePath FastaManager::writeCleanedFasta(const FilePath& output_file, uint64_t line_width) {
+FilePath FastaProcessor::writeCleanedFasta(const FilePath& output_file, uint64_t line_width) {
     if (std::filesystem::exists(output_file)) {
         spdlog::warn("Output FASTA already exists: {}", output_file.string());
         return output_file;
