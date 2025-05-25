@@ -125,12 +125,12 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count)
 
 // 总调度函数：根据模式选择索引构建方式
 bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
-    if (fast_mode) {
-        buildIndexUsingCaPS(thread);
+    if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
+        buildIndexUsingDivsufsort(thread);
     }
     else {
-        if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
-            buildIndexUsingDivsufsort(thread);
+        if (fast_mode) {
+            buildIndexUsingCaPS(thread);
         }
         else {
             buildIndexUsingBigBWT(output_path, thread);  // 大文件处理方式（此处未实现）

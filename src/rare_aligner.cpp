@@ -167,81 +167,17 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 //--------------------------------------------------------------------
 // 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
 //--------------------------------------------------------------------
-void PairRareAligner::groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
+void PairRareAligner::clusterAnchors(AnchorVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	//----------------------------------------------------------------
-	// 0) 初始化二维目标矩阵
-	//----------------------------------------------------------------
-	const uint_t ref_chr_cnt = ref_fasta_manager.idx_map.size();
-	const uint_t query_chr_cnt = query_fasta_manager.idx_map.size();
+	AnchorsByQueryRef unique_anchors;
+	AnchorsByQueryRef repeat_anchors;
 
-	AnchorsByQueryRef unique_anchors(query_chr_cnt,
-		AnchorsByRef(ref_chr_cnt));
-	AnchorsByQueryRef repeat_anchors(query_chr_cnt,
-		AnchorsByRef(ref_chr_cnt));
+	groupAnchorsByQueryRef(anchors, unique_anchors, repeat_anchors,
+		ref_fasta_manager, query_fasta_manager, thread_num);
 
-	//----------------------------------------------------------------
-	// 1) 行级互斥锁：每个 query-chr 一把
-	//----------------------------------------------------------------
-	std::vector<std::mutex> rowLocks(query_chr_cnt);
-
-	//----------------------------------------------------------------
-	// 2) 并行遍历 3D 数据，每个 slice 启动一个任务
-	//----------------------------------------------------------------
-	ThreadPool pool(thread_num);
-
-	for (auto& slice : *anchors)              // slice: std::vector<AnchorVec>
-	{
-		pool.enqueue([&, &slice]() {
-
-			if (slice.empty()) return;
-
-			// 2a) 获取 slice 的 query-chr 索引（所有 vec 同一 chr）
-			const Anchor& first = slice.front().front();
-			auto itQ = query_fasta_manager.idx_map.find(
-				first.match.query_region.chr_name);
-			if (itQ == query_fasta_manager.idx_map.end()) return;
-			const uint_t qIdx = itQ->second;
-
-			// 2b) 遍历 slice 中每个 AnchorVec
-			for (auto& vec : slice) {
-				if (vec.empty()) continue;
-
-				const ChrName& rName = vec.front().match.ref_region.chr_name;
-				auto itR = ref_fasta_manager.idx_map.find(rName);
-				if (itR == ref_fasta_manager.idx_map.end()) continue;
-				const uint_t rIdx = itR->second;
-
-				/* ---- 临界区：只锁当前 query 行 ---- */
-				{
-					std::lock_guard<std::mutex> lk(rowLocks[qIdx]);
-					AnchorVec& target =
-						(vec.size() == 1)
-						? unique_anchors[qIdx][rIdx]
-						: repeat_anchors[qIdx][rIdx];
-
-						target.insert(target.end(),
-							std::make_move_iterator(vec.begin()),
-							std::make_move_iterator(vec.end()));
-				}
-			}
-			});
-	}
-
-	pool.waitAllTasksDone();
-
-	//----------------------------------------------------------------
-	// 3) 释放原始 3D 数据以节省内存
-	//----------------------------------------------------------------
-	anchors->clear();
-	anchors->shrink_to_fit();
-
-	//----------------------------------------------------------------
-	// 4) 如需导出，可保存到类成员
-	//----------------------------------------------------------------
-	// unique_anchors_  = std::move(unique_anchors);
-	// repeat_anchors_  = std::move(repeat_anchors);
+	return;
+	
 }
 
 

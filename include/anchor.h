@@ -21,6 +21,8 @@
 
 #define ANCHOR_EXTENSION "anchor"  // Anchor 文件保存使用的默认扩展名
 
+// 前向声明
+class FastaManager;
 // ------------------------------------------------------------------
 // 类型别名定义
 // ------------------------------------------------------------------
@@ -101,6 +103,13 @@ using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
 
 using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
+
+void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
+    AnchorsByQueryRef& unique_anchors,
+    AnchorsByQueryRef& repeat_anchors,
+    FastaManager& ref_fasta_manager,
+    FastaManager& query_fasta_manager,
+    uint_t thread_num);
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------

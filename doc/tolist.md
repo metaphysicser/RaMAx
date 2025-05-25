@@ -31,7 +31,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ## 当前优先任务（🔴🟠🟢）
 
 ### 预处理阶段
-- [ ] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
+- [x] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
 - [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
 - [ ] 🟢 实现进化树读取与解析，构建比对指导树
 - [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
