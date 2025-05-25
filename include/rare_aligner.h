@@ -24,7 +24,7 @@ public:
 
     AnchorVec3DPtr findQueryFileAnchor(const std::string prefix, FastaManager& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
 
-	void clusterAnchors(AnchorVec3DPtr& anchors, FastaManager& query_fasta_manager);
+	void clusterPairSpeciesAnchors(AnchorVec3DPtr& anchors, FastaManager& query_fasta_manager);
 
 };
 

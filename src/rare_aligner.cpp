@@ -167,7 +167,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 //--------------------------------------------------------------------
 // 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
 //--------------------------------------------------------------------
-void PairRareAligner::clusterAnchors(AnchorVec3DPtr& anchors,
+void PairRareAligner::clusterPairSpeciesAnchors(AnchorVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
 	AnchorsByQueryRef unique_anchors;
@@ -175,6 +175,23 @@ void PairRareAligner::clusterAnchors(AnchorVec3DPtr& anchors,
 
 	groupAnchorsByQueryRef(anchors, unique_anchors, repeat_anchors,
 		ref_fasta_manager, query_fasta_manager, thread_num);
+
+	sortAnchorsByRefStart(unique_anchors, thread_num);
+	sortAnchorsByRefStart(repeat_anchors, thread_num);
+
+	ThreadPool pool(thread_num);
+
+	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
+		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
+			AnchorVec& vec = unique_anchors[i][j];
+
+			pool.enqueue([vec](){
+				clusterChrAnchors(vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
+			});
+		}
+	}
+	pool.waitAllTasksDone();
+	
 
 	return;
 	

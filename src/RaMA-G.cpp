@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
 	// 步骤 3：过滤锚点
 	// ------------------------------
 	auto t_start_filer = std::chrono::steady_clock::now();
-	pra.clusterAnchors(anchors, query_fasta_manager);
+	pra.clusterPairSpeciesAnchors(anchors, query_fasta_manager);
 	auto t_end_filer = std::chrono::steady_clock::now();
 	std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
 	spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
