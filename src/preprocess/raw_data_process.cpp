@@ -293,7 +293,7 @@ std::map<SpeciesName, FilePath> repeatSeqMasking(const FilePath workdir_path, co
 }
 
 // 辅助函数：解析区间字符串，格式如 "start - end"
-std::pair<size_t, size_t> parse_interval_line(const std::string& line) {
+std::pair<size_t, size_t> parseIntervalLine(const std::string& line) {
     std::stringstream ss(line);
     size_t start, end;
     char dash;
@@ -305,7 +305,7 @@ std::pair<size_t, size_t> parse_interval_line(const std::string& line) {
 }
 
 // 内部辅助函数：根据区间文件对单个FASTA文件进行掩码处理
-FilePath apply_mask_to_fasta_internal(
+FilePath applyMaskToFastaInternal(
     const FilePath& original_fasta_path,
     const FilePath& interval_file_path,
     const FilePath& output_masked_fasta_path,
@@ -330,7 +330,7 @@ FilePath apply_mask_to_fasta_internal(
             current_seq_name.erase(current_seq_name.find_last_not_of(" \t\n\r\f\v") + 1);
         } else if (!current_seq_name.empty()) {
             try {
-                intervals_by_seq[current_seq_name].push_back(parse_interval_line(line));
+                intervals_by_seq[current_seq_name].push_back(parseIntervalLine(line));
             } catch (const std::runtime_error& e) {
                 spdlog::warn("[{}] Skipping invalid interval line in {}: {} - {}", species_key, interval_file_path.string(), line, e.what());
             }
@@ -398,7 +398,7 @@ FilePath apply_mask_to_fasta_internal(
 }
 
 // 根据区间文件应用掩码并更新物种路径映射
-bool apply_masking_and_update_paths(
+bool applyMaskingAndUpdatePaths(
     const FilePath workdir_path,
     SpeciesPathMap& species_path_map, // 将被更新为指向掩码后的文件
     const std::map<SpeciesName, FilePath>& interval_files_map,
@@ -430,7 +430,7 @@ bool apply_masking_and_update_paths(
             task_futures.emplace_back(
                 pool.enqueue([original_cleaned_fasta_path, interval_file_path, output_masked_fasta_path, species_key]() -> std::pair<SpeciesName, FilePath> {
                     try {
-                        FilePath final_masked_path = apply_mask_to_fasta_internal(original_cleaned_fasta_path, interval_file_path, output_masked_fasta_path, species_key);
+                        FilePath final_masked_path = applyMaskToFastaInternal(original_cleaned_fasta_path, interval_file_path, output_masked_fasta_path, species_key);
                         return {species_key, final_masked_path};
                     } catch (const std::exception& e) {
                         spdlog::error("[{}] Error applying mask: {}. Original path will be kept.", species_key, e.what());

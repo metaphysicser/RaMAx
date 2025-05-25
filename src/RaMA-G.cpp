@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
 		} else {
 			spdlog::info("Applying masks to FASTA files based on generated interval files...");
 			// 应用掩码并更新 species_path_map 指向新的掩码后文件
-			bool masking_applied_successfully = apply_masking_and_update_paths(common_args.work_dir_path, species_path_map, interval_files_map, common_args.thread_num);
+			bool masking_applied_successfully = applyMaskingAndUpdatePaths(common_args.work_dir_path, species_path_map, interval_files_map, common_args.thread_num);
 			if (masking_applied_successfully) {
 				spdlog::info("Successfully applied masks and updated species paths.");
 			} else {
@@ -278,8 +278,6 @@ int main(int argc, char** argv) {
 			}
 		}
 	}
-
-
 
 	// 清洗 FASTA 文件（统一格式，替换非法字符）
 	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
