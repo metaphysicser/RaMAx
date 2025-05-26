@@ -498,3 +498,239 @@ RegionVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size
     return chunks;
 }
 
+
+// 通用的隐藏区间函数，根据提供的区间数据隐藏指定区间，生成新的FASTA文件和对应的FAI索引
+// intervals_by_seq: 按序列名称组织的区间映射，格式为 {seq_name: [(start1, end1), (start2, end2), ...]}
+// output_fasta_path: 输出的隐藏区间后的FASTA文件路径
+// output_fai_path: 输出的FAI索引文件路径
+// line_width: FASTA文件的行宽
+// 返回值: 成功返回true，失败返回false
+bool FastaManager::hideIntervalsAndGenerateFai(
+    const std::map<std::string, std::vector<std::pair<size_t, size_t>>>& intervals_by_seq,
+    const FilePath& output_fasta_path,
+    const FilePath& output_fai_path,
+    size_t line_width) {
+    
+    try {
+        // 1. 复制区间数据并进行处理
+        std::map<std::string, std::vector<std::pair<size_t, size_t>>> processed_intervals = intervals_by_seq;
+        
+        // 2. 对每个序列的区间进行排序和合并
+        for (auto& [seq_name, intervals] : processed_intervals) {
+            if (intervals.empty()) continue;
+            
+            // 按起始位置排序
+            std::sort(intervals.begin(), intervals.end());
+            
+            // 合并重叠的区间
+            std::vector<std::pair<size_t, size_t>> merged_intervals;
+            merged_intervals.push_back(intervals[0]);
+            
+            for (size_t i = 1; i < intervals.size(); ++i) {
+                auto& last = merged_intervals.back();
+                auto& current = intervals[i];
+                
+                if (current.first <= last.second + 1) {
+                    // 区间重叠或相邻，合并
+                    last.second = std::max(last.second, current.second);
+                } else {
+                    // 不重叠，添加新区间
+                    merged_intervals.push_back(current);
+                }
+            }
+            
+            processed_intervals[seq_name] = std::move(merged_intervals);
+        }
+        
+        // 3. 创建输出文件
+        std::ofstream out_fasta(output_fasta_path);
+        if (!out_fasta.is_open()) {
+            spdlog::error("Failed to create output FASTA file: {}", output_fasta_path.string());
+            return false;
+        }
+        
+        std::ofstream out_fai(output_fai_path);
+        if (!out_fai.is_open()) {
+            spdlog::error("Failed to create output FAI file: {}", output_fai_path.string());
+            return false;
+        }
+        
+        // 写入FAI文件头部信息（是否包含N字符）
+        out_fai << (has_n_in_fasta ? "YES" : "NO") << "\n";
+        
+        // 4. 处理每个序列
+        reset(); // 重置FASTA读取器
+        std::string header, sequence;
+        uint_t global_start_pos = 0;
+        size_t global_offset = 0;
+        
+        while (nextRecord(header, sequence)) {
+            // 获取清理后的序列名称
+            std::string clean_header = header;
+            size_t first_space = header.find_first_of(" \t");
+            if (first_space != std::string::npos) {
+                clean_header = header.substr(0, first_space);
+            }
+            
+            // 获取该序列需要隐藏的区间
+            std::vector<std::pair<size_t, size_t>> hide_intervals;
+            if (processed_intervals.count(clean_header)) {
+                hide_intervals = processed_intervals[clean_header];
+            }
+            
+            // 5. 生成保留的片段
+            std::vector<std::string> segments;
+            std::vector<std::pair<size_t, size_t>> segment_coords; // 记录每个片段在原序列中的坐标
+            
+            if (hide_intervals.empty()) {
+                // 没有需要隐藏的区间，保留整个序列
+                segments.push_back(sequence);
+                segment_coords.push_back({1, sequence.length()}); // 1-based坐标
+            } else {
+                size_t current_pos = 1; // 1-based坐标
+                
+                for (const auto& interval : hide_intervals) {
+                    size_t hide_start = interval.first;
+                    size_t hide_end = interval.second;
+                    
+                    // 添加隐藏区间之前的片段
+                    if (current_pos < hide_start) {
+                        size_t segment_start = current_pos - 1; // 转换为0-based
+                        size_t segment_end = hide_start - 2;    // 转换为0-based
+                        
+                        if (segment_start < sequence.length() && segment_end < sequence.length()) {
+                            std::string segment = sequence.substr(segment_start, segment_end - segment_start + 1);
+                            segments.push_back(segment);
+                            segment_coords.push_back({current_pos, hide_start - 1});
+                        }
+                    }
+                    
+                    current_pos = hide_end + 1;
+                }
+                
+                // 添加最后一个隐藏区间之后的片段
+                if (current_pos <= sequence.length()) {
+                    size_t segment_start = current_pos - 1; // 转换为0-based
+                    std::string segment = sequence.substr(segment_start);
+                    segments.push_back(segment);
+                    segment_coords.push_back({current_pos, sequence.length()});
+                }
+            }
+            
+            // 6. 写入FASTA文件和FAI记录
+            for (size_t i = 0; i < segments.size(); ++i) {
+                const std::string& segment = segments[i];
+                const auto& coords = segment_coords[i];
+                
+                if (segment.empty()) continue;
+                
+                // 生成片段名称
+                std::string segment_name;
+                if (segments.size() == 1) {
+                    segment_name = clean_header;
+                } else {
+                    segment_name = clean_header + "_segment_" + std::to_string(i + 1) + 
+                                  "_" + std::to_string(coords.first) + "-" + std::to_string(coords.second);
+                }
+                
+                // 写入FASTA序列
+                out_fasta << ">" << segment_name << "\n";
+                for (size_t pos = 0; pos < segment.length(); pos += line_width) {
+                    size_t chunk_size = std::min(line_width, segment.length() - pos);
+                    out_fasta << segment.substr(pos, chunk_size) << "\n";
+                }
+                
+                // 计算FAI记录信息
+                size_t seq_offset = global_offset;
+                size_t line_bases = line_width;
+                size_t line_bytes = line_width + 1; // 包括换行符
+                
+                // 写入FAI记录
+                out_fai << segment_name << "\t" 
+                       << global_start_pos << "\t" 
+                       << segment.length() << "\t" 
+                       << seq_offset << "\t" 
+                       << line_bases << "\t" 
+                       << line_bytes << "\n";
+                
+                // 更新全局位置
+                global_start_pos += segment.length();
+                
+                // 更新文件偏移量
+                global_offset += segment_name.length() + 2; // ">" + name + "\n"
+                size_t lines_count = (segment.length() + line_width - 1) / line_width;
+                global_offset += segment.length() + lines_count; // 序列内容 + 换行符
+            }
+        }
+        
+        out_fasta.close();
+        out_fai.close();
+        
+        spdlog::info("Successfully generated hidden intervals FASTA: {}", output_fasta_path.string());
+        spdlog::info("Successfully generated corresponding FAI index: {}", output_fai_path.string());
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        spdlog::error("Error in hideIntervalsAndGenerateFai: {}", e.what());
+        return false;
+    }
+}
+
+// 根据interval文件隐藏指定区间，生成新的FASTA文件和对应的FAI索引
+// interval_file_path: WindowMasker生成的interval文件路径
+// output_fasta_path: 输出的隐藏区间后的FASTA文件路径
+// output_fai_path: 输出的FAI索引文件路径
+// line_width: FASTA文件的行宽
+// 返回值: 成功返回true，失败返回false
+bool FastaManager::hideIntervalsFromFileAndGenerateFai(
+    const FilePath& interval_file_path,
+    const FilePath& output_fasta_path,
+    const FilePath& output_fai_path,
+    size_t line_width) {
+    
+    try {
+        // 1. 解析interval文件，获取需要隐藏的区间
+        std::map<std::string, std::vector<std::pair<size_t, size_t>>> intervals_by_seq;
+        std::ifstream interval_stream(interval_file_path);
+        if (!interval_stream.is_open()) {
+            spdlog::error("Failed to open interval file: {}", interval_file_path.string());
+            return false;
+        }
+        
+        std::string line;
+        std::string current_seq_name;
+        while (std::getline(interval_stream, line)) {
+            if (line.empty()) continue;
+            if (line[0] == '>') {
+                current_seq_name = line.substr(1);
+                // 清理序列名称中的空白字符
+                current_seq_name.erase(0, current_seq_name.find_first_not_of(" \t\n\r\f\v"));
+                current_seq_name.erase(current_seq_name.find_last_not_of(" \t\n\r\f\v") + 1);
+            } else if (!current_seq_name.empty()) {
+                try {
+                    std::stringstream ss(line);
+                    size_t start, end;
+                    char dash;
+                    ss >> start >> dash >> end;
+                    if (ss.fail() || dash != '-') {
+                        spdlog::warn("Invalid interval format: {}", line);
+                        continue;
+                    }
+                    intervals_by_seq[current_seq_name].push_back({start, end});
+                } catch (const std::exception& e) {
+                    spdlog::warn("Skipping invalid interval line: {} - {}", line, e.what());
+                }
+            }
+        }
+        interval_stream.close();
+        
+        // 2. 调用通用的隐藏区间函数
+        return hideIntervalsAndGenerateFai(intervals_by_seq, output_fasta_path, output_fai_path, line_width);
+        
+    } catch (const std::exception& e) {
+        spdlog::error("Error in hideIntervalsFromFileAndGenerateFai: {}", e.what());
+        return false;
+    }
+}
+
