@@ -273,6 +273,37 @@ int main(int argc, char** argv) {
 			bool masking_applied_successfully = applyMaskingAndUpdatePaths(common_args.work_dir_path, species_path_map, interval_files_map, common_args.thread_num);
 			if (masking_applied_successfully) {
 				spdlog::info("Successfully applied masks and updated species paths.");
+				
+				// 隐藏遮蔽区间并生成新的FASTA和FAI文件
+				spdlog::info("Hiding masked intervals and generating new FASTA files with FAI indices...");
+				FilePath hidden_data_dir = common_args.work_dir_path / "data" / "hidden_intervals";
+				if (!std::filesystem::exists(hidden_data_dir)) {
+					std::filesystem::create_directories(hidden_data_dir);
+					spdlog::info("Created directory for hidden intervals data: {}", hidden_data_dir.string());
+				}
+				
+				for (const auto& [species_name, interval_file_path] : interval_files_map) {
+					if (species_path_map.count(species_name)) {
+						FilePath input_fasta = species_path_map[species_name];
+						FilePath output_fasta = hidden_data_dir / (species_name + ".hidden.fasta");
+						FilePath output_fai = hidden_data_dir / (species_name + ".hidden.fasta.fai");
+						
+						try {
+							FastaManager fasta_manager(input_fasta);
+							bool hide_success = fasta_manager.hideIntervalsFromFileAndGenerateFai(
+							interval_file_path, output_fasta, output_fai, 60);
+							
+							if (hide_success) {
+								spdlog::info("[{}] Successfully generated hidden intervals FASTA: {}", 
+									species_name, output_fasta.string());
+							} else {
+								spdlog::error("[{}] Failed to generate hidden intervals FASTA", species_name);
+							}
+						} catch (const std::exception& e) {
+							spdlog::error("[{}] Error processing hidden intervals: {}", species_name, e.what());
+						}
+					}
+				}
 			} else {
 				spdlog::error("Failed to apply masks or update species paths. Subsequent steps will use unmasked (but cleaned) data.");
 			}

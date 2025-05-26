@@ -177,6 +177,20 @@ public:
     // 按 chunk_size 和 overlap_size 对所有序列预分段
     RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
+    // 通用的隐藏区间函数，根据提供的区间数据隐藏指定区间，生成新的FASTA文件和对应的FAI索引
+    bool hideIntervalsAndGenerateFai(
+        const std::map<std::string, std::vector<std::pair<size_t, size_t>>>& intervals_by_seq,
+        const FilePath& output_fasta_path,
+        const FilePath& output_fai_path,
+        size_t line_width = 80);
+    
+    // 根据interval文件隐藏指定区间，生成新的FASTA文件和对应的FAI索引
+    bool hideIntervalsFromFileAndGenerateFai(
+        const FilePath& interval_file_path,
+        const FilePath& output_fasta_path,
+        const FilePath& output_fai_path,
+        size_t line_width = 80);
+
 private:
     // 若不存在 .fai 索引则重新扫描并生成
     bool reScanAndWriteFai(const FilePath& fa_path,
