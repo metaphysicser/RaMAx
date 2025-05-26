@@ -183,10 +183,11 @@ void PairRareAligner::clusterPairSpeciesAnchors(AnchorVec3DPtr& anchors,
 
 	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
 		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-			AnchorVec& vec = unique_anchors[i][j];
+			AnchorVec& unique_vec = unique_anchors[i][j];
+			AnchorVec& repeat_vec = repeat_anchors[i][j];
 
 			pool.enqueue([vec](){
-				clusterChrAnchors(vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
+				clusterChrAnchors(unique_vec, repeat_vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
 			});
 		}
 	}

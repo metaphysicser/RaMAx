@@ -356,9 +356,9 @@ void sortAnchorsByRefStart(AnchorsByQueryRef& anchors, uint_t thread_num) {
     pool.waitAllTasksDone();
 }
 
-void clusterChrAnchors(const AnchorVec& anchors)
+void clusterChrAnchors(AnchorVec& unique_anchors, AnchorVec& repeat_anchors)
 {
-	AnchorPtrVec non_overlap_anchors = findNonOverlapAnchors(anchors);
+	
     return;
 }
 

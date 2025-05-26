@@ -115,7 +115,7 @@ void sortAnchorsByRefStart(AnchorsByQueryRef& anchors, uint_t thread_num);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
-void clusterChrAnchors(const AnchorVec& anchors);
+void clusterChrAnchors(AnchorVec& anchors);
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------
