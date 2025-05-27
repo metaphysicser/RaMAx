@@ -87,7 +87,7 @@ using MatchVec3DPtr = std::shared_ptr<MatchVec3D>;
 using MatchByRef = std::vector<MatchVec>;
 using MatchByQueryRef = std::vector<MatchByRef>;
 
-using MatchCluster = std::vector<MatchVec>; // 匹配簇，包含多个匹配向量
+using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
 
 
@@ -132,7 +132,7 @@ void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
-void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_gap = 90, uint_t diagdiff = 5, double diagfactor = 0.12);
+void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12);
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------

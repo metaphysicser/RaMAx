@@ -63,7 +63,7 @@ inline int_t diag(const Match& m) {
     return start2(m) - start1(m);
 }
 
-void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_gap, uint_t diagdiff, double diagfactor)
+void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap, int_t diagdiff, double diagfactor)
 {
 	uint_t match_count = unique_match.size();
     if (match_count < 2) return;
@@ -75,14 +75,15 @@ void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_
         uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
         int_t i_diag = diag(unique_match[i]);
 
+
         for (uint_t j = i + 1; j < match_count; ++j)                     // j: i+1 … N-1
         {
             int_t sep = start2(unique_match[j]) - i_end;
-            if (sep > max_gap) break;               // 太远直接退出内层
+            if (sep > static_cast<int_t>(max_gap)) break;               // 太远直接退出内层
 
-            uint_t diag_diff = std::abs(diag(unique_match[j]) - i_diag);
-            uint_t threshold = std::max(diagdiff,
-                static_cast<uint_t>(diagfactor * sep));
+            int_t diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+            int_t threshold = std::max(diagdiff,
+                static_cast<int_t>(diagfactor * sep));
 
             if (diag_diff <= threshold)
                 uf.unite(i, j);                             // 同簇
@@ -104,8 +105,7 @@ void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_
             clusters.emplace_back();           // 创建一个 MatchCluster
         }
         // 把当前 Match 放到 clusters[cid] 中的第一个 MatchVec
-        if (clusters[cid].empty()) clusters[cid].emplace_back();
-        clusters[cid].front().push_back(std::move(unique_match[idx]));
+        clusters[cid].push_back(std::move(unique_match[idx]));
     }
 
 	return;

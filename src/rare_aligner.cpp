@@ -196,6 +196,8 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 
 	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
 		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
+	//for (uint_t i = 0; i < 1; ++i) {
+	//	for (uint_t j = 0; j < 1; ++j) {
 			MatchVec& unique_vec = unique_anchors[i][j];
 			MatchVec& repeat_vec = repeat_anchors[i][j];
 
