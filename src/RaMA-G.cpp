@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
 	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
 	FastaManager query_fasta_manager(species_path_map["query"], getFaiIndexPath(species_path_map["query"]));
-	AnchorVec3DPtr anchors = pra.findQueryFileAnchor(
+	MatchVec3DPtr anchors = pra.findQueryFileAnchor(
 		"query", query_fasta_manager, ACCURATE_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;

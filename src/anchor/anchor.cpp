@@ -260,9 +260,9 @@ bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data) {
 }
 
 
-void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
-    AnchorsByQueryRef& unique_anchors,
-    AnchorsByQueryRef& repeat_anchors,
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByQueryRef& unique_anchors,
+    MatchByQueryRef& repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
     uint_t thread_num) {
@@ -299,9 +299,9 @@ void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
             if (slice.empty()) return;
 
             // 2a) 获取 slice 的 query-chr 索引（所有 vec 同一 chr）
-            const Anchor& first = slice.front().front();
+            const Match& first = slice.front().front();
             auto itQ = query_fasta_manager.idx_map.find(
-                first.match.query_region.chr_name);
+                first.query_region.chr_name);
             if (itQ == query_fasta_manager.idx_map.end()) return;
             const uint_t qIdx = itQ->second;
 
@@ -309,7 +309,7 @@ void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
             for (auto& vec : slice) {
                 if (vec.empty()) continue;
 
-                const ChrName& rName = vec.front().match.ref_region.chr_name;
+                const ChrName& rName = vec.front().ref_region.chr_name;
                 auto itR = ref_fasta_manager.idx_map.find(rName);
                 if (itR == ref_fasta_manager.idx_map.end()) continue;
                 const uint_t rIdx = itR->second;
@@ -317,7 +317,7 @@ void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
                 /* ---- 临界区：只锁当前 query 行 ---- */
                 {
                     std::lock_guard<std::mutex> lk(rowLocks[qIdx]);
-                    AnchorVec& target =
+                    MatchVec& target =
                         (vec.size() == 1)
                         ? unique_anchors[qIdx][rIdx]
                         : repeat_anchors[qIdx][rIdx];
@@ -339,15 +339,15 @@ void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
     anchors->shrink_to_fit();
 }
 
-void sortAnchorsByRefStart(AnchorsByQueryRef& anchors, uint_t thread_num) {
+void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num) {
     ThreadPool pool(thread_num);
 
     for (auto& row : anchors) {
         for (auto& vec : row) {
             pool.enqueue([&vec]() {
                 if (vec.size() == 0) return;
-                std::sort(vec.begin(), vec.end(), [](const Anchor& a, const Anchor& b) {
-                    return a.match.ref_region.start < b.match.ref_region.start;
+                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
+                    return (a.ref_region.start < b.ref_region.start) || (a.ref_region.start == b.ref_region.start && a.query_region.start < b.query_region.start);
                     });
                 });
         }
@@ -356,10 +356,21 @@ void sortAnchorsByRefStart(AnchorsByQueryRef& anchors, uint_t thread_num) {
     pool.waitAllTasksDone();
 }
 
-void clusterChrAnchors(AnchorVec& unique_anchors, AnchorVec& repeat_anchors)
-{
-	
-    return;
+void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num) {
+    ThreadPool pool(thread_num);
+
+    for (auto& row : anchors) {
+        for (auto& vec : row) {
+            pool.enqueue([&vec]() {
+                if (vec.size() == 0) return;
+                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
+                    return a.query_region.start < b.query_region.start;
+                    });
+                });
+        }
+    }
+
+    pool.waitAllTasksDone();
 }
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
@@ -386,6 +397,72 @@ AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
         if (curr_end > max_end_so_far) max_end_so_far = curr_end;
     }
     return std::move(uniques);
+}
+
+bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data) {
+    if (!data) return false;
+
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) return false;
+
+    cereal::BinaryOutputArchive oar(os);
+
+    uint64_t dim0 = data->size();  // 最外层
+    oar(dim0);
+
+    for (const auto& layer : *data) {
+        uint64_t dim1 = layer.size();  // 第二层
+        oar(dim1);
+
+        for (const auto& vec : layer) {
+            uint64_t dim2 = vec.size();  // 最内层
+            oar(dim2);
+
+            for (const auto& match : vec) {
+                oar(match);  // 直接序列化 Match
+            }
+        }
+    }
+
+    return static_cast<bool>(os);
+}
+
+bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data) {
+    std::ifstream is(filename, std::ios::binary);
+    if (!is) return false;
+
+    cereal::BinaryInputArchive iar(is);
+
+    uint64_t dim0;
+    iar(dim0);
+
+    data = std::make_shared<MatchVec3D>();
+    data->resize(dim0);
+
+    for (uint64_t i = 0; i < dim0; ++i) {
+        uint64_t dim1;
+        iar(dim1);
+
+        (*data)[i].resize(dim1);
+
+        for (uint64_t j = 0; j < dim1; ++j) {
+            uint64_t dim2;
+            iar(dim2);
+
+            MatchVec vec;
+            vec.reserve(dim2);
+
+            for (uint64_t k = 0; k < dim2; ++k) {
+                Match m;
+                iar(m);
+                vec.push_back(std::move(m));
+            }
+
+            (*data)[i][j] = std::move(vec);
+        }
+    }
+
+    return static_cast<bool>(is);
 }
 
 

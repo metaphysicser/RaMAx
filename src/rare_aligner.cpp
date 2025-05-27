@@ -83,7 +83,7 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 	return ref_index_path;
 }
 
-AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
+MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	const std::string prefix,
 	FastaManager& query_fasta_manager,
 	SearchMode         search_mode,
@@ -98,8 +98,8 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 	/* ---------- 若已存在结果文件，直接加载 ---------- */
 	if (std::filesystem::exists(anchor_file)) {
-		AnchorVec3DPtr result = std::make_shared<AnchorVec3D>();
-		loadAnchorVec3D(anchor_file, result);
+		MatchVec3DPtr result = std::make_shared<MatchVec3D>();
+		loadMatchVec3D(anchor_file, result);
 		return result;
 	}
 
@@ -110,7 +110,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	auto t_search0 = ch::steady_clock::now();
 
 	ThreadPool pool(thread_num);
-	std::vector<std::future<AnchorVec2DPtr>> futures;
+	std::vector<std::future<MatchVec2DPtr>> futures;
 	futures.reserve(chunks.size());
 
 	for (const auto& ck : chunks) {
@@ -118,7 +118,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, ck, seq, search_mode, allow_MEM]() -> AnchorVec2DPtr {
+				[this, ck, seq, search_mode, allow_MEM]() -> MatchVec2DPtr {
 					return ref_index.findAnchors(
 						ck.chr_name, seq, search_mode,
 						Strand::FORWARD,
@@ -137,12 +137,12 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	/* ---------- ② 计时：合并 ---------- */
 	auto t_merge0 = ch::steady_clock::now();
 
-	AnchorVec3DPtr result = std::make_shared<AnchorVec3D>();
+	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
 	result->reserve(futures.size());
 	size_t total_lists = 0;
 	for (auto& fut : futures) {
-		AnchorVec2DPtr part = fut.get();
+		MatchVec2DPtr part = fut.get();
 		total_lists += part->size();
 		result->emplace_back(std::move(*part));
 	}
@@ -152,7 +152,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
 	/* ---------- ③ 计时：保存 ---------- */
 	auto t_save0 = ch::steady_clock::now();
-	saveAnchorVec3D(anchor_file, result);
+	saveMatchVec3D(anchor_file, result);
 	auto t_save1 = ch::steady_clock::now();
 	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
 
@@ -167,27 +167,40 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 //--------------------------------------------------------------------
 // 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
 //--------------------------------------------------------------------
-void PairRareAligner::clusterPairSpeciesAnchors(AnchorVec3DPtr& anchors,
+void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	AnchorsByQueryRef unique_anchors;
-	AnchorsByQueryRef repeat_anchors;
+	MatchByQueryRef unique_anchors;
+	MatchByQueryRef repeat_anchors;
 
-	groupAnchorsByQueryRef(anchors, unique_anchors, repeat_anchors,
+	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
 		ref_fasta_manager, query_fasta_manager, thread_num);
 
-	sortAnchorsByRefStart(unique_anchors, thread_num);
-	sortAnchorsByRefStart(repeat_anchors, thread_num);
+	//// 测试得到的anchor对应的子串是否相同
+	//for (const auto& first_match : unique_anchors[0][0]) {
+	//		std::string query_subseq = query_fasta_manager.getSubSequence(
+	//			first_match.query_region.chr_name, first_match.query_region.start, first_match.query_region.length);
+	//		std::string ref_subseq = ref_fasta_manager.getSubSequence(
+	//			first_match.ref_region.chr_name, first_match.ref_region.start, first_match.ref_region.length);
+	//		if (query_subseq != ref_subseq) {
+	//			spdlog::warn("Mismatch found in anchor: query {} vs ref {}",
+	//				query_subseq, ref_subseq);
+	//		
+	//	}
+	//}
+
+	sortMatchByQueryStart(unique_anchors, thread_num);
+	sortMatchByQueryStart(repeat_anchors, thread_num);
 
 	ThreadPool pool(thread_num);
 
 	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
 		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-			AnchorVec& unique_vec = unique_anchors[i][j];
-			AnchorVec& repeat_vec = repeat_anchors[i][j];
+			MatchVec& unique_vec = unique_anchors[i][j];
+			MatchVec& repeat_vec = repeat_anchors[i][j];
 
-			pool.enqueue([vec](){
-				clusterChrAnchors(unique_vec, repeat_vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
+			pool.enqueue([&unique_vec, &repeat_vec](){
+				clusterChrMatch(unique_vec, repeat_vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
 			});
 		}
 	}

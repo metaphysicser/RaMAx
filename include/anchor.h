@@ -75,6 +75,22 @@ struct Match {
     Match() = default;
 };
 
+using MatchVec = std::vector<Match>;
+using MatchPtr = std::shared_ptr<Match>; // 智能指针类型
+using MatchPtrVec = std::vector<MatchPtr>; // 智能指针集合
+
+using MatchVec2D = std::vector<MatchVec>;
+using MatchVec2DPtr = std::shared_ptr<MatchVec2D>;
+using MatchVec3D = std::vector<std::vector<MatchVec>>;
+using MatchVec3DPtr = std::shared_ptr<MatchVec3D>;
+
+using MatchByRef = std::vector<MatchVec>;
+using MatchByQueryRef = std::vector<MatchByRef>;
+
+using MatchCluster = std::vector<MatchVec>; // 匹配簇，包含多个匹配向量
+using MatchClusterVec = std::vector<MatchCluster>;
+
+
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
     Match match;                    // 匹配信息
@@ -104,18 +120,19 @@ using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
 using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 
-void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
-    AnchorsByQueryRef& unique_anchors,
-    AnchorsByQueryRef& repeat_anchors,
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByQueryRef& unique_anchors,
+    MatchByQueryRef& repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
     uint_t thread_num);
 
-void sortAnchorsByRefStart(AnchorsByQueryRef& anchors, uint_t thread_num);
+void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num);
+void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
-void clusterChrAnchors(AnchorVec& anchors);
+void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_gap = 90, uint_t diagdiff = 5, double diagfactor = 0.12);
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------
@@ -181,6 +198,9 @@ bool loadAnchorsSets(const std::string& filename,
 
 bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data);
 bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data);
+
+bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
+bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
 // ------------------------------------------------------------------
 // （注释掉）双基因组比对结构体：用于管理两个物种之间的 Anchor 信息
 // ------------------------------------------------------------------
@@ -201,5 +221,38 @@ bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data);
 //     AnchorPtrListVec  anchors{};               // anchor 列表
 //     AnchorRTree   anchor_rtree{};              // 空间索引树
 // };
+
+class UnionFind
+{
+public:
+    /// 构造并初始化为 n 个独立元素
+    explicit UnionFind(std::size_t n = 0);
+
+    /// 清空并重建大小为 n 的并查集
+    void reset(std::size_t n);
+
+    /// 查找 x 所在集合的代表（根）
+    int_t find(int_t x);
+
+    /// 返回 x 所在集合的元素个数
+    int_t set_size(int_t x);
+
+    /// 判断 a 与 b 是否位于同一集合
+    bool same(int_t a, int_t b);
+
+    /// 当前独立集合个数
+    int_t components() const { return component_cnt_; }
+
+    /**
+     * @brief 合并 a、b 所在集合
+     * @return true  如果二者原本不连通并成功合并
+     *         false 如果二者已在同一集合
+     */
+    bool unite(int_t a, int_t b);
+
+private:
+    std::vector<int_t> parent_;   // 负数：根 & -size；非负：父索引
+    int_t component_cnt_{ 0 };      // 当前集合数
+};
 
 #endif // ANCHOR_H
