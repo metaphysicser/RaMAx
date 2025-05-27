@@ -1,4 +1,4 @@
-﻿#include "rare_aligner.h"
+#include "rare_aligner.h"
 
 PairRareAligner::PairRareAligner(const FilePath work_dir,
 	const uint_t thread_num,
@@ -59,6 +59,7 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 	if (!std::filesystem::exists(ref_index_path)) {
 		std::filesystem::create_directories(ref_index_path);
 	}
+
 
 	ref_fasta_manager = FastaManager(fasta_path, getFaiIndexPath(fasta_path));
 
@@ -185,13 +186,12 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	//		if (query_subseq != ref_subseq) {
 	//			spdlog::warn("Mismatch found in anchor: query {} vs ref {}",
 	//				query_subseq, ref_subseq);
-	//		
+	//
 	//	}
 	//}
 
 	sortMatchByQueryStart(unique_anchors, thread_num);
 	sortMatchByQueryStart(repeat_anchors, thread_num);
-
 	ThreadPool pool(thread_num);
 
 	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
@@ -201,16 +201,25 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 			MatchVec& unique_vec = unique_anchors[i][j];
 			MatchVec& repeat_vec = repeat_anchors[i][j];
 
-			pool.enqueue([&unique_vec, &repeat_vec](){
-				clusterChrMatch(unique_vec, repeat_vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
+			pool.enqueue([&unique_vec, &repeat_vec]() {
+				clusterChrMatch(unique_vec, repeat_vec);  // 已排序
 			});
 		}
 	}
-	pool.waitAllTasksDone();
-	
 
-	return;
-	
+	pool.waitAllTasksDone();
+
+	//----------------------------------------------------------------
+	// 3) 释放原始 3D 数据以节省内存
+	//----------------------------------------------------------------
+	anchors->clear();
+	anchors->shrink_to_fit();
+
+	//----------------------------------------------------------------
+	// 4) 如需导出，可保存到类成员
+	//----------------------------------------------------------------
+	// unique_anchors_  = std::move(unique_anchors);
+	// repeat_anchors_  = std::move(repeat_anchors);
 }
 
 

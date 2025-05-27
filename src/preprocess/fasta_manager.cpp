@@ -494,7 +494,6 @@ RegionVec FastaManager::preAllocateChunks(uint_t chunk_size, uint_t overlap_size
             start = (start >= overlap_size ? start - overlap_size : 0);
         }
     }
-
     return chunks;
 }
 
