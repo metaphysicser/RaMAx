@@ -296,6 +296,7 @@ int main(int argc, char** argv) {
 							if (hide_success) {
 								spdlog::info("[{}] Successfully generated hidden intervals FASTA: {}", 
 									species_name, output_fasta.string());
+								species_path_map[species_name] = output_fasta;
 							} else {
 								spdlog::error("[{}] Failed to generate hidden intervals FASTA", species_name);
 							}
