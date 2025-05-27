@@ -112,21 +112,43 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 	ThreadPool pool(thread_num);
 	std::vector<std::future<MatchVec2DPtr>> futures;
-	futures.reserve(chunks.size());
+	// 根据线程数量和chunk数量决定每个线程处理的chunk数量
+	// 确保每个线程至少处理一个chunk，同时避免线程过多
+	size_t num_chunks_per_thread = chunks.size() / thread_num;
+	if (chunks.size() % thread_num != 0) {
+		num_chunks_per_thread++; // 如果不能整除，则向上取整，确保所有chunk都被处理
+	}
+	if (num_chunks_per_thread == 0 && !chunks.empty()) { // 至少处理一个chunk
+	    num_chunks_per_thread = 1;
+	}
 
-	for (const auto& ck : chunks) {
-		std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
+	futures.reserve(chunks.size() / num_chunks_per_thread + (chunks.size() % num_chunks_per_thread != 0 ? 1 : 0));
+
+	for (size_t i = 0; i < chunks.size(); i += num_chunks_per_thread) {
+		std::vector<Region> chunk_group;
+		for (size_t j = i; j < std::min(i + num_chunks_per_thread, chunks.size()); ++j) {
+			chunk_group.push_back(chunks[j]);
+		}
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, ck, seq, search_mode, allow_MEM]() -> MatchVec2DPtr {
-					return ref_index.findAnchors(
-						ck.chr_name, seq, search_mode,
-						Strand::FORWARD,
-						allow_MEM,
-						ck.start,
-						min_anchor_length,
-						max_anchor_frequency);
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
+					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
+					for (const auto& ck : chunk_group) {
+						std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
+						MatchVec2DPtr matches = ref_index.findAnchors(
+							ck.chr_name, seq, search_mode,
+							Strand::FORWARD,
+							allow_MEM,
+							ck.start,
+							min_anchor_length,
+							max_anchor_frequency);
+						// 合并当前chunk的matches到group_matches
+						for(const auto& match_list : *matches){
+						    group_matches->push_back(match_list);
+						}
+					}
+					return group_matches;
 				}));
 	}
 
