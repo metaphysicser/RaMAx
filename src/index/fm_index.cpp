@@ -125,12 +125,12 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count)
 
 // 总调度函数：根据模式选择索引构建方式
 bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
-    if (fast_mode) {
-        buildIndexUsingCaPS(thread);
+    if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
+        buildIndexUsingDivsufsort(thread);
     }
     else {
-        if (isFileSmallerThan(fasta_manager->fasta_path_, 1024)) {
-            buildIndexUsingDivsufsort(thread);
+        if (fast_mode) {
+            buildIndexUsingCaPS(thread);
         }
         else {
             buildIndexUsingBigBWT(output_path, thread);  // 大文件处理方式（此处未实现）
@@ -195,7 +195,7 @@ SAInterval FM_Index::backwardExtend(const SAInterval& I, char c) {
 }
 
 // 根据查询模式调度查找函数
-AnchorVec2DPtr FM_Index::findAnchors(ChrName query_chr, std::string query,
+MatchVec2DPtr FM_Index::findAnchors(ChrName query_chr, std::string query,
     SearchMode search_mode, Strand strand, bool allow_MEM,
     uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
@@ -214,7 +214,7 @@ AnchorVec2DPtr FM_Index::findAnchors(ChrName query_chr, std::string query,
 }
 
 // 快速查找模式：逐段匹配 query 子串
-AnchorVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, Strand strand, bool allow_MEM,
+MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, Strand strand, bool allow_MEM,
     uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
     // query 字符串反向或互补（FM 索引默认支持反向搜索）
@@ -227,7 +227,7 @@ AnchorVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, S
         }
     }
 
-    AnchorVec2DPtr anchor_ptr_list_vec = std::make_shared<AnchorVec2D>();
+    MatchVec2DPtr anchor_ptr_list_vec = std::make_shared<MatchVec2D>();
 
     uint_t total_length = 0;
     uint_t query_length = query.length();
@@ -240,16 +240,16 @@ AnchorVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, S
             region_vec,  min_anchor_length, max_anchor_frequency);
 
         if (!region_vec.empty()) {
-            Region query_region(query_chr, total_length + query_offset, match_length);
-            AnchorVec anchor_ptr_list;
+            Region query_region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            MatchVec anchor_ptr_list;
 
             for (uint_t i = 0; i < region_vec.size(); i++) {
                 Match match(region_vec[i], query_region, strand);
-                Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
+                /*Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
                 Cigar_t cigar;
-                cigar.push_back(cigarToInt('=', match_length));
-                Anchor p = Anchor(match, match_length, cigar, score);
-                anchor_ptr_list.push_back(p);
+                cigar.push_back(cigarToInt('=', match_length));*/
+                //Anchor p = Anchor(match, match_length, cigar, score);
+                anchor_ptr_list.push_back(match);
             }
 
             anchor_ptr_list_vec->push_back(anchor_ptr_list);
@@ -261,7 +261,7 @@ AnchorVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, S
 }
 
 // 中速模式：跳跃推进，减少重复匹配
-AnchorVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, Strand strand, bool allow_MEM,
+MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, Strand strand, bool allow_MEM,
     uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency)
 {
     if (strand == FORWARD) {
@@ -273,7 +273,7 @@ AnchorVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
         }
     }
 
-    AnchorVec2DPtr anchor_ptr_list_vec = std::make_shared<AnchorVec2D>();
+    MatchVec2DPtr anchor_ptr_list_vec = std::make_shared<MatchVec2D>();
 
     uint_t total_length = 0;
     uint_t query_length = query.length();
@@ -286,19 +286,19 @@ AnchorVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
             region_vec, min_anchor_length, max_anchor_frequency);
 
         if (!region_vec.empty()) {
-            Region query_region(query_chr, total_length + query_offset, match_length);
-            AnchorVec anchor_ptr_list;
+            Region query_region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            MatchVec anchor_ptr_list;
             uint_t ref_end_pos = region_vec[0].start + match_length;
 
             // 仅当与上一段区域不重复时才添加
             if (ref_end_pos != last_pos) {
                 for (uint_t i = 0; i < region_vec.size(); i++) {
                     Match match(region_vec[i], query_region, strand);
-                    Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
+                   /* Score_t score = caculateMatchScore(query.c_str() + total_length, match_length);
                     Cigar_t cigar;
                     cigar.push_back(cigarToInt('=', match_length));
-                    Anchor p = Anchor(match, match_length, cigar, score);
-                    anchor_ptr_list.push_back(p);
+                    Anchor p = Anchor(match, match_length, cigar, score);*/
+                    anchor_ptr_list.push_back(match);
                 }
                 anchor_ptr_list_vec->push_back(anchor_ptr_list);
             }
@@ -314,7 +314,7 @@ AnchorVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
 // -------------------------------------------------------------
 // Middle-Search：先 fast，后区间二分补搜
 // -------------------------------------------------------------
-AnchorVec2DPtr FM_Index::findAnchorsAccurate(
+MatchVec2DPtr FM_Index::findAnchorsAccurate(
 	ChrName query_chr,
 	std::string query,
 	Strand strand,
@@ -324,12 +324,12 @@ AnchorVec2DPtr FM_Index::findAnchorsAccurate(
 	uint_t max_anchor_frequency)
 {
 
-    AnchorVec2DPtr out = std::make_shared<AnchorVec2D>();
+    MatchVec2DPtr out = std::make_shared<MatchVec2D>();
 
 	uint_t query_length = query.length();
 
 	/* ---------- STEP-0：先跑 Fast 拿到顶层 MUM ---------- */
-    AnchorVec2DPtr fast_mums =
+    MatchVec2DPtr fast_mums =
 		findAnchorsFast(query_chr, query, strand, allow_MEM,
 			query_offset, min_anchor_length, max_anchor_frequency);
 
@@ -349,9 +349,11 @@ AnchorVec2DPtr FM_Index::findAnchorsAccurate(
 	{
 		bool left_is_mum = (lst.size() == 1);
 
-		const Anchor& a = lst.front();
-		uint_t L = a.match.query_region.start - query_offset;
-		uint_t n = a.match.query_region.length;
+		const Match& a = lst.front();
+        // start = query_length - match_length - total_length + query_offset
+		// total_length = query_length - match_length - start + query_offset
+		uint_t L = query_length - a.query_region.length - a.query_region.start + query_offset;
+		uint_t n = a.query_region.length;
 		uint_t R = L + n;
 
 		out->push_back(lst);                       // fast 结果入库
@@ -368,16 +370,16 @@ AnchorVec2DPtr FM_Index::findAnchorsAccurate(
 			max_anchor_frequency);
 
         if (!regs.empty()) {
-            Region query_region(query_chr, right_pos + query_offset, right_len);
-            AnchorVec anchor_ptr_list;
+            Region query_region(query_chr, query_length - right_len - right_pos + query_offset, right_len);
+            MatchVec anchor_ptr_list;
 
             for (uint_t i = 0; i < regs.size(); i++) {
                 Match match(regs[i], query_region, strand);
-                Score_t score = caculateMatchScore(query.c_str() + right_pos, right_len);
+                /*Score_t score = caculateMatchScore(query.c_str() + right_pos, right_len);
                 Cigar_t cigar;
                 cigar.push_back(cigarToInt('=', right_len));
-                Anchor p = Anchor(match, right_len, cigar, score);
-                anchor_ptr_list.push_back(p);
+                Anchor p = Anchor(match, right_len, cigar, score);*/
+                anchor_ptr_list.push_back(match);
             }
 
             out->push_back(anchor_ptr_list);
@@ -461,7 +463,7 @@ void FM_Index::bisectAnchors(const std::string& query,
 	uint_t    max_freq,
 	const MUMInfo& left,
 	const MUMInfo& right,
-    AnchorVec2D& out)
+    MatchVec2D& out)
 {
 	if (right.pos <= left.pos + 1) return;          // 区间不足 1bp
 
@@ -479,13 +481,13 @@ void FM_Index::bisectAnchors(const std::string& query,
 	// 如果mid_is_mum是false，写入，如果是true，判断same_as_left和same_as_right都为false则写入，否则不写入
 	/* ---- 若找到匹配就写结果 ---- */
 	if ((regs.size() == 1 || allow_MEM) && !mid_is_mum || (!same_as_left && !same_as_right)) {
-		Region qreg(query_chr, mid + query_offset, mid_len);
-		AnchorVec lst;
+		Region qreg(query_chr, query_length - mid_len - mid + query_offset, mid_len);
+        MatchVec lst;
 		for (auto const& rg : regs) {
 			Match  m(rg, qreg, strand);
-			Score_t sc = caculateMatchScore(query.c_str() + mid, mid_len);
-			Cigar_t cg = { cigarToInt('=', mid_len) };
-			lst.emplace_back(Anchor(m, mid_len, cg, sc));
+			/*Score_t sc = caculateMatchScore(query.c_str() + mid, mid_len);
+			Cigar_t cg = { cigarToInt('=', mid_len) };*/
+			lst.emplace_back(m);
 		}
 		out.emplace_back(std::move(lst));
 	}

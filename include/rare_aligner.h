@@ -22,9 +22,9 @@ public:
     PairRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
     FilePath buildIndex(const std::string prefix, const FilePath fasta_path, bool fast_build = false);
 
-    AnchorVec3DPtr findQueryFileAnchor(const std::string prefix, FastaManager& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
+    MatchVec3DPtr findQueryFileAnchor(const std::string prefix, FastaManager& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
 
-	void groupAnchorsByQueryRef(AnchorVec3DPtr& anchors, FastaManager& query_fasta_manager);
+	void clusterPairSpeciesAnchors(MatchVec3DPtr& anchors, FastaManager& query_fasta_manager);
 
 };
 

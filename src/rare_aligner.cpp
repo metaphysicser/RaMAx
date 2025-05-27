@@ -83,7 +83,7 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 	return ref_index_path;
 }
 
-AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
+MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	const std::string prefix,
 	FastaManager& query_fasta_manager,
 	SearchMode         search_mode,
@@ -98,8 +98,8 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 	/* ---------- 若已存在结果文件，直接加载 ---------- */
 	if (std::filesystem::exists(anchor_file)) {
-		AnchorVec3DPtr result = std::make_shared<AnchorVec3D>();
-		loadAnchorVec3D(anchor_file, result);
+		MatchVec3DPtr result = std::make_shared<MatchVec3D>();
+		loadMatchVec3D(anchor_file, result);
 		return result;
 	}
 
@@ -110,7 +110,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	auto t_search0 = ch::steady_clock::now();
 
 	ThreadPool pool(thread_num);
-	std::vector<std::future<AnchorVec2DPtr>> futures;
+	std::vector<std::future<MatchVec2DPtr>> futures;
 	futures.reserve(chunks.size());
 
 	for (const auto& ck : chunks) {
@@ -118,7 +118,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, ck, seq, search_mode, allow_MEM]() -> AnchorVec2DPtr {
+				[this, ck, seq, search_mode, allow_MEM]() -> MatchVec2DPtr {
 					return ref_index.findAnchors(
 						ck.chr_name, seq, search_mode,
 						Strand::FORWARD,
@@ -137,12 +137,12 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	/* ---------- ② 计时：合并 ---------- */
 	auto t_merge0 = ch::steady_clock::now();
 
-	AnchorVec3DPtr result = std::make_shared<AnchorVec3D>();
+	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
 	result->reserve(futures.size());
 	size_t total_lists = 0;
 	for (auto& fut : futures) {
-		AnchorVec2DPtr part = fut.get();
+		MatchVec2DPtr part = fut.get();
 		total_lists += part->size();
 		result->emplace_back(std::move(*part));
 	}
@@ -152,7 +152,7 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
 	/* ---------- ③ 计时：保存 ---------- */
 	auto t_save0 = ch::steady_clock::now();
-	saveAnchorVec3D(anchor_file, result);
+	saveMatchVec3D(anchor_file, result);
 	auto t_save1 = ch::steady_clock::now();
 	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
 
@@ -167,81 +167,48 @@ AnchorVec3DPtr PairRareAligner::findQueryFileAnchor(
 //--------------------------------------------------------------------
 // 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
 //--------------------------------------------------------------------
-void PairRareAligner::groupAnchorsByQueryRef(AnchorVec3DPtr& anchors,
+void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	//----------------------------------------------------------------
-	// 0) 初始化二维目标矩阵
-	//----------------------------------------------------------------
-	const uint_t ref_chr_cnt = ref_fasta_manager.idx_map.size();
-	const uint_t query_chr_cnt = query_fasta_manager.idx_map.size();
+	MatchByQueryRef unique_anchors;
+	MatchByQueryRef repeat_anchors;
 
-	AnchorsByQueryRef unique_anchors(query_chr_cnt,
-		AnchorsByRef(ref_chr_cnt));
-	AnchorsByQueryRef repeat_anchors(query_chr_cnt,
-		AnchorsByRef(ref_chr_cnt));
+	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
+		ref_fasta_manager, query_fasta_manager, thread_num);
 
-	//----------------------------------------------------------------
-	// 1) 行级互斥锁：每个 query-chr 一把
-	//----------------------------------------------------------------
-	std::vector<std::mutex> rowLocks(query_chr_cnt);
+	//// 测试得到的anchor对应的子串是否相同
+	//for (const auto& first_match : unique_anchors[0][0]) {
+	//		std::string query_subseq = query_fasta_manager.getSubSequence(
+	//			first_match.query_region.chr_name, first_match.query_region.start, first_match.query_region.length);
+	//		std::string ref_subseq = ref_fasta_manager.getSubSequence(
+	//			first_match.ref_region.chr_name, first_match.ref_region.start, first_match.ref_region.length);
+	//		if (query_subseq != ref_subseq) {
+	//			spdlog::warn("Mismatch found in anchor: query {} vs ref {}",
+	//				query_subseq, ref_subseq);
+	//		
+	//	}
+	//}
 
-	//----------------------------------------------------------------
-	// 2) 并行遍历 3D 数据，每个 slice 启动一个任务
-	//----------------------------------------------------------------
+	sortMatchByQueryStart(unique_anchors, thread_num);
+	sortMatchByQueryStart(repeat_anchors, thread_num);
+
 	ThreadPool pool(thread_num);
 
-	for (auto& slice : *anchors)              // slice: std::vector<AnchorVec>
-	{
-		pool.enqueue([&, &slice]() {
+	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
+		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
+			MatchVec& unique_vec = unique_anchors[i][j];
+			MatchVec& repeat_vec = repeat_anchors[i][j];
 
-			if (slice.empty()) return;
-
-			// 2a) 获取 slice 的 query-chr 索引（所有 vec 同一 chr）
-			const Anchor& first = slice.front().front();
-			auto itQ = query_fasta_manager.idx_map.find(
-				first.match.query_region.chr_name);
-			if (itQ == query_fasta_manager.idx_map.end()) return;
-			const uint_t qIdx = itQ->second;
-
-			// 2b) 遍历 slice 中每个 AnchorVec
-			for (auto& vec : slice) {
-				if (vec.empty()) continue;
-
-				const ChrName& rName = vec.front().match.ref_region.chr_name;
-				auto itR = ref_fasta_manager.idx_map.find(rName);
-				if (itR == ref_fasta_manager.idx_map.end()) continue;
-				const uint_t rIdx = itR->second;
-
-				/* ---- 临界区：只锁当前 query 行 ---- */
-				{
-					std::lock_guard<std::mutex> lk(rowLocks[qIdx]);
-					AnchorVec& target =
-						(vec.size() == 1)
-						? unique_anchors[qIdx][rIdx]
-						: repeat_anchors[qIdx][rIdx];
-
-						target.insert(target.end(),
-							std::make_move_iterator(vec.begin()),
-							std::make_move_iterator(vec.end()));
-				}
-			}
+			pool.enqueue([&unique_vec, &repeat_vec](){
+				clusterChrMatch(unique_vec, repeat_vec);  // 已排序 vec，返回不重叠的 AnchorPtr 列表
 			});
+		}
 	}
-
 	pool.waitAllTasksDone();
+	
 
-	//----------------------------------------------------------------
-	// 3) 释放原始 3D 数据以节省内存
-	//----------------------------------------------------------------
-	anchors->clear();
-	anchors->shrink_to_fit();
-
-	//----------------------------------------------------------------
-	// 4) 如需导出，可保存到类成员
-	//----------------------------------------------------------------
-	// unique_anchors_  = std::move(unique_anchors);
-	// repeat_anchors_  = std::move(repeat_anchors);
+	return;
+	
 }
 
 

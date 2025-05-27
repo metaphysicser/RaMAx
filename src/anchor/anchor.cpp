@@ -1,4 +1,5 @@
 #include "anchor.h"
+#include "data_process.h" 
 
 // 构造函数（注释掉了）：初始化参考物种、查询物种及其锚点集合，并重建 R 树。
 //PairGenomeAnchor::PairGenomeAnchor(SpeciesName ref,
@@ -257,3 +258,213 @@ bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data) {
 
     return static_cast<bool>(is);
 }
+
+
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByQueryRef& unique_anchors,
+    MatchByQueryRef& repeat_anchors,
+    FastaManager& ref_fasta_manager,
+    FastaManager& query_fasta_manager,
+    uint_t thread_num) {
+    //----------------------------------------------------------------
+    // 0) 初始化二维目标矩阵
+    //----------------------------------------------------------------
+    const uint_t ref_chr_cnt = ref_fasta_manager.idx_map.size();
+    const uint_t query_chr_cnt = query_fasta_manager.idx_map.size();
+
+    // resize 外层：query 维度
+    unique_anchors.resize(query_chr_cnt);
+    repeat_anchors.resize(query_chr_cnt);
+
+    // resize 内层：ref 维度
+    for (uint_t q = 0; q < query_chr_cnt; ++q) {
+        unique_anchors[q].resize(ref_chr_cnt);   // AnchorsByRef
+        repeat_anchors[q].resize(ref_chr_cnt);   // AnchorsByRef
+    }
+
+    //----------------------------------------------------------------
+    // 1) 行级互斥锁：每个 query-chr 一把
+    //----------------------------------------------------------------
+    std::vector<std::mutex> rowLocks(query_chr_cnt);
+
+    //----------------------------------------------------------------
+    // 2) 并行遍历 3D 数据，每个 slice 启动一个任务
+    //----------------------------------------------------------------
+    ThreadPool pool(thread_num);
+
+    for (auto& slice : *anchors)              // slice: std::vector<AnchorVec>
+    {
+        pool.enqueue([&, &slice]() {
+
+            if (slice.empty()) return;
+
+            // 2a) 获取 slice 的 query-chr 索引（所有 vec 同一 chr）
+            const Match& first = slice.front().front();
+            auto itQ = query_fasta_manager.idx_map.find(
+                first.query_region.chr_name);
+            if (itQ == query_fasta_manager.idx_map.end()) return;
+            const uint_t qIdx = itQ->second;
+
+            // 2b) 遍历 slice 中每个 AnchorVec
+            for (auto& vec : slice) {
+                if (vec.empty()) continue;
+
+                const ChrName& rName = vec.front().ref_region.chr_name;
+                auto itR = ref_fasta_manager.idx_map.find(rName);
+                if (itR == ref_fasta_manager.idx_map.end()) continue;
+                const uint_t rIdx = itR->second;
+
+                /* ---- 临界区：只锁当前 query 行 ---- */
+                {
+                    std::lock_guard<std::mutex> lk(rowLocks[qIdx]);
+                    MatchVec& target =
+                        (vec.size() == 1)
+                        ? unique_anchors[qIdx][rIdx]
+                        : repeat_anchors[qIdx][rIdx];
+
+                        target.insert(target.end(),
+                            std::make_move_iterator(vec.begin()),
+                            std::make_move_iterator(vec.end()));
+                }
+            }
+            });
+    }
+
+    pool.waitAllTasksDone();
+
+    //----------------------------------------------------------------
+    // 3) 释放原始 3D 数据以节省内存
+    //----------------------------------------------------------------
+    anchors->clear();
+    anchors->shrink_to_fit();
+}
+
+void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num) {
+    ThreadPool pool(thread_num);
+
+    for (auto& row : anchors) {
+        for (auto& vec : row) {
+            pool.enqueue([&vec]() {
+                if (vec.size() == 0) return;
+                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
+                    return (a.ref_region.start < b.ref_region.start) || (a.ref_region.start == b.ref_region.start && a.query_region.start < b.query_region.start);
+                    });
+                });
+        }
+    }
+
+    pool.waitAllTasksDone();
+}
+
+void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num) {
+    ThreadPool pool(thread_num);
+
+    for (auto& row : anchors) {
+        for (auto& vec : row) {
+            pool.enqueue([&vec]() {
+                if (vec.size() == 0) return;
+                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
+                    return a.query_region.start < b.query_region.start;
+                    });
+                });
+        }
+    }
+
+    pool.waitAllTasksDone();
+}
+
+AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
+{
+    AnchorPtrVec uniques;
+    const size_t n = anchors.size();
+    if (n == 0) return uniques;
+
+    Coord_t max_end_so_far = 0;  // 记录到当前位置前的最大 end
+
+    for (size_t i = 0; i < n; ++i) {
+        const Anchor& curr = anchors[i];
+        Coord_t curr_start = curr.match.ref_region.start;
+        Coord_t curr_end = curr_start + curr.match.ref_region.length;
+
+        bool overlap_left = (i > 0 && max_end_so_far > curr_start);
+        bool overlap_right = (i + 1 < n &&
+            anchors[i + 1].match.ref_region.start < curr_end);
+
+        if (!overlap_left && !overlap_right)
+            uniques.emplace_back(std::make_shared<Anchor>(curr));
+
+        // 更新左侧最大 end
+        if (curr_end > max_end_so_far) max_end_so_far = curr_end;
+    }
+    return std::move(uniques);
+}
+
+bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data) {
+    if (!data) return false;
+
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) return false;
+
+    cereal::BinaryOutputArchive oar(os);
+
+    uint64_t dim0 = data->size();  // 最外层
+    oar(dim0);
+
+    for (const auto& layer : *data) {
+        uint64_t dim1 = layer.size();  // 第二层
+        oar(dim1);
+
+        for (const auto& vec : layer) {
+            uint64_t dim2 = vec.size();  // 最内层
+            oar(dim2);
+
+            for (const auto& match : vec) {
+                oar(match);  // 直接序列化 Match
+            }
+        }
+    }
+
+    return static_cast<bool>(os);
+}
+
+bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data) {
+    std::ifstream is(filename, std::ios::binary);
+    if (!is) return false;
+
+    cereal::BinaryInputArchive iar(is);
+
+    uint64_t dim0;
+    iar(dim0);
+
+    data = std::make_shared<MatchVec3D>();
+    data->resize(dim0);
+
+    for (uint64_t i = 0; i < dim0; ++i) {
+        uint64_t dim1;
+        iar(dim1);
+
+        (*data)[i].resize(dim1);
+
+        for (uint64_t j = 0; j < dim1; ++j) {
+            uint64_t dim2;
+            iar(dim2);
+
+            MatchVec vec;
+            vec.reserve(dim2);
+
+            for (uint64_t k = 0; k < dim2; ++k) {
+                Match m;
+                iar(m);
+                vec.push_back(std::move(m));
+            }
+
+            (*data)[i][j] = std::move(vec);
+        }
+    }
+
+    return static_cast<bool>(is);
+}
+
+
+
+

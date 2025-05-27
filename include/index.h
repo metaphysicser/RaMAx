@@ -120,7 +120,7 @@ public:
     // -------------------------
     // 锚点查找接口（FAST/MIDDLE/ACCURATE 模式）
     // -------------------------
-    AnchorVec2DPtr findAnchors(
+    MatchVec2DPtr findAnchors(
         ChrName query_chr,
         std::string query,
         SearchMode search_mode,
@@ -130,7 +130,7 @@ public:
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
 
-    AnchorVec2DPtr findAnchorsFast(
+    MatchVec2DPtr findAnchorsFast(
         ChrName query_chr,
         std::string query,
         Strand strand,
@@ -139,7 +139,7 @@ public:
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
 
-    AnchorVec2DPtr findAnchorsAccurate(
+    MatchVec2DPtr findAnchorsAccurate(
         ChrName query_chr,
         std::string query,
         Strand strand,
@@ -148,7 +148,7 @@ public:
         uint_t min_anchor_length,
         uint_t max_anchor_frequency);
 
-    AnchorVec2DPtr findAnchorsMiddle(
+    MatchVec2DPtr findAnchorsMiddle(
         ChrName query_chr,
         std::string query,
         Strand strand,
@@ -177,7 +177,7 @@ public:
         uint_t    max_anchor_frequency,
         const MUMInfo& left,
         const MUMInfo& right,
-        AnchorVec2D& out);
+        MatchVec2D& out);
 
     // -------------------------
     // 子串查找（返回匹配长度与区域）

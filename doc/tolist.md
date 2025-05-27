@@ -31,7 +31,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ## 当前优先任务（🔴🟠🟢）
 
 ### 预处理阶段
-- [ ] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
+- [x] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
 - [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
 - [ ] 🟢 实现进化树读取与解析，构建比对指导树
 - [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
@@ -41,9 +41,9 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟠 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
 
 ### 锚点寻找阶段
-- [ ] 🟠 确保被掩蔽的序列不在参考序列中参与比对
+- [X] 🟠 确保被掩蔽的序列不在参考序列中参与比对
 - [ ] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
-- [ ] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
+- [X] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
 - [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
 
 ### 锚点过滤功能开发
@@ -71,6 +71,9 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 增加conda和docker的安装方式
 - [ ] 🟢 完善README文档，包含安装、使用、开发等说明
 
+### bug修复
+- [X] 🟠 match的匹配不对应
+- [ ] 🟠 fasta_manager类中的charidxmap不支持重复掩蔽
 
 ### 未来计划
 - [ ] 🟢 增加对重复序列的比对支持
