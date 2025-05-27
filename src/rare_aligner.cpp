@@ -216,20 +216,45 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	sortMatchByQueryStart(repeat_anchors, thread_num);
 	ThreadPool pool(thread_num);
 
+	//--------------------------------------------------------------------
+// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
+//--------------------------------------------------------------------
+	ClusterVecPtrByRefByQuery cluster_results(unique_anchors.size());
+	for (auto& row : cluster_results)
+		row.resize(/*与这一行对应的 ref-bucket 个数*/ 0);   // 稍后再 resize
+
+	//--------------------------------------------------------------------
+	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
+	//--------------------------------------------------------------------
 	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
+		cluster_results[i].resize(unique_anchors[i].size());    // ← 现在知道列数
+
 		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-	//for (uint_t i = 0; i < 1; ++i) {
-	//	for (uint_t j = 0; j < 1; ++j) {
 			MatchVec& unique_vec = unique_anchors[i][j];
 			MatchVec& repeat_vec = repeat_anchors[i][j];
 
-			pool.enqueue([&unique_vec, &repeat_vec]() {
-				clusterChrMatch(unique_vec, repeat_vec);  // 已排序
-			});
+			// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
+			auto ii = i;
+			auto jj = j;
+
+			pool.enqueue([&cluster_results, ii, jj,
+				&unique_vec, &repeat_vec]()
+				{
+					// ⬇ 收集返回值
+					cluster_results[ii][jj] = clusterChrMatch(
+						unique_vec,
+						repeat_vec);   // 已排序
+				});
 		}
 	}
 
 	pool.waitAllTasksDone();
+
+	//----------------------------------------------------------------
+	// 3) 如有后续操作，可直接用 cluster_results
+	//----------------------------------------------------------------
+	// anchors->clear(); …                // 原来的清理逻辑保持不变
+
 
 	//----------------------------------------------------------------
 	// 3) 释放原始 3D 数据以节省内存
@@ -237,11 +262,6 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	anchors->clear();
 	anchors->shrink_to_fit();
 
-	//----------------------------------------------------------------
-	// 4) 如需导出，可保存到类成员
-	//----------------------------------------------------------------
-	// unique_anchors_  = std::move(unique_anchors);
-	// repeat_anchors_  = std::move(repeat_anchors);
 }
 
 
