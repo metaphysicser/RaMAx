@@ -56,58 +56,111 @@ bool UnionFind::unite(int_t a, int_t b)
     return true;
 }
 
-inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
-inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
-inline uint_t len2(const Match& m) { return static_cast<uint_t>(m.query_region.length); }
-inline int_t diag(const Match& m) {
-    return start2(m) - start1(m);
-}
 
-void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_gap, uint_t diagdiff, double diagfactor)
+// 1. 根据 max_gap / diagdiff / diagfactor 把 unique_match 聚成若干簇
+MatchClusterVec buildClusters(MatchVec& unique_match,
+    int_t      max_gap,
+    int_t      diagdiff,
+    double     diagfactor)
 {
-	uint_t match_count = unique_match.size();
-    if (match_count < 2) return;
-
-    UnionFind uf(match_count);
-    
-    for (uint_t i = 0; i < match_count; ++i)                             // i: 0 … N-1
-    {
-        uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
-        int_t i_diag = diag(unique_match[i]);
-
-        for (uint_t j = i + 1; j < match_count; ++j)                     // j: i+1 … N-1
-        {
-            int_t sep = start2(unique_match[j]) - i_end;
-            if (sep > max_gap) break;               // 太远直接退出内层
-
-            uint_t diag_diff = std::abs(diag(unique_match[j]) - i_diag);
-            uint_t threshold = std::max(diagdiff,
-                static_cast<uint_t>(diagfactor * sep));
-
-            if (diag_diff <= threshold)
-                uf.unite(i, j);                             // 同簇
-        }
-    }
-
-    /*─────────────────────────────────────────────────────────────*
-    * 2. 按根节点把所有元素聚到 cluster                          *
-    *─────────────────────────────────────────────────────────────*/
-    std::vector<int_t> root_map(match_count, -1);          // 根 → cluster_id
+    const uint_t N = static_cast<uint_t>(unique_match.size());
     MatchClusterVec clusters;
-    for (uint_t idx = 0; idx < match_count; ++idx)
-    {
-        int_t root = uf.find(idx);
-        int_t cid = root_map[root];
-        if (cid == -1) {                       // 新簇
-            cid = static_cast<int_t>(clusters.size());
-            root_map[root] = cid;
-            clusters.emplace_back();           // 创建一个 MatchCluster
+    if (N < 2) return clusters;
+
+    UnionFind uf(N);
+    for (uint_t i = 0; i < N; ++i) {
+        uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
+        int_t  i_diag = diag(unique_match[i]);
+        for (uint_t j = i + 1; j < N; ++j) {
+            int_t sep = start2(unique_match[j]) - i_end;
+            if (sep > static_cast<int_t>(max_gap)) break;
+            int_t diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+            int_t th = std::max(diagdiff, static_cast<int_t>(diagfactor * sep));
+            if (diag_diff <= th) uf.unite(i, j);
         }
-        // 把当前 Match 放到 clusters[cid] 中的第一个 MatchVec
-        if (clusters[cid].empty()) clusters[cid].emplace_back();
-        clusters[cid].front().push_back(std::move(unique_match[idx]));
     }
 
-	return;
+    // 根节点映射 → cluster_id
+    std::vector<int_t> root_map(N, -1);
+    for (uint_t idx = 0; idx < N; ++idx) {
+        int_t root = uf.find(idx);
+        int_t& cid = root_map[root];
+        if (cid == -1) {
+            cid = static_cast<int_t>(clusters.size());
+            clusters.emplace_back();
+        }
+        clusters[cid].push_back(std::move(unique_match[idx]));
+    }
+    return clusters;
 }
 
+// 2. 给定一个 cluster，返回其最佳非交叉链（DP O(N^2)）
+MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
+{
+    if (cluster.empty()) return {};
+    if (cluster.size() == 1) return std::move(cluster);
+
+    std::sort(cluster.begin(), cluster.end(),
+        [](const Match& a, const Match& b) { return start2(a) < start2(b); });
+
+    const uint_t N = static_cast<uint_t>(cluster.size());
+    std::vector<int_t> score(N), pred(N, -1);
+    uint_t best_idx = 0;
+
+    for (uint_t i = 0; i < N; ++i) {
+        score[i] = len2(cluster[i]);
+        for (uint_t j = 0; j < i; ++j) {
+            if (start1(cluster[i]) <= start1(cluster[j])) continue;
+            int_t prev_end2 = start2(cluster[j]) + len2(cluster[j]);
+            if (start2(cluster[i]) <= prev_end2) continue;
+            int_t sep = start2(cluster[i]) - prev_end2;
+            int_t d = std::abs(diag(cluster[i]) - diag(cluster[j]));
+            int_t cand = score[j] + len2(cluster[i]) - (sep + static_cast<int_t>(diagfactor * d));
+            if (cand > score[i]) { score[i] = cand; pred[i] = static_cast<int_t>(j); }
+        }
+        if (score[i] > score[best_idx]) best_idx = i;
+    }
+
+    MatchVec chain;
+    for (int_t k = static_cast<int_t>(best_idx); k != -1; k = pred[k])
+        chain.emplace_back(std::move(cluster[k]));
+    std::reverse(chain.begin(), chain.end());
+    return chain;
+}
+
+
+/* ───────────────────────────────────────────────────────── *
+ * 对外主函数                                              *
+ * ───────────────────────────────────────────────────────── */
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match,
+    MatchVec& repeat_match,
+    int_t      max_gap,
+    int_t      diagdiff,
+    double     diagfactor,
+    int_t      min_cluster_length)
+{
+    // 1. 聚簇
+    MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
+
+    // 2. 每簇提链 + 长度过滤
+    auto best_chain_clusters = std::make_shared<MatchClusterVec>();
+    best_chain_clusters->reserve(clusters.size());
+
+    for (auto& cluster : clusters) {
+        if (cluster.empty()) continue;
+
+        MatchVec best_chain = bestChainDP(cluster, diagfactor);
+        if (best_chain.empty()) { releaseCluster(cluster); continue; }
+
+        int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());
+        if (span >= min_cluster_length) {
+            best_chain_clusters->emplace_back(std::move(best_chain));
+        }
+        else {
+            std::move(best_chain.begin(), best_chain.end(), std::back_inserter(repeat_match));
+        }
+        releaseCluster(cluster);     // 回收 cluster 剩余元素
+    }
+
+    return best_chain_clusters;
+}

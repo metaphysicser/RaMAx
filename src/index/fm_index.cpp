@@ -525,12 +525,12 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, bool 
 		I = next_I;
 	}
 	uint_t frequency = I.r - I.l;
-	if (frequency > max_anchor_frequency || match_length < min_anchor_length) {
-		return 1;
-	}
-	//if (frequency > max_anchor_frequency) {
+	//if (frequency > max_anchor_frequency || match_length < min_anchor_length) {
 	//	return 1;
 	//}
+	if (frequency > max_anchor_frequency) {
+		return 1;
+	}
     if (frequency == 1 || allow_MEM) {
         region_vec.reserve(region_vec.size() + frequency);
         for (uint_t i = I.l; i < I.r; i++) {

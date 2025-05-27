@@ -87,9 +87,23 @@ using MatchVec3DPtr = std::shared_ptr<MatchVec3D>;
 using MatchByRef = std::vector<MatchVec>;
 using MatchByQueryRef = std::vector<MatchByRef>;
 
-using MatchCluster = std::vector<MatchVec>; // 匹配簇，包含多个匹配向量
+using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
+using MatchClusterVecPtr = std::shared_ptr<MatchClusterVec>;
+using ClusterVecPtrByRefByQuery = std::vector<std::vector<MatchClusterVecPtr>>;
 
+inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
+inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
+inline uint_t len1(const Match& m) { return static_cast<uint_t>(m.ref_region.length); }
+inline uint_t len2(const Match& m) { return static_cast<uint_t>(m.query_region.length); }
+inline int_t diag(const Match& m) {
+    return start2(m) - start1(m);
+}
+
+// 3. 彻底释放 cluster 内剩余元素的内存（swap 技巧）
+inline void releaseCluster(MatchVec& cluster) {
+    MatchVec tmp; tmp.swap(cluster);
+}
 
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
@@ -132,7 +146,15 @@ void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
-void clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t max_gap = 90, uint_t diagdiff = 5, double diagfactor = 0.12);
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
+
+MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
+
+MatchClusterVec buildClusters(MatchVec& unique_match,
+    int_t      max_gap,
+    int_t      diagdiff,
+    double     diagfactor);
+
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
 // ------------------------------------------------------------------
