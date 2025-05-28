@@ -67,8 +67,10 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 多基因组比对完成hal文件的输出，并支持maf文件的输出格式
 - [ ] 🟢 双基因组比对支持sam，maf，paf，delta，lav，axt格式的输出
 - [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
+- [ ] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
 
 ### 完善整体框架
+- [ ] 🔴 完成多基因组比对的main函数RaMAx.cpp
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
 - [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge
