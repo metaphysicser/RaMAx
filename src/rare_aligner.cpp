@@ -237,43 +237,49 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	//	}
 	//}
 
-//	sortMatchByQueryStart(unique_anchors, thread_num);
-//	sortMatchByQueryStart(repeat_anchors, thread_num);
-//	ThreadPool pool(thread_num);
-//
-//	//--------------------------------------------------------------------
-//// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
-////--------------------------------------------------------------------
-//	ClusterVecPtrByRefByQuery cluster_results(unique_anchors.size());
-//	for (auto& row : cluster_results)
-//		row.resize(/*与这一行对应的 ref-bucket 个数*/ 0);   // 稍后再 resize
-//
-//	//--------------------------------------------------------------------
-//	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
-//	//--------------------------------------------------------------------
-//	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
-//		cluster_results[i].resize(unique_anchors[i].size());    // ← 现在知道列数
-//
-//		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-//			MatchVec& unique_vec = unique_anchors[i][j];
-//			MatchVec& repeat_vec = repeat_anchors[i][j];
-//
-//			// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
-//			auto ii = i;
-//			auto jj = j;
-//
-//			pool.enqueue([&cluster_results, ii, jj,
-//				&unique_vec, &repeat_vec]()
-//				{
-//					// ⬇ 收集返回值
-//					cluster_results[ii][jj] = clusterChrMatch(
-//						unique_vec,
-//						repeat_vec);   // 已排序
-//				});
-//		}
-//	}
-//
-//	pool.waitAllTasksDone();
+	sortMatchByQueryStart(unique_anchors, thread_num);
+	sortMatchByQueryStart(repeat_anchors, thread_num);
+	ThreadPool pool(thread_num);
+
+	//--------------------------------------------------------------------
+// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
+//--------------------------------------------------------------------
+	ClusterVecPtrByStrandByQueryRef cluster_results;
+	cluster_results.resize(2);                      // strand: 0 = FORWARD, 1 = REVERSE
+
+	for (auto& query_layer : cluster_results) {
+		query_layer.resize(unique_anchors.size());          // 每条 strand 下的所有 query-chr
+		for (auto& ref_row : query_layer)
+			ref_row.resize(unique_anchors.front().size());            // 每个 (strand, query) 下的所有 ref-chr
+	}
+
+	//--------------------------------------------------------------------
+	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
+	//--------------------------------------------------------------------
+	for (uint_t k = 0; k < 2; k++) {
+		for (uint_t i = 0; i < unique_anchors.size(); ++i) {
+			for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
+					MatchVec& unique_vec = unique_anchors[k][i][j];
+					MatchVec& repeat_vec = repeat_anchors[k][i][j];
+
+					// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
+					auto kk = k;
+					auto ii = i;
+					auto jj = j;
+
+					pool.enqueue([&cluster_results, kk, ii, jj,
+						&unique_vec, &repeat_vec]()
+						{
+							// ⬇ 收集返回值
+							cluster_results[kk][ii][jj] = clusterChrMatch(
+								unique_vec,
+								repeat_vec);   // 已排序
+						});
+			}
+		}
+	}
+
+	pool.waitAllTasksDone();
 //
 //	//----------------------------------------------------------------
 //	// 3) 如有后续操作，可直接用 cluster_results

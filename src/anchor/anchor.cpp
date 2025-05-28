@@ -441,22 +441,27 @@ void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num) {
     pool.waitAllTasksDone();
 }
 
-void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num) {
+// anchors[strand][query][ref] -- MatchByStrandByQueryRef
+void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, uint_t thread_num)
+{
     ThreadPool pool(thread_num);
 
-    for (auto& row : anchors) {
-        for (auto& vec : row) {
-            pool.enqueue([&vec]() {
-                if (vec.size() == 0) return;
-                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
-                    return a.query_region.start < b.query_region.start;
+    for (auto& strand_layer : anchors)          // 第一维：Strand
+        for (auto& query_row : strand_layer)    // 第二维：query-chr
+            for (auto& vec : query_row)         // 第三维：ref-chr
+            {
+                // 用指针值捕获，避免 vec 变量在下一轮循环被复用后悬空
+                pool.enqueue([v = &vec]() {
+                    if (v->empty()) return;
+                    std::sort(v->begin(), v->end(),
+                        [](const Match& a, const Match& b)
+                        { return a.query_region.start < b.query_region.start; });
                     });
-                });
-        }
-    }
+            }
 
     pool.waitAllTasksDone();
 }
+
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
 {

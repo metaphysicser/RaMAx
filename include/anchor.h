@@ -91,7 +91,8 @@ using MatchByStrandByQueryRef = std::vector<MatchByQueryRef>;
 using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
 using MatchClusterVecPtr = std::shared_ptr<MatchClusterVec>;
-using ClusterVecPtrByRefByQuery = std::vector<std::vector<MatchClusterVecPtr>>;
+using ClusterVecPtrByQueryRef = std::vector<std::vector<MatchClusterVecPtr>>;
+using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
 
 inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
 inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
@@ -143,7 +144,7 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     uint_t thread_num);
 
 void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num);
-void sortMatchByQueryStart(MatchByQueryRef& anchors, uint_t thread_num);
+void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, uint_t thread_num);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
