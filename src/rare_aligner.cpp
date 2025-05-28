@@ -136,20 +136,43 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
-						MatchVec2DPtr matches = ref_index.findAnchors(
+						MatchVec2DPtr forwoard_matches = ref_index.findAnchors(
 							ck.chr_name, seq, search_mode,
 							Strand::FORWARD,
+							allow_MEM,
+							ck.start,
+							0,
+							max_anchor_frequency);
+
+						// 合并当前chunk的matches到group_matches
+						for (const auto& match_list : *forwoard_matches) {
+							group_matches->push_back(match_list);
+						}	
+					}
+					return group_matches;
+				}));
+		futures.emplace_back(
+			pool.enqueue(
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
+					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
+					for (const auto& ck : chunk_group) {
+						std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
+						
+						MatchVec2DPtr reverse_matches = ref_index.findAnchors(
+							ck.chr_name, seq, MIDDLE_SEARCH,
+							Strand::REVERSE,
 							allow_MEM,
 							ck.start,
 							min_anchor_length,
 							max_anchor_frequency);
 						// 合并当前chunk的matches到group_matches
-						for(const auto& match_list : *matches){
-						    group_matches->push_back(match_list);
+						for (const auto& match_list : *reverse_matches) {
+							group_matches->push_back(match_list);
 						}
 					}
 					return group_matches;
 				}));
+
 	}
 
 	pool.waitAllTasksDone();
@@ -193,8 +216,10 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	MatchByQueryRef unique_anchors;
-	MatchByQueryRef repeat_anchors;
+	//MatchByQueryRef unique_anchors;
+	//MatchByQueryRef repeat_anchors;
+	MatchByStrandByQueryRef unique_anchors;
+	MatchByStrandByQueryRef repeat_anchors;
 
 	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
 		ref_fasta_manager, query_fasta_manager, thread_num);
@@ -212,55 +237,56 @@ void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	//	}
 	//}
 
-	sortMatchByQueryStart(unique_anchors, thread_num);
-	sortMatchByQueryStart(repeat_anchors, thread_num);
-	ThreadPool pool(thread_num);
-
-	//--------------------------------------------------------------------
-// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
-//--------------------------------------------------------------------
-	ClusterVecPtrByRefByQuery cluster_results(unique_anchors.size());
-	for (auto& row : cluster_results)
-		row.resize(/*与这一行对应的 ref-bucket 个数*/ 0);   // 稍后再 resize
-
-	//--------------------------------------------------------------------
-	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
-	//--------------------------------------------------------------------
-	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
-		cluster_results[i].resize(unique_anchors[i].size());    // ← 现在知道列数
-
-		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-			MatchVec& unique_vec = unique_anchors[i][j];
-			MatchVec& repeat_vec = repeat_anchors[i][j];
-
-			// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
-			auto ii = i;
-			auto jj = j;
-
-			pool.enqueue([&cluster_results, ii, jj,
-				&unique_vec, &repeat_vec]()
-				{
-					// ⬇ 收集返回值
-					cluster_results[ii][jj] = clusterChrMatch(
-						unique_vec,
-						repeat_vec);   // 已排序
-				});
-		}
-	}
-
-	pool.waitAllTasksDone();
-
-	//----------------------------------------------------------------
-	// 3) 如有后续操作，可直接用 cluster_results
-	//----------------------------------------------------------------
-	// anchors->clear(); …                // 原来的清理逻辑保持不变
-
-
-	//----------------------------------------------------------------
-	// 3) 释放原始 3D 数据以节省内存
-	//----------------------------------------------------------------
-	anchors->clear();
-	anchors->shrink_to_fit();
+//	sortMatchByQueryStart(unique_anchors, thread_num);
+//	sortMatchByQueryStart(repeat_anchors, thread_num);
+//	ThreadPool pool(thread_num);
+//
+//	//--------------------------------------------------------------------
+//// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
+////--------------------------------------------------------------------
+//	ClusterVecPtrByRefByQuery cluster_results(unique_anchors.size());
+//	for (auto& row : cluster_results)
+//		row.resize(/*与这一行对应的 ref-bucket 个数*/ 0);   // 稍后再 resize
+//
+//	//--------------------------------------------------------------------
+//	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
+//	//--------------------------------------------------------------------
+//	for (uint_t i = 0; i < unique_anchors.size(); ++i) {
+//		cluster_results[i].resize(unique_anchors[i].size());    // ← 现在知道列数
+//
+//		for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
+//			MatchVec& unique_vec = unique_anchors[i][j];
+//			MatchVec& repeat_vec = repeat_anchors[i][j];
+//
+//			// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
+//			auto ii = i;
+//			auto jj = j;
+//
+//			pool.enqueue([&cluster_results, ii, jj,
+//				&unique_vec, &repeat_vec]()
+//				{
+//					// ⬇ 收集返回值
+//					cluster_results[ii][jj] = clusterChrMatch(
+//						unique_vec,
+//						repeat_vec);   // 已排序
+//				});
+//		}
+//	}
+//
+//	pool.waitAllTasksDone();
+//
+//	//----------------------------------------------------------------
+//	// 3) 如有后续操作，可直接用 cluster_results
+//	//----------------------------------------------------------------
+//	// anchors->clear(); …                // 原来的清理逻辑保持不变
+//
+//
+//	//----------------------------------------------------------------
+//	// 3) 释放原始 3D 数据以节省内存
+//	//----------------------------------------------------------------
+//	anchors->clear();
+//	anchors->shrink_to_fit();
+	return;
 
 }
 

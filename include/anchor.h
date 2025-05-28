@@ -86,6 +86,7 @@ using MatchVec3DPtr = std::shared_ptr<MatchVec3D>;
 
 using MatchByRef = std::vector<MatchVec>;
 using MatchByQueryRef = std::vector<MatchByRef>;
+using MatchByStrandByQueryRef = std::vector<MatchByQueryRef>;
 
 using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
@@ -135,8 +136,8 @@ using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
-    MatchByQueryRef& unique_anchors,
-    MatchByQueryRef& repeat_anchors,
+    MatchByStrandByQueryRef& unique_anchors,
+    MatchByStrandByQueryRef& repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
     uint_t thread_num);

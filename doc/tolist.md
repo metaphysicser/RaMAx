@@ -43,6 +43,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ### 锚点寻找阶段
 - [X] 🟠 确保被掩蔽的序列不在参考序列中参与比对
 - [ ] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
+- [ ] 🟠 findQueryFile函数线程池现在是初步使用片段数量切分chunk，可以优化为片段长度之和
 - [X] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
 - [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
 - [ ] 🟠 支持反向链的寻找
