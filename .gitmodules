@@ -50,3 +50,15 @@
 	path = submodule/xxHash
 	url = https://github.com/Cyan4973/xxHash.git
 	ignore = all
+[submodule "benchmark/mafTools"]
+	path = benchmark/mafTools
+	url = https://github.com/dentearl/mafTools.git
+[submodule "benchmark/sonLib"]
+	path = benchmark/sonLib
+	url = https://github.com/benedictpaten/sonLib.git
+[submodule "benchmark/pinchesAndCacti"]
+	path = benchmark/pinchesAndCacti
+	url = https://github.com/benedictpaten/pinchesAndCacti.git
+[submodule "benchmark/mwgAlignAnalysis"]
+	path = benchmark/mwgAlignAnalysis
+	url = https://github.com/dentearl/mwgAlignAnalysis.git

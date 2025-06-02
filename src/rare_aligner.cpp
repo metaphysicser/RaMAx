@@ -213,7 +213,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 //--------------------------------------------------------------------
 // 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
 //--------------------------------------------------------------------
-void PairRareAligner::clusterPairSpeciesAnchors(MatchVec3DPtr& anchors,
+void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
 	//MatchByQueryRef unique_anchors;
