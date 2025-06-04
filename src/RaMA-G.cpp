@@ -8,6 +8,42 @@
 #include "rare_aligner.h"
 
 // ------------------------------------------------------------------
+// 通用命令行参数结构体（可序列化）
+// ------------------------------------------------------------------
+struct CommonArgs {
+	std::filesystem::path reference_path = "";
+	std::filesystem::path query_path = "";
+	std::filesystem::path output_path = "";
+	std::filesystem::path work_dir_path = "";
+
+	uint_t chunk_size = 10000000;
+	uint_t overlap_size = 100000;
+	uint_t min_anchor_length = 20;
+	uint_t max_anchor_frequency = 50;
+	bool restart = false;
+	int thread_num = std::thread::hardware_concurrency();  // 默认使用所有 CPU 核心
+	OutputFormat output_format = OutputFormat::UNKNOWN;
+	bool enable_repeat_masking = false; // 是否启用重复序列遮蔽，默认为 false
+
+	// 支持 cereal 序列化
+	template<class Archive>
+	void serialize(Archive& ar) {
+		ar(
+			CEREAL_NVP(reference_path),
+			CEREAL_NVP(query_path),
+			CEREAL_NVP(output_path),
+			CEREAL_NVP(work_dir_path),
+			CEREAL_NVP(chunk_size),
+			CEREAL_NVP(overlap_size),
+			CEREAL_NVP(restart),
+			CEREAL_NVP(thread_num),
+			CEREAL_NVP(output_format),
+			CEREAL_NVP(enable_repeat_masking)
+		);
+	}
+};
+
+// ------------------------------------------------------------------
 // CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
 // ------------------------------------------------------------------
 inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
@@ -203,8 +239,8 @@ int main(int argc, char** argv) {
 			}
 
 			// 自动识别输出格式（支持 .sam / .maf / .paf）
-			common_args.output_format = detectOutputFormat(common_args.output_path);
-			if (common_args.output_format == OutputFormat::UNKNOWN) {
+			common_args.output_format = detectPairGenomeOutputFormat(common_args.output_path);
+			if (common_args.output_format == PairGenomeOutputFormat::UNKNOWN) {
 				throw std::runtime_error("Invalid output file extension. Supported: .sam, .maf, .paf");
 			}
 
