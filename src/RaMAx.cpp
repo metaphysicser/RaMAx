@@ -212,6 +212,7 @@ int main(int argc, char** argv) {
 			spdlog::info("Alignment mode enabled.");
 
 			// TODO 验证seqfile文件有效性
+			
 			//std::string ref_str = common_args.reference_path.string();
 			//if (isUrl(ref_str)) {
 			//	verifyUrlReachable(ref_str);
@@ -252,8 +253,12 @@ int main(int argc, char** argv) {
 //	// ------------------------------
 //	// 主流程开始
 //	// ------------------------------
-//	spdlog::info("Command: {}", getCommandLine(argc, argv));
-//
+	spdlog::info("Command: {}", getCommandLine(argc, argv));
+	SpeciesPathMap species_path_map;
+	NewickParser newick_tree;
+	parseSeqfile(
+		common_args.input_path,
+		newick_tree, species_path_map);
 //	spdlog::info("Reference: {} (size: {})",
 //		common_args.reference_path.string(),
 //		getReadableFileSize(common_args.reference_path));

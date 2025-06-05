@@ -67,6 +67,7 @@ set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
+    "${PREPROCESS_DIR}/newick_tree.cpp"
     "${INDEX_DIR}/fm_index.cpp"
     "${INDEX_DIR}/bigBWT_build.cpp"
     "${BIGBWT_DIR}/newscan.cpp"

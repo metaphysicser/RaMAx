@@ -607,3 +607,97 @@ FilePath getFaiIndexPath(const FilePath& fasta_path) {
 }
 
 
+// -----------------------------
+// parseSeqfile：解析 seqfile，同时使用 NewickParser 对第一行 Newick 树进行解析
+// -----------------------------
+bool parseSeqfile(
+    const FilePath& seqfile_path,
+    NewickParser& newick_tree,
+    SpeciesPathMap& species_map
+) {
+    // 1. 先验证本地路径是否存在
+    if (!std::filesystem::exists(seqfile_path)) {
+        throw std::runtime_error("parseSeqfile: cannot locate file: " + seqfile_path.string());
+    }
+
+    std::ifstream ifs(seqfile_path);
+    if (!ifs.is_open()) {
+        throw std::runtime_error("parseSeqfile: failed to open: " + seqfile_path.string());
+    }
+
+    std::string line;
+    bool got_tree = false;
+
+    species_map.clear();
+    newick_tree.clear();
+
+    // 2. 逐行读取
+    while (std::getline(ifs, line)) {
+        // 去掉行首尾空白
+        auto l = line.find_first_not_of(" \t\r\n");
+        if (l == std::string::npos) {
+            // 这一行全空/全空格，跳过
+            continue;
+        }
+        auto r = line.find_last_not_of(" \t\r\n");
+        std::string newick_tree_string;
+        std::string trimmed = line.substr(l, r - l + 1);
+
+        if (!got_tree) {
+            // 第一条非空行就是 Newick 树
+            newick_tree_string = trimmed;
+            got_tree = true;
+
+            // 使用 NewickParser 验证并解析树结构
+            try {
+                newick_tree.parse(newick_tree_string);
+
+            }
+            catch (const std::runtime_error& e) {
+                throw std::runtime_error(std::string("parseSeqfile: invalid Newick tree: ") + e.what());
+            }
+
+            continue;
+        }
+
+        // 剩余行：格式 “<物种名> <路径>”，物种名与路径之间以空白分隔
+        // 我们用 istringstream 切分第一个 token 为 speciesName，剩下部分为 filePath
+        std::istringstream iss(trimmed);
+        std::string speciesName;
+        std::string filePath;
+
+        if (!(iss >> speciesName)) {
+            // 万一读不到物种名，跳过
+            continue;
+        }
+
+        // 剩余部分视为 path（支持 local 或 URL），直接读取到 filePath
+        if (!(iss >> std::ws) || !std::getline(iss, filePath)) {
+            throw std::runtime_error("parseSeqfile: missing file path for species `" + speciesName + "`");
+        }
+        // 去掉 path 前后空白
+        auto p_l = filePath.find_first_not_of(" \t\r\n");
+        auto p_r = filePath.find_last_not_of(" \t\r\n");
+        if (p_l == std::string::npos) {
+            throw std::runtime_error("parseSeqfile: empty file path for species `" + speciesName + "`");
+        }
+        filePath = filePath.substr(p_l, p_r - p_l + 1);
+
+        // 存入 map
+        species_map.emplace(speciesName, FilePath(filePath));
+    }
+
+    ifs.close();
+
+    if (!got_tree) {
+        throw std::runtime_error("parseSeqfile: no non-empty line found as Newick tree");
+    }
+    if (species_map.empty()) {
+        throw std::runtime_error("parseSeqfile: no species=>path mappings found");
+    }
+
+    return true;
+}
+
+
+
