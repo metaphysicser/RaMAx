@@ -201,6 +201,139 @@ private:
     void loadFaiRecords(const FilePath& fai_path);
 };
 
+
+/**
+ * @brief Structure to store information of each node after parsing.
+ *
+ * @details
+ * - id:            Unique identifier for the node (assigned in the order of appearance).
+ * - name:          Name of the node (e.g., leaf name or internal node name).
+ * - branchLength:  Length of the branch connecting this node to its parent.
+ * - isLeaf:        Flag indicating whether the node is a leaf node.
+ * - father:        Index of the parent node in the nodes vector, -1 indicates no parent (root node).
+ * - leftChild:     Index of the left child node in the nodes vector, -1 indicates no left child.
+ * - rightChild:    Index of the right child node in the nodes vector, -1 indicates no right child.
+ */
+struct NewickTreeNode {
+    int      id;
+    std::string   name;
+    double   branchLength;
+    bool     isLeaf;
+
+    int      father;
+    int      leftChild;
+    int      rightChild;
+
+    NewickTreeNode()
+        : id(-1)
+        , branchLength(0.0)
+        , isLeaf(false)
+        , father(-1)
+        , leftChild(-1)
+        , rightChild(-1)
+    {
+    }
+};
+
+/**
+ * @class NewickParser
+ * @brief Parses tree structures in Newick format.
+ *
+ * @details
+ * The NewickParser class provides functionality to parse a Newick formatted string
+ * and represent the tree structure as a vector of NewickTreeNode structures.
+ *
+ * @note
+ * This parser assumes that the Newick string represents a binary tree. If the tree has nodes
+ * with more than two children, the parser will need to be extended accordingly.
+ */
+class NewickParser {
+public:
+    NewickParser() = default;
+    /**
+     * @brief Constructor that takes a Newick formatted string to parse.
+     *
+     * @param newickStr The Newick format string representing the tree.
+     * @throws std::runtime_error If the Newick string has an invalid format.
+     */
+    explicit NewickParser(const std::string& newickStr);
+
+    void clear() {
+        nodes_.clear();
+        currentIndex_ = 0;
+    }
+
+    /**
+     * @brief Retrieves the parsed tree nodes.
+     *
+     * @return A constant reference to a vector containing all parsed NewickTreeNode structures.
+     */
+    const std::vector<NewickTreeNode>& getNodes() const;
+
+    std::vector<NewickTreeNode> nodes_;  ///< Vector storing all parsed nodes.
+    int currentIndex_ = 0;               ///< Counter to assign unique IDs to nodes.
+
+    /**
+     * @brief Main parsing function that initiates the parsing process.
+     *
+     * @param newickStr The Newick format string to parse.
+     * @throws std::runtime_error If the Newick string has an invalid format.
+     */
+    void parse(const std::string& newickStr);
+
+    /**
+     * @brief Recursively parses a subtree in the Newick format.
+     *
+     * @param str     The Newick string as a character array.
+     * @param index   Current parsing position in the string.
+     * @param length  Total length of the string.
+     * @param father  ID of the parent node. Use -1 if there is no parent (root node).
+     * @return The ID of the parsed node.
+     * @throws std::runtime_error If the Newick string has an invalid format.
+     */
+    int parseSubtree(char* str, int& index, int length, int father);
+
+    /**
+     * @brief Parses the name of a node from the Newick string.
+     *
+     * @param str      The Newick string as a character array.
+     * @param index    Current parsing position in the string.
+     * @param length   Total length of the string.
+     * @param outName  Reference to the string where the node name will be stored.
+     */
+    void parseNodeName(char* str, int& index, int length, std::string& outName);
+
+    /**
+     * @brief Parses the branch length (a floating-point number) from the Newick string.
+     *
+     * @param str      The Newick string as a character array.
+     * @param index    Current parsing position in the string.
+     * @param length   Total length of the string.
+     * @return The parsed branch length as a double.
+     * @throws std::runtime_error If the branch length is invalid.
+     */
+    double parseBranchLength(char* str, int& index, int length);
+
+    /**
+     * @brief Skips any whitespace characters in the Newick string.
+     *
+     * @param str    The Newick string as a character array.
+     * @param index  Current parsing position in the string.
+     * @param length Total length of the string.
+     */
+    void skipWhitespace(char* str, int& index, int length);
+
+    /**
+     * @brief Trims leading and trailing whitespace from a string.
+     *
+     * @param s Reference to the string to be trimmed.
+     */
+    void trimString(std::string& s);
+
+
+};
+
+
 // -----------------------------
 // 工具函数声明
 // -----------------------------
@@ -249,5 +382,31 @@ FilePath getTempFilePath(const FilePath& input_path);
 
 // 获取 .fai 索引的标准路径（原路径加 .fai 后缀）
 FilePath getFaiIndexPath(const FilePath& fasta_path);
+
+void repeatMaskRawData(
+    const FilePath& work_dir,
+    int thread_num,
+    SpeciesPathMap& species_path_map
+);
+
+
+// -----------------------------
+// seqfile 格式：
+// 第一行：Newick 进化树字符串
+// 其余行：<物种名><空格><FASTA 文件路径 或 URL>
+// 例如：
+//   ((simGorilla:0.008825,(simHuman:0.0067,simChimp:0.006667)sHuman-sChimp:0.00225)sG-sH-sC:0.00968,simOrang:0.018318);
+//   simHuman /path/to/simHuman.fa
+//   simChimp http://example.com/simChimp.fa
+//   simGorilla /path/to/simGorilla.fa
+//   simOrang /path/to/simOrang.fa
+//
+// 该函数会将第一行读入 newickTree，之后每行拆成 “speciesName -> filePath” 存入 speciesPathMap。
+// -----------------------------
+bool parseSeqfile(
+    const FilePath& seqfile_path,
+    NewickParser& newick_tree,
+    SpeciesPathMap& speciesPathMap
+);
 
 #endif // DATA_PROCESS_H

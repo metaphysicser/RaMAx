@@ -29,27 +29,19 @@ public:
 };
 
 // 多基因组比对核心调度类
-class MultipeRareAligner {
+class MultipleRareAligner {
 public:
     FilePath work_dir;
     FilePath index_dir;
-
-    FastaManager ref_fasta_manager;
-    FM_Index ref_index;
 
     uint_t chunk_size;
     uint_t overlap_size;
     uint_t min_anchor_length;
     uint_t max_anchor_frequency;
 
-    AnchorPtrListVec unique_anchors;
-    AnchorPtrListVec repeat_anchors;
-
     uint_t thread_num;
-    MultipeRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    FilePath buildIndex(SpeciesPathMap species_path_map, bool fast_build = false);
-
-    void starAlignGroup(SpeciesPathMap species_path_map, FilePath hal_path);
+    MultipleRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
+    
 
 };
 #endif

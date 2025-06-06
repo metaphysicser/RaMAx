@@ -380,3 +380,5 @@ FodyWeavers.xsd
 /test/报错.txt
 /submodule/sdsl-lite/include/divsufsort.h
 /submodule/sdsl-lite/include/divsufsort64.h
+/benchmark/delta2maf
+/benchmark/filter_maf_by_species

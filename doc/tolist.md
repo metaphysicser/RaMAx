@@ -51,6 +51,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ### 锚点过滤功能开发
 - [X] 🔴 在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
 - [ ] 🟠 在align.h中完成双序列比对类的开发，支持锚点的延伸和细化
+- [ ] 🟠 Match在cluster的过程中，可能会把overlap的两个锚点其中一个删掉，但实际应该合并他们
 - [ ] 🟠 完成锚点聚类->Anchor的转变
 - [X] 🟠 支持反向链的锚点过滤和聚类
 - [ ] 🟠 基于贪婪算法完成Match聚类的选择，得到比对结果
@@ -67,7 +68,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 多基因组比对完成hal文件的输出，并支持maf文件的输出格式
 - [ ] 🟢 双基因组比对支持sam，maf，paf，delta，lav，axt格式的输出
 - [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
-- [ ] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
+- [x] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
 
 ### 完善整体框架
 - [ ] 🔴 完成多基因组比对的main函数RaMAx.cpp
@@ -76,19 +77,22 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 实现合并模块 RaMA-merge
 - [ ] 🟢 实现pipeline模块RaMA-prepare，输出所有命令完成比对
 - [ ] 🟠 完善单元测试模块
-- [ ] 🟢 优化cmake(如sdsl的编译速度,windowmasker的安装)
+- [ ] 🟢 优化cmake(如sdsl的编译速度,windowmasker的安装（权限）)
 - [ ] 🟢 增加conda和docker的安装方式
 - [ ] 🟢 完善README文档，包含安装、使用、开发等说明
 - [ ] 🟢 单独把fmidex作为一个轮子开源到一个新仓库
+
 ### bug修复
 - [X] 🟠 match的匹配不对应
-- [ ] 🟠 fasta_manager类中的charidxmap不支持重复掩蔽
+- [x] 🟠 fasta_manager类中的charidxmap不支持重复掩蔽
 - [ ] 🟠 query的相同位点存在两个相同位置的匹配
+
 ### 未来计划
 - [ ] 🟢 增加对重复序列的比对支持
 - [ ] 🟢 开发可视化软件，支持自定义格式的可视化
 - [ ] 🟢 尝试引入MUMmer的后缀数组＋LCP索引方案
 - [ ] 🟢 增加对Scaffold基因组的支持
+- [ ] 🟢 为RaMAx做一个主页
 ---
 
 ## 协作与开发规范
