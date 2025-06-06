@@ -211,15 +211,6 @@ int main(int argc, char** argv) {
 			spdlog::info("RaMAx version {}", VERSION);
 			spdlog::info("Alignment mode enabled.");
 
-			// TODO 验证seqfile文件有效性
-			
-			//std::string ref_str = common_args.reference_path.string();
-			//if (isUrl(ref_str)) {
-			//	verifyUrlReachable(ref_str);
-			//}
-			//else {
-			//	verifyLocalFile(common_args.reference_path);
-			//}
 
 			common_args.output_format = detectMultipleGenomeOutputFormat(common_args.output_path);
 			if (common_args.output_format == MultipleGenomeOutputFormat::UNKNOWN) {
@@ -259,46 +250,50 @@ int main(int argc, char** argv) {
 	parseSeqfile(
 		common_args.input_path,
 		newick_tree, species_path_map);
-//	spdlog::info("Reference: {} (size: {})",
-//		common_args.reference_path.string(),
-//		getReadableFileSize(common_args.reference_path));
-//
-//	spdlog::info("Query: {} (size: {})",
-//		common_args.query_path.string(),
-//		getReadableFileSize(common_args.query_path));
-//
-//	spdlog::info("Output: {}", common_args.output_path.string());
-//	spdlog::info("Work directory: {}", common_args.work_dir_path.string());
-//	spdlog::info("Threads: {}", common_args.thread_num);
-//
-//	// ------------------------------
-//	// 数据预处理阶段
-//	// ------------------------------
-//	SpeciesPathMap species_path_map;
-//	species_path_map["reference"] = common_args.reference_path;
-//	species_path_map["query"] = common_args.query_path;
-//
-//	// 拷贝或下载原始文件（并行执行）
-//	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
-//
-//	// 清洗 FASTA 文件（统一格式，替换非法字符）
-//	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
-//
-//	// 可选：按染色体拆分、按 chunk 切割（目前注释掉）
-//	// splitRawDataToChr(...)
-//	// splitChrToChunk(...)
-//
-//	// ------------------------------
-//	// 初始化比对器
-//	// ------------------------------
-//	PairRareAligner pra(
-//		common_args.work_dir_path,
-//		common_args.thread_num,
-//		common_args.chunk_size,
-//		common_args.overlap_size,
-//		common_args.min_anchor_length,
-//		common_args.max_anchor_frequency
-//	);
+
+	// 验证species_path_map里的每个物种的路径是否合法
+	for (const auto& [species, path] : species_path_map) {
+		if (isUrl(path.string())) {
+			verifyUrlReachable(path.string());
+		}
+		else {
+			verifyLocalFile(path);
+		}
+		spdlog::info("Input Genome: {} (size: {})",
+					species,
+					getReadableFileSize(path));
+	}
+
+	spdlog::info("Output: {}", common_args.output_path.string());
+	spdlog::info("Work directory: {}", common_args.work_dir_path.string());
+	spdlog::info("Threads: {}", common_args.thread_num);
+
+	// ------------------------------
+	// 数据预处理阶段
+	// ------------------------------
+
+	// 拷贝或下载原始文件（并行执行）
+	copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
+
+	// 如果要重复遮蔽
+	if (common_args.enable_repeat_masking) {
+		repeatMaskRawData(common_args.work_dir_path, common_args.thread_num, species_path_map);
+	}
+
+	// 清洗 FASTA 文件（统一格式，替换非法字符）
+	cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
+
+	// ------------------------------
+	// 初始化比对器
+	// ------------------------------
+	MultipleRareAligner mra(
+		common_args.work_dir_path,
+		common_args.thread_num,
+		common_args.chunk_size,
+		common_args.overlap_size,
+		common_args.min_anchor_length,
+		common_args.max_anchor_frequency
+	);
 //
 //	// ------------------------------
 //	// 步骤 1：构建索引

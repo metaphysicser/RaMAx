@@ -383,6 +383,13 @@ FilePath getTempFilePath(const FilePath& input_path);
 // 获取 .fai 索引的标准路径（原路径加 .fai 后缀）
 FilePath getFaiIndexPath(const FilePath& fasta_path);
 
+void repeatMaskRawData(
+    const FilePath& work_dir,
+    int thread_num,
+    SpeciesPathMap& species_path_map
+);
+
+
 // -----------------------------
 // seqfile 格式：
 // 第一行：Newick 进化树字符串

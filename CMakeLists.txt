@@ -63,7 +63,6 @@ find_package(Threads REQUIRED)
 
 # ================= 公共源文件 =================
 set(RAMA_COMMON_SOURCES
-    "${SOURCE_DIR}/rare_aligner.cpp"
     "${PREPROCESS_DIR}/raw_data_process.cpp"
     "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
@@ -78,6 +77,8 @@ set(RAMA_COMMON_SOURCES
     "${ANCHOR_DIR}/anchor.cpp"
     "${ANCHOR_DIR}/cluster.cpp"
     "${ALIGN_DIR}/cigar.cpp"
+    "${ALIGN_DIR}/pair_rare_aligner.cpp"
+    "${ALIGN_DIR}/multiple_rare_aligner.cpp"
 )
 
 # ================= 主程序入口文件 =================
