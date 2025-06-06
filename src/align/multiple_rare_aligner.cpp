@@ -1,15 +1,15 @@
 #include "rare_aligner.h"
 
-MultipleRareAligner::MultipeRareAligner(
-    const FilePath work_dir_,
-    const uint_t thread_num_,
+MultipleRareAligner::MultipleRareAligner(
+    const FilePath& work_dir_,       // 与声明中的类型、顺序一致
+    uint_t thread_num_,              // 同理
     uint_t chunk_size_,
     uint_t overlap_size_,
     uint_t min_anchor_length_,
     uint_t max_anchor_frequency_
 )
-    : work_dir(work_dir_),
-    index_dir(work_dir_ / INDEX_DIR),
+    : work_dir(work_dir_),                                  // 初始化成员
+    index_dir(work_dir_ / "index"),
     chunk_size(chunk_size_),
     overlap_size(overlap_size_),
     min_anchor_length(min_anchor_length_),
@@ -27,5 +27,7 @@ MultipleRareAligner::MultipeRareAligner(
         std::filesystem::create_directories(index_dir);
         spdlog::info("Created index directory: {}", index_dir.string());
     }
+
+   
 
 }

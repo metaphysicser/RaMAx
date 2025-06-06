@@ -40,9 +40,18 @@ public:
     uint_t max_anchor_frequency;
 
     uint_t thread_num;
-    MultipleRareAligner(const FilePath work_dir, const uint_t thread_num, uint_t chunk_size, uint_t overlap_size, uint_t min_anchor_length, uint_t max_anchor_frequency);
-    
 
+    // 构造函数声明：注意名称必须与类名完全一致
+    MultipleRareAligner(
+        const FilePath& work_dir,
+        uint_t thread_num,
+        uint_t chunk_size,
+        uint_t overlap_size,
+        uint_t min_anchor_length,
+        uint_t max_anchor_frequency
+    );
+
+    // （其它成员函数声明…）
 };
 #endif
 

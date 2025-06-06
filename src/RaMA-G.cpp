@@ -22,7 +22,7 @@ struct CommonArgs {
 	uint_t max_anchor_frequency = 50;
 	bool restart = false;
 	int thread_num = std::thread::hardware_concurrency();  // 默认使用所有 CPU 核心
-	OutputFormat output_format = OutputFormat::UNKNOWN;
+	PairGenomeOutputFormat output_format = PairGenomeOutputFormat::UNKNOWN;
 	bool enable_repeat_masking = false; // 是否启用重复序列遮蔽，默认为 false
 
 	// 支持 cereal 序列化
