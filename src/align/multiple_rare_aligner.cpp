@@ -2,6 +2,8 @@
 
 MultipleRareAligner::MultipleRareAligner(
     const FilePath& work_dir_,       // 与声明中的类型、顺序一致
+    SpeciesPathMap& species_path_map_,
+    NewickParser& newick_tree_,
     uint_t thread_num_,              // 同理
     uint_t chunk_size_,
     uint_t overlap_size_,
@@ -9,7 +11,9 @@ MultipleRareAligner::MultipleRareAligner(
     uint_t max_anchor_frequency_
 )
     : work_dir(work_dir_),                                  // 初始化成员
-    index_dir(work_dir_ / "index"),
+    index_dir(work_dir_ / INDEX_DIR),
+    species_path_map(species_path_map_),
+    newick_tree(newick_tree_),
     chunk_size(chunk_size_),
     overlap_size(overlap_size_),
     min_anchor_length(min_anchor_length_),
@@ -30,4 +34,10 @@ MultipleRareAligner::MultipleRareAligner(
 
    
 
+}
+
+void MultipleRareAligner::starAlignment(uint_t tree_root)
+{
+    std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
+    return;
 }

@@ -17,6 +17,10 @@
 #include "anchor.h"
 #include "kseq.h"           // 用于解析 FASTA 格式
 #include <cstdlib>
+#include <limits>
+#include <queue>
+#include <unordered_map>
+#include <algorithm>
 
 // 初始化 kseq 使用 gzFile 类型
 KSEQ_INIT(gzFile, gzread)
@@ -329,6 +333,13 @@ public:
      * @param s Reference to the string to be trimmed.
      */
     void trimString(std::string& s);
+
+    double distanceBetween(int u, int v) const;
+
+    // NewickParser.hpp 里声明
+    std::vector<int> orderLeavesGreedyMinSum(int leafRoot);
+
+
 
 
 };

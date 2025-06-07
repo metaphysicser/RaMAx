@@ -4,7 +4,6 @@
 #include "index.h"
 #include "threadpool.h"
 
-// 暂时废弃
 class PairRareAligner {
 public:
     FilePath work_dir;
@@ -34,6 +33,9 @@ public:
     FilePath work_dir;
     FilePath index_dir;
 
+    SpeciesPathMap species_path_map;
+    NewickParser newick_tree;
+
     uint_t chunk_size;
     uint_t overlap_size;
     uint_t min_anchor_length;
@@ -44,6 +46,8 @@ public:
     // 构造函数声明：注意名称必须与类名完全一致
     MultipleRareAligner(
         const FilePath& work_dir,
+        SpeciesPathMap& species_path_map,
+        NewickParser& newick_tree,
         uint_t thread_num,
         uint_t chunk_size,
         uint_t overlap_size,
@@ -51,8 +55,9 @@ public:
         uint_t max_anchor_frequency
     );
 
-    // （其它成员函数声明…）
+    void starAlignment(uint_t tree_root);
 };
+
 #endif
 
 
