@@ -27,6 +27,7 @@ KSEQ_INIT(gzFile, gzread)
 
 // 物种名到文件路径的映射
 using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
+using SpeciesFastaManagerMap = std::unordered_map<SpeciesName, FastaManager>;
 using ChrIndexMap = std::unordered_map<ChrName, std::size_t>;
 
 // -----------------------------
@@ -145,6 +146,12 @@ public:
         for (std::size_t i = 0; i < fai_records.size(); ++i)
             idx_map.emplace(fai_records[i].seq_name, i);  // 若有重复名称，后插入会被忽略
     }
+    FastaManager(const FastaManager&) = delete;
+    FastaManager& operator=(const FastaManager&) = delete;
+
+    // 允许移动（unique_ptr 本身可移动，所以 default 就行）
+    FastaManager(FastaManager&&)            noexcept = default;
+    FastaManager& operator=(FastaManager&&) noexcept = default;
 
     // 清洗并生成 .fai 索引，返回新 fasta 文件路径
     FilePath cleanAndIndexFasta(const FilePath& output_dir,

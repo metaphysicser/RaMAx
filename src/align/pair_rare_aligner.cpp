@@ -20,38 +20,6 @@ PairRareAligner::PairRareAligner(const FilePath work_dir,
 
 }
 
-
-std::vector<uint64_t> read_sa(const std::string& sa_file)
-{
-	std::ifstream file(sa_file, std::ios::binary | std::ios::ate);
-	if (!file) throw std::runtime_error("Cannot open SA file");
-	std::streamsize size = file.tellg();
-	file.seekg(0);
-
-	if (size % 5 != 0) {
-		throw std::runtime_error("SA file size not multiple of 5 bytes");
-	}
-
-	size_t count = size / 5;
-	std::vector<uint64_t> sa(count);
-	std::vector<char> buffer(size);
-	file.read(buffer.data(), size);
-
-	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
-	for (size_t i = 0; i < count; i++, ptr += 5)
-	{
-		// Little-Endian interpretation:
-		uint64_t val =
-			(uint64_t(ptr[0])) |
-			(uint64_t(ptr[1]) << 8) |
-			(uint64_t(ptr[2]) << 16) |
-			(uint64_t(ptr[3]) << 24) |
-			(uint64_t(ptr[4]) << 32);
-		sa[i] = val;
-	}
-	return sa;
-}
-
 FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fasta_path, bool fast_build) {
 
 	FilePath ref_index_path = index_dir / prefix;
@@ -90,7 +58,6 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	SearchMode         search_mode,
 	bool allow_MEM)
 {
-	namespace ch = std::chrono;
 	FilePath result_dir_path = work_dir / RESULT_DIR;
 	std::filesystem::create_directories(result_dir_path);
 
@@ -108,7 +75,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	RegionVec chunks = query_fasta_manager.preAllocateChunks(chunk_size, overlap_size);
 
 	/* ---------- ① 计时：搜索 Anchor ---------- */
-	auto t_search0 = ch::steady_clock::now();
+	auto t_search0 = std::chrono::steady_clock::now();
 
 	ThreadPool pool(thread_num);
 	std::vector<std::future<MatchVec2DPtr>> futures;
@@ -177,11 +144,11 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 	pool.waitAllTasksDone();
 
-	auto t_search1 = ch::steady_clock::now();
-	double search_ms = ch::duration<double, std::milli>(t_search1 - t_search0).count();
+	auto t_search1 = std::chrono::steady_clock::now();
+	double search_ms = std::chrono::duration<double, std::milli>(t_search1 - t_search0).count();
 	spdlog::info("[findQueryFileAnchor] search  = {:.3f} ms", search_ms);
 	/* ---------- ② 计时：合并 ---------- */
-	auto t_merge0 = ch::steady_clock::now();
+	auto t_merge0 = std::chrono::steady_clock::now();
 
 	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
@@ -193,14 +160,14 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		result->emplace_back(std::move(*part));
 	}
 
-	auto t_merge1 = ch::steady_clock::now();
-	double merge_ms = ch::duration<double, std::milli>(t_merge1 - t_merge0).count();
+	auto t_merge1 = std::chrono::steady_clock::now();
+	double merge_ms = std::chrono::duration<double, std::milli>(t_merge1 - t_merge0).count();
 	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
 	/* ---------- ③ 计时：保存 ---------- */
-	auto t_save0 = ch::steady_clock::now();
+	auto t_save0 = std::chrono::steady_clock::now();
 	saveMatchVec3D(anchor_file, result);
-	auto t_save1 = ch::steady_clock::now();
-	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
+	auto t_save1 = std::chrono::steady_clock::now();
+	double save_ms = std::chrono::duration<double, std::milli>(t_save1 - t_save0).count();
 
 	/* ---------- 打印统计 ---------- */
 	spdlog::info("[findQueryFileAnchor] save    = {:.3f} ms", save_ms);

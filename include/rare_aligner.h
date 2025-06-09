@@ -42,6 +42,8 @@ public:
     uint_t max_anchor_frequency;
 
     uint_t thread_num;
+    uint_t group_id;
+    uint_t round_id;
 
     // 构造函数声明：注意名称必须与类名完全一致
     MultipleRareAligner(
@@ -56,6 +58,20 @@ public:
     );
 
     void starAlignment(uint_t tree_root);
+
+    SpeciesMatchVec3DPtrMapPtr alignMultipleQuerys(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM);
+
+    MatchVec3DPtr MultipleRareAligner::alignSingleQuerys(
+        const std::string& prefix,
+        FM_Index& ref_index,
+        FastaManager& query_fm,
+        SearchMode         search_mode,
+        bool               allow_MEM,
+        ThreadPool& pool);
+    
+   
+   
+    
 };
 
 #endif

@@ -9,9 +9,6 @@
 #include <memory>                 // 用于智能指针（如 std::shared_ptr）
 #include <vector>                 // 用于 std::vector 容器
 #include <algorithm>              // 提供算法（如 sort 等）
-#include <cereal/types/vector.hpp> // cereal 序列化支持 vector
-#include <cereal/types/list.hpp>   // cereal 序列化支持 list
-#include <cereal/types/memory.hpp> // cereal 序列化支持智能指针
 
 // boost 空间索引相关头文件（当前注释掉）
 // #include <boost/geometry.hpp>
@@ -83,6 +80,9 @@ using MatchVec2D = std::vector<MatchVec>;
 using MatchVec2DPtr = std::shared_ptr<MatchVec2D>;
 using MatchVec3D = std::vector<std::vector<MatchVec>>;
 using MatchVec3DPtr = std::shared_ptr<MatchVec3D>;
+
+using SpeciesMatchVec3DPtrMap = std::unordered_map<std::string, MatchVec3DPtr>;
+using SpeciesMatchVec3DPtrMapPtr = std::shared_ptr<SpeciesMatchVec3DPtrMap>;
 
 using MatchByRef = std::vector<MatchVec>;
 using MatchByQueryRef = std::vector<MatchByRef>;
@@ -225,6 +225,9 @@ bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data);
 
 bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
 bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
+
+bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
+bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
 // ------------------------------------------------------------------
 // （注释掉）双基因组比对结构体：用于管理两个物种之间的 Anchor 信息
 // ------------------------------------------------------------------
