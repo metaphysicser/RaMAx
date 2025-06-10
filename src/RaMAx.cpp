@@ -288,40 +288,28 @@ int main(int argc, char** argv) {
 	// ------------------------------
 	MultipleRareAligner mra(
 		common_args.work_dir_path,
+		species_path_map,
+		newick_tree,
 		common_args.thread_num,
 		common_args.chunk_size,
 		common_args.overlap_size,
 		common_args.min_anchor_length,
 		common_args.max_anchor_frequency
 	);
-//
-//	// ------------------------------
-//	// 步骤 1：构建索引
-//	// ------------------------------
-//	auto t_start_build = std::chrono::steady_clock::now();
-//	pra.buildIndex("reference", species_path_map["reference"], false);  // 可切换 CaPS / divsufsort
-//	auto t_end_build = std::chrono::steady_clock::now();
-//	std::chrono::duration<double> build_time = t_end_build - t_start_build;
-//	spdlog::info("Index built in {:.3f} seconds.", build_time.count());
-//
-//	// ------------------------------
-//	// 步骤 2：查询序列比对
-//	// ------------------------------
-//	auto t_start_align = std::chrono::steady_clock::now();
-//	AnchorPtrListVec anchors = pra.findQueryFileAnchor(
-//		"query", species_path_map["query"], ACCURATE_SEARCH);
-//	auto t_end_align = std::chrono::steady_clock::now();
-//	std::chrono::duration<double> align_time = t_end_align - t_start_align;
-//	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
-//
-//	// ------------------------------
-//	// 步骤 3：过滤锚点
-//	// ------------------------------
-//	auto t_start_filer = std::chrono::steady_clock::now();
-//	pra.filterAnchors(anchors);
-//	auto t_end_filer = std::chrono::steady_clock::now();
-//	std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
-//	spdlog::info("Anchors filtered in {:.3f} seconds.", filter_time.count());
+
+	// ------------------------------
+	// 步骤 1：构建索引
+	// ------------------------------
+	auto t_start_align = std::chrono::steady_clock::now();
+
+	uint_t tree_root = 0;
+
+	mra.starAlignment(tree_root, ACCURATE_SEARCH, false, false);
+
+	auto t_end_align = std::chrono::steady_clock::now();
+	std::chrono::duration<double> align_time = t_end_align - t_start_align;
+	spdlog::info("star alignmnet in {:.3f} seconds.", align_time.count());
+
 
 	// ------------------------------
 	// 退出

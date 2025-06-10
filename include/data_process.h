@@ -17,12 +17,17 @@
 #include "anchor.h"
 #include "kseq.h"           // 用于解析 FASTA 格式
 #include <cstdlib>
+#include <limits>
+#include <queue>
+#include <unordered_map>
+#include <algorithm>
 
 // 初始化 kseq 使用 gzFile 类型
 KSEQ_INIT(gzFile, gzread)
 
 // 物种名到文件路径的映射
 using SpeciesPathMap = std::unordered_map<SpeciesName, FilePath>;
+using SpeciesFastaManagerMap = std::unordered_map<SpeciesName, FastaManager>;
 using ChrIndexMap = std::unordered_map<ChrName, std::size_t>;
 
 // -----------------------------
@@ -130,6 +135,7 @@ public:
 
     // 构造函数
     FastaManager() = default;
+
     FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
         : FastaProcessor(fasta_path), fai_path_(fai_path)
     {
@@ -141,6 +147,12 @@ public:
         for (std::size_t i = 0; i < fai_records.size(); ++i)
             idx_map.emplace(fai_records[i].seq_name, i);  // 若有重复名称，后插入会被忽略
     }
+    FastaManager(const FastaManager&) = delete;
+    FastaManager& operator=(const FastaManager&) = delete;
+
+    // 允许移动（unique_ptr 本身可移动，所以 default 就行）
+    FastaManager(FastaManager&&)            noexcept = default;
+    FastaManager& operator=(FastaManager&&) noexcept = default;
 
     // 清洗并生成 .fai 索引，返回新 fasta 文件路径
     FilePath cleanAndIndexFasta(const FilePath& output_dir,
@@ -329,6 +341,13 @@ public:
      * @param s Reference to the string to be trimmed.
      */
     void trimString(std::string& s);
+
+    double distanceBetween(int u, int v) const;
+
+    // NewickParser.hpp 里声明
+    std::vector<int> orderLeavesGreedyMinSum(int leafRoot);
+
+
 
 
 };

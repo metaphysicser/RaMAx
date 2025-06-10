@@ -18,41 +18,28 @@ PairRareAligner::PairRareAligner(const FilePath work_dir,
 		std::filesystem::create_directories(index_dir);
 	}
 
+
+	this->group_id = 0;
+	this->round_id = 0;
+
 }
 
+MatchVec3DPtr PairRareAligner::alignPairGenome(
+	SpeciesName query_name, 
+	FastaManager& query_fasta_manager,
+	SearchMode         search_mode,
+	bool allow_MEM) {
 
-std::vector<uint64_t> read_sa(const std::string& sa_file)
-{
-	std::ifstream file(sa_file, std::ios::binary | std::ios::ate);
-	if (!file) throw std::runtime_error("Cannot open SA file");
-	std::streamsize size = file.tellg();
-	file.seekg(0);
+	ThreadPool shared_pool(thread_num);
 
-	if (size % 5 != 0) {
-		throw std::runtime_error("SA file size not multiple of 5 bytes");
-	}
+	MatchVec3DPtr anchors = findQueryFileAnchor(
+		query_name, query_fasta_manager, search_mode, allow_MEM, shared_pool);
 
-	size_t count = size / 5;
-	std::vector<uint64_t> sa(count);
-	std::vector<char> buffer(size);
-	file.read(buffer.data(), size);
+	return anchors;
 
-	const uint8_t* ptr = reinterpret_cast<const uint8_t*>(buffer.data());
-	for (size_t i = 0; i < count; i++, ptr += 5)
-	{
-		// Little-Endian interpretation:
-		uint64_t val =
-			(uint64_t(ptr[0])) |
-			(uint64_t(ptr[1]) << 8) |
-			(uint64_t(ptr[2]) << 16) |
-			(uint64_t(ptr[3]) << 24) |
-			(uint64_t(ptr[4]) << 32);
-		sa[i] = val;
-	}
-	return sa;
 }
 
-FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fasta_path, bool fast_build) {
+FilePath PairRareAligner::buildIndex(const std::string prefix, FastaManager& ref_fasta_manager_, bool fast_build) {
 
 	FilePath ref_index_path = index_dir / prefix;
 
@@ -60,13 +47,12 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, const FilePath fa
 		std::filesystem::create_directories(ref_index_path);
 	}
 
-
-	ref_fasta_manager = FastaManager(fasta_path, getFaiIndexPath(fasta_path));
+	ref_fasta_manager_ptr = &ref_fasta_manager_;
 
 	// index_dir的路径加上prefix的前缀加上fasta_manager.fasta_path_的扩展名
-	FilePath output_path = ref_index_path / (prefix + std::filesystem::path(fasta_path).extension().string());
+	FilePath output_path = ref_index_path / (prefix + std::filesystem::path(ref_fasta_manager_ptr->fasta_path_).extension().string());
 
-	ref_index = FM_Index(prefix, &ref_fasta_manager);
+	ref_index = FM_Index(prefix, ref_fasta_manager_ptr);
 
 	FilePath idx_file_path = ref_index_path / (prefix + "." + FMINDEX_EXTESION);
 
@@ -88,13 +74,18 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	const std::string prefix,
 	FastaManager& query_fasta_manager,
 	SearchMode         search_mode,
-	bool allow_MEM)
+	bool allow_MEM,
+	ThreadPool& pool)
 {
-	namespace ch = std::chrono;
-	FilePath result_dir_path = work_dir / RESULT_DIR;
-	std::filesystem::create_directories(result_dir_path);
+	/* ---------- 1. 结果文件路径，与多基因组保持同一目录 ---------- */
+	FilePath result_dir = work_dir / RESULT_DIR
+		/ ("group_" + std::to_string(group_id))
+		/ ("round_" + std::to_string(round_id));
+	std::filesystem::create_directories(result_dir);
 
-	FilePath anchor_file = result_dir_path /
+	spdlog::info("[findQueryFileAnchor] begin to algin {}", prefix);
+
+	FilePath anchor_file = result_dir /
 		(prefix + "_" + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
 	/* ---------- 若已存在结果文件，直接加载 ---------- */
@@ -108,9 +99,9 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	RegionVec chunks = query_fasta_manager.preAllocateChunks(chunk_size, overlap_size);
 
 	/* ---------- ① 计时：搜索 Anchor ---------- */
-	auto t_search0 = ch::steady_clock::now();
+	auto t_search0 = std::chrono::steady_clock::now();
 
-	ThreadPool pool(thread_num);
+	// ThreadPool pool(thread_num);
 	std::vector<std::future<MatchVec2DPtr>> futures;
 	// 根据线程数量和chunk数量决定每个线程处理的chunk数量
 	// 确保每个线程至少处理一个chunk，同时避免线程过多
@@ -175,32 +166,23 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 	}
 
-	pool.waitAllTasksDone();
-
-	auto t_search1 = ch::steady_clock::now();
-	double search_ms = ch::duration<double, std::milli>(t_search1 - t_search0).count();
-	spdlog::info("[findQueryFileAnchor] search  = {:.3f} ms", search_ms);
-	/* ---------- ② 计时：合并 ---------- */
-	auto t_merge0 = ch::steady_clock::now();
-
 	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
 	result->reserve(futures.size());
-	size_t total_lists = 0;
+
 	for (auto& fut : futures) {
 		MatchVec2DPtr part = fut.get();
-		total_lists += part->size();
 		result->emplace_back(std::move(*part));
 	}
 
-	auto t_merge1 = ch::steady_clock::now();
-	double merge_ms = ch::duration<double, std::milli>(t_merge1 - t_merge0).count();
-	spdlog::info("[findQueryFileAnchor] merge   = {:.3f} ms", merge_ms);
+	auto t_search1 = std::chrono::steady_clock::now();
+	double search_ms = std::chrono::duration<double, std::milli>(t_search1 - t_search0).count();
+	spdlog::info("[findQueryFileAnchor] search  = {:.3f} ms", search_ms);
 	/* ---------- ③ 计时：保存 ---------- */
-	auto t_save0 = ch::steady_clock::now();
-	saveMatchVec3D(anchor_file, result);
-	auto t_save1 = ch::steady_clock::now();
-	double save_ms = ch::duration<double, std::milli>(t_save1 - t_save0).count();
+	auto t_save0 = std::chrono::steady_clock::now();
+	// saveMatchVec3D(anchor_file, result);
+	auto t_save1 = std::chrono::steady_clock::now();
+	double save_ms = std::chrono::duration<double, std::milli>(t_save1 - t_save0).count();
 
 	/* ---------- 打印统计 ---------- */
 	spdlog::info("[findQueryFileAnchor] save    = {:.3f} ms", save_ms);
@@ -209,89 +191,30 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 }
 
 
-
-//--------------------------------------------------------------------
-// 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
-//--------------------------------------------------------------------
 void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	//MatchByQueryRef unique_anchors;
-	//MatchByQueryRef repeat_anchors;
-	MatchByStrandByQueryRef unique_anchors;
-	MatchByStrandByQueryRef repeat_anchors;
+	ThreadPool shared_pool(thread_num);
+	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
+	MatchByStrandByQueryRefPtr repeat_anchors = std::make_shared<MatchByStrandByQueryRef>();;
 
 	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
-		ref_fasta_manager, query_fasta_manager, thread_num);
+		*ref_fasta_manager_ptr, query_fasta_manager, shared_pool);
 
-	//// 测试得到的anchor对应的子串是否相同
-	//for (const auto& first_match : unique_anchors[0][0]) {
-	//		std::string query_subseq = query_fasta_manager.getSubSequence(
-	//			first_match.query_region.chr_name, first_match.query_region.start, first_match.query_region.length);
-	//		std::string ref_subseq = ref_fasta_manager.getSubSequence(
-	//			first_match.ref_region.chr_name, first_match.ref_region.start, first_match.ref_region.length);
-	//		if (query_subseq != ref_subseq) {
-	//			spdlog::warn("Mismatch found in anchor: query {} vs ref {}",
-	//				query_subseq, ref_subseq);
-	//
-	//	}
-	//}
+	shared_pool.waitAllTasksDone();
 
-	sortMatchByQueryStart(unique_anchors, thread_num);
-	sortMatchByQueryStart(repeat_anchors, thread_num);
-	ThreadPool pool(thread_num);
+	sortMatchByQueryStart(unique_anchors, shared_pool);
+	sortMatchByQueryStart(repeat_anchors, shared_pool);
 
-	//--------------------------------------------------------------------
-// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
-//--------------------------------------------------------------------
-	ClusterVecPtrByStrandByQueryRef cluster_results;
-	cluster_results.resize(2);                      // strand: 0 = FORWARD, 1 = REVERSE
+	shared_pool.waitAllTasksDone();
+	
+	ClusterVecPtrByStrandByQueryRef cluster_results = clusterAllChrMatch(
+		unique_anchors,
+		repeat_anchors,
+		shared_pool);
+	
+	shared_pool.waitAllTasksDone();
 
-	for (auto& query_layer : cluster_results) {
-		query_layer.resize(unique_anchors.size());          // 每条 strand 下的所有 query-chr
-		for (auto& ref_row : query_layer)
-			ref_row.resize(unique_anchors.front().size());            // 每个 (strand, query) 下的所有 ref-chr
-	}
-
-	//--------------------------------------------------------------------
-	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
-	//--------------------------------------------------------------------
-	for (uint_t k = 0; k < 2; k++) {
-		for (uint_t i = 0; i < unique_anchors.size(); ++i) {
-			for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-					MatchVec& unique_vec = unique_anchors[k][i][j];
-					MatchVec& repeat_vec = repeat_anchors[k][i][j];
-
-					// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
-					auto kk = k;
-					auto ii = i;
-					auto jj = j;
-
-					pool.enqueue([&cluster_results, kk, ii, jj,
-						&unique_vec, &repeat_vec]()
-						{
-							// ⬇ 收集返回值
-							cluster_results[kk][ii][jj] = clusterChrMatch(
-								unique_vec,
-								repeat_vec);   // 已排序
-						});
-			}
-		}
-	}
-
-	pool.waitAllTasksDone();
-//
-//	//----------------------------------------------------------------
-//	// 3) 如有后续操作，可直接用 cluster_results
-//	//----------------------------------------------------------------
-//	// anchors->clear(); …                // 原来的清理逻辑保持不变
-//
-//
-//	//----------------------------------------------------------------
-//	// 3) 释放原始 3D 数据以节省内存
-//	//----------------------------------------------------------------
-//	anchors->clear();
-//	anchors->shrink_to_fit();
 	return;
 
 }

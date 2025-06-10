@@ -64,7 +64,6 @@ find_package(Threads REQUIRED)
 # ================= 公共源文件 =================
 set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/raw_data_process.cpp"
-    "${PREPROCESS_DIR}/split_data.cpp"
     "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${PREPROCESS_DIR}/newick_tree.cpp"
     "${INDEX_DIR}/fm_index.cpp"
@@ -75,6 +74,7 @@ set(RAMA_COMMON_SOURCES
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
     "${ANCHOR_DIR}/anchor.cpp"
+    "${ANCHOR_DIR}/anchor_io.cpp"
     "${ANCHOR_DIR}/cluster.cpp"
     "${ALIGN_DIR}/cigar.cpp"
     "${ALIGN_DIR}/pair_rare_aligner.cpp"

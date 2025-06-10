@@ -1,4 +1,4 @@
-#include "data_process.h"
+﻿#include "data_process.h"
 
 #include <vector>
 #include <stdexcept>
@@ -185,4 +185,89 @@ void NewickParser::trimString(std::string& s) {
     }
 
     s = s.substr(startPos, endPos - startPos);
+}
+
+// ⚠️ 工具：返回两节点距离（用父指针一路向上，适合叶子数不大）
+double NewickParser::distanceBetween(int u, int v) const {
+    // 记录到根的路径及累积距离
+    std::unordered_map<int, double> distUp;
+    double acc = 0.0;
+    int x = u;
+    while (x != -1) {
+        distUp[x] = acc;
+        int p = nodes_[x].father;
+        if (p == -1) break;
+        acc += nodes_[x].branchLength;
+        x = p;
+    }
+    // 再从 v 向上找最近公共祖先
+    double accV = 0.0;
+    int y = v;
+    while (y != -1) {
+        if (distUp.count(y)) {
+            return accV + distUp[y];
+        }
+        int p = nodes_[y].father;
+        if (p == -1) break;
+        accV += nodes_[y].branchLength;
+        y = p;
+    }
+    return acc + accV; // 保险：不应走到这里
+}
+
+// --------------------------------------------------
+// 迭代贪心中心排序
+// --------------------------------------------------
+std::vector<int> NewickParser::orderLeavesGreedyMinSum(int rootLeaf) {
+    // -------- 1. 收集所有叶节点 --------
+    std::vector<int> leaves;
+    leaves.reserve(nodes_.size());
+    for (const auto& n : nodes_) if (n.isLeaf) leaves.push_back(n.id);
+    const int L = static_cast<int>(leaves.size());
+    if (L == 0) return {};
+
+    // -------- 2. 预计算 L×L 距离矩阵 --------
+    std::vector<std::vector<double>> D(L, std::vector<double>(L, 0.0));
+    for (int i = 0; i < L; ++i) {
+        for (int j = i + 1; j < L; ++j) {
+            double d = distanceBetween(leaves[i], leaves[j]);
+            D[i][j] = D[j][i] = d;
+        }
+    }
+
+    // 映射 leafID -> 索引
+    std::unordered_map<int, int> leaf2idx;
+    for (int i = 0;i < L;++i) leaf2idx[leaves[i]] = i;
+
+    // -------- 3. 初始化 sumDist --------
+    std::vector<double> sumDist(L, 0.0);
+    for (int i = 0;i < L;++i)
+        for (int j = 0;j < L;++j) if (i != j) sumDist[i] += D[i][j];
+
+    // -------- 4. 迭代贪心选择 --------
+    std::vector<int> order; order.reserve(L);
+    std::vector<char> removed(L, 0);   // 0=在集合，1=已移除
+
+    for (int step = 0; step < L; ++step) {
+        // 找剩余里 sumDist 最小者
+        int bestIdx = -1;
+        double bestVal = std::numeric_limits<double>::max();
+        for (int i = 0;i < L;++i) {
+            if (removed[i]) continue;
+            if (sumDist[i] < bestVal) {
+                bestVal = sumDist[i];
+                bestIdx = i;
+            }
+        }
+        // 记录并移除
+        order.push_back(leaves[bestIdx]);
+        removed[bestIdx] = 1;
+
+        // 更新其余节点的 sumDist
+        for (int j = 0;j < L;++j) {
+            if (removed[j]) continue;
+            sumDist[j] -= D[j][bestIdx];
+        }
+    }
+    return order;  // 下标 0 是全局距离最小中心，后面依次次优
 }
