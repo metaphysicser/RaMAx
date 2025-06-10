@@ -135,6 +135,7 @@ public:
 
     // 构造函数
     FastaManager() = default;
+
     FastaManager(const FilePath& fasta_path, const FilePath& fai_path = FilePath())
         : FastaProcessor(fasta_path), fai_path_(fai_path)
     {

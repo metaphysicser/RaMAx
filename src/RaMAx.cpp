@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
 
 	uint_t tree_root = 0;
 
-	mra.starAlignment(tree_root);
+	mra.starAlignment(tree_root, ACCURATE_SEARCH, false, false);
 
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;

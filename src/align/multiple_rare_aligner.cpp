@@ -37,12 +37,18 @@ MultipleRareAligner::MultipleRareAligner(
 
 }
 
-void MultipleRareAligner::starAlignment(uint_t tree_root)
+void MultipleRareAligner::starAlignment(
+    uint_t tree_root,
+    SearchMode                 search_mode,
+    bool                       fast_build,
+    bool                       allow_MEM)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
 	uint_t leaf_num = leaf_vec.size();
 
-    for (uint_t i = 0; i < leaf_num; i++) {
+    // TODO 完成迭代的星比对
+    for (uint_t i = 0; i < 1; i++) {
+    /*for (uint_t i = 0; i < leaf_num; i++) {*/
 		uint_t ref_id = leaf_vec[i];
 		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
 				
@@ -58,6 +64,11 @@ void MultipleRareAligner::starAlignment(uint_t tree_root)
             );
             
         }
+
+        SpeciesMatchVec3DPtrMapPtr mathc_ptr = alignMultipleQuerys(
+            ref_name, species_fasta_manager_map,
+            ACCURATE_SEARCH, fast_build, allow_MEM
+        );
 
     }
     return;
@@ -100,21 +111,9 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
     FilePath ref_index_path = index_dir / ref_name;
     std::filesystem::create_directories(ref_index_path);
 
-    FilePath ref_fasta = species_fasta_manager_map[ref_name].fasta_path_;
-    FilePath out_fa = ref_index_path / (ref_name + ref_fasta.extension().string());
-    FilePath idx_file = ref_index_path / (ref_name + "." + FMINDEX_EXTESION);
-
-    spdlog::info("Indexing {} ...", ref_name);
-    FM_Index ref_index(ref_name, &species_fasta_manager_map[ref_name]);
-
-    if (!std::filesystem::exists(idx_file)) {
-        ref_index.buildIndex(out_fa, fast_build, thread_num);
-        ref_index.saveToFile(idx_file.string());
-    }
-    else {
-        ref_index.loadFromFile(idx_file.string());
-    }
-    spdlog::info("Index ready: {}", idx_file.string());
+    PairRareAligner pra(*this);
+	pra.buildIndex(ref_name, species_fasta_manager_map[ref_name], fast_build);
+	spdlog::info("[alignMultipleQuerys] reference index built for {}.", ref_name);
 
     /* ---------- 4. 创建共享线程池 ---------- */
     ThreadPool shared_pool(thread_num);
@@ -132,12 +131,14 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
         fut_map.emplace(
             sp,
             std::async(std::launch::async,
-                [this, &ref_index, prefix, &fm, search_mode, allow_MEM, &shared_pool]() -> MatchVec3DPtr {
+                [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool]() -> MatchVec3DPtr {
                     // 统一走单物种比对逻辑，公用 shared_pool
-                    return this->alignSingleQuerys(prefix, ref_index, fm, search_mode, allow_MEM, shared_pool);
+                    return pra.findQueryFileAnchor(prefix, fm, search_mode, allow_MEM, shared_pool);
                 })
         );
     }
+
+    shared_pool.waitAllTasksDone();
 
     /* ---------- 6. 收集所有结果 ---------- */
     auto result_map = std::make_shared<SpeciesMatchVec3DPtrMap>();
@@ -161,101 +162,11 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
     return result_map;
 }
 
+void MultipleRareAligner::filterMultipeSpeciesAnchors(
+    SpeciesName                ref_name,
+    SpeciesFastaManagerMap& species_fasta_manager_map, 
+    SpeciesMatchVec3DPtrMapPtr species_match_map
+    ) {
 
-
-MatchVec3DPtr MultipleRareAligner::alignSingleQuerys(
-    const std::string& prefix,
-    FM_Index& ref_index,
-    FastaManager& query_fm,
-    SearchMode         search_mode,
-    bool               allow_MEM,
-    ThreadPool& pool)        // ← 外部共享线程池
-{
-    /* ---------- 1. 结果文件路径，与多基因组保持同一目录 ---------- */
-    FilePath result_dir = work_dir / RESULT_DIR
-        / ("group_" + std::to_string(group_id))
-        / ("round_" + std::to_string(round_id));
-    std::filesystem::create_directories(result_dir);
-
-    FilePath anchor_file = result_dir /
-        (prefix + "_" + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
-
-    /* ---------- 2. 若文件已存在，直接加载 ---------- */
-    if (std::filesystem::exists(anchor_file)) {
-        auto mv3 = std::make_shared<MatchVec3D>();
-        if (loadMatchVec3D(anchor_file, mv3))
-            return mv3;
-        // 读取失败则重新计算
-    }
-
-    /* ---------- 3. FASTA 分块 ---------- */
-    RegionVec chunks = query_fm.preAllocateChunks(chunk_size, overlap_size);
-    if (chunks.empty()) {
-        spdlog::warn("[alignSingleQuerys] no chunks, prefix {}", prefix);
-        return std::make_shared<MatchVec3D>();
-    }
-
-    /* ---------- 4. 把块任务丢进共享线程池 ---------- */
-    size_t num_chunks_per_task =
-        std::max<size_t>(1, (chunks.size() + thread_num - 1) / thread_num);
-
-    std::vector<std::future<MatchVec2DPtr>> futures;
-    futures.reserve((chunks.size() + num_chunks_per_task - 1) / num_chunks_per_task * 2);
-
-    for (size_t i = 0; i < chunks.size(); i += num_chunks_per_task) {
-        RegionVec grp(chunks.begin() + i,
-            chunks.begin() + std::min(i + num_chunks_per_task, chunks.size()));
-
-        // forward
-        futures.emplace_back(pool.enqueue(
-            [this, grp, &ref_index, &query_fm, search_mode, allow_MEM]() -> MatchVec2DPtr {
-                auto g = std::make_shared<MatchVec2D>();
-                for (const auto& ck : grp) {
-                    std::string seq = query_fm.getSubSequence(ck.chr_name, ck.start, ck.length);
-                    auto mv = ref_index.findAnchors(
-                        ck.chr_name, seq,
-                        search_mode,
-                        Strand::FORWARD,
-                        allow_MEM,
-                        ck.start,
-                        0,
-                        max_anchor_frequency);
-                    g->insert(g->end(), mv->begin(), mv->end());
-                }
-                return g;
-            }));
-
-        // reverse
-        futures.emplace_back(pool.enqueue(
-            [this, grp, &ref_index, &query_fm, allow_MEM]() -> MatchVec2DPtr {
-                auto g = std::make_shared<MatchVec2D>();
-                for (const auto& ck : grp) {
-                    std::string seq = query_fm.getSubSequence(ck.chr_name, ck.start, ck.length);
-                    auto mv = ref_index.findAnchors(
-                        ck.chr_name, seq,
-                        MIDDLE_SEARCH,
-                        Strand::REVERSE,
-                        allow_MEM,
-                        ck.start,
-                        min_anchor_length,
-                        max_anchor_frequency);
-                    g->insert(g->end(), mv->begin(), mv->end());
-                }
-                return g;
-            }));
-    }
-
-    /* ---------- 5. 收集结果 ---------- */
-    auto mv3 = std::make_shared<MatchVec3D>();
-    mv3->reserve(futures.size());
-
-    for (auto& fut : futures) {
-        MatchVec2DPtr part = fut.get();          // 等待任务完成
-        mv3->emplace_back(std::move(*part));     // Move 到结果
-    }
-
-    /* ---------- 6. 保存到文件 ---------- */
-    saveMatchVec3D(anchor_file, mv3);
-    return mv3;
 }
 

@@ -324,7 +324,9 @@ int main(int argc, char** argv) {
 	// 步骤 1：构建索引
 	// ------------------------------
 	auto t_start_build = std::chrono::steady_clock::now();
-	pra.buildIndex("reference", species_path_map["reference"], false);  // 可切换 CaPS / divsufsort
+
+	FastaManager ref_fasta_manager(species_path_map["reference"], getFaiIndexPath(species_path_map["reference"]));
+	pra.buildIndex("reference", ref_fasta_manager, false);  // 可切换 CaPS / divsufsort
 	auto t_end_build = std::chrono::steady_clock::now();
 	std::chrono::duration<double> build_time = t_end_build - t_start_build;
 	spdlog::info("Index built in {:.3f} seconds.", build_time.count());
@@ -333,8 +335,10 @@ int main(int argc, char** argv) {
 	// 步骤 2：查询序列比对
 	// ------------------------------
 	auto t_start_align = std::chrono::steady_clock::now();
+
 	FastaManager query_fasta_manager(species_path_map["query"], getFaiIndexPath(species_path_map["query"]));
-	MatchVec3DPtr anchors = pra.findQueryFileAnchor(
+	
+	MatchVec3DPtr anchors = pra.alignPairGenome(
 		"query", query_fasta_manager, ACCURATE_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
