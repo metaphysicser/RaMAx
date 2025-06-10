@@ -40,7 +40,7 @@ public:
         bool                       fast_build,
         bool                       allow_MEM);
 
-    SpeciesMatchVec3DPtrMapPtr alignMultipleQuerys(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM);
+    SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM);
 
     void filterMultipeSpeciesAnchors(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
     

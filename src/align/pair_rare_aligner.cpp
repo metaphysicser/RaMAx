@@ -180,7 +180,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	spdlog::info("[findQueryFileAnchor] search  = {:.3f} ms", search_ms);
 	/* ---------- ③ 计时：保存 ---------- */
 	auto t_save0 = std::chrono::steady_clock::now();
-	saveMatchVec3D(anchor_file, result);
+	// saveMatchVec3D(anchor_file, result);
 	auto t_save1 = std::chrono::steady_clock::now();
 	double save_ms = std::chrono::duration<double, std::milli>(t_save1 - t_save0).count();
 
@@ -198,30 +198,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
-	//MatchByQueryRef unique_anchors;
-	//MatchByQueryRef repeat_anchors;
+	ThreadPool shared_pool(thread_num);
 	MatchByStrandByQueryRef unique_anchors;
 	MatchByStrandByQueryRef repeat_anchors;
 
 	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
-		*ref_fasta_manager_ptr, query_fasta_manager, thread_num);
+		*ref_fasta_manager_ptr, query_fasta_manager, shared_pool);
 
-	//// 测试得到的anchor对应的子串是否相同
-	//for (const auto& first_match : unique_anchors[0][0]) {
-	//		std::string query_subseq = query_fasta_manager.getSubSequence(
-	//			first_match.query_region.chr_name, first_match.query_region.start, first_match.query_region.length);
-	//		std::string ref_subseq = ref_fasta_manager.getSubSequence(
-	//			first_match.ref_region.chr_name, first_match.ref_region.start, first_match.ref_region.length);
-	//		if (query_subseq != ref_subseq) {
-	//			spdlog::warn("Mismatch found in anchor: query {} vs ref {}",
-	//				query_subseq, ref_subseq);
-	//
-	//	}
-	//}
 
-	sortMatchByQueryStart(unique_anchors, thread_num);
-	sortMatchByQueryStart(repeat_anchors, thread_num);
-	ThreadPool pool(thread_num);
+	sortMatchByQueryStart(unique_anchors, shared_pool);
+	sortMatchByQueryStart(repeat_anchors, shared_pool);
+
 
 	//--------------------------------------------------------------------
 // ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
@@ -249,7 +236,7 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 					auto ii = i;
 					auto jj = j;
 
-					pool.enqueue([&cluster_results, kk, ii, jj,
+					shared_pool.enqueue([&cluster_results, kk, ii, jj,
 						&unique_vec, &repeat_vec]()
 						{
 							// ⬇ 收集返回值
@@ -261,19 +248,8 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 		}
 	}
 
-	pool.waitAllTasksDone();
-//
-//	//----------------------------------------------------------------
-//	// 3) 如有后续操作，可直接用 cluster_results
-//	//----------------------------------------------------------------
-//	// anchors->clear(); …                // 原来的清理逻辑保持不变
-//
-//
-//	//----------------------------------------------------------------
-//	// 3) 释放原始 3D 数据以节省内存
-//	//----------------------------------------------------------------
-//	anchors->clear();
-//	anchors->shrink_to_fit();
+	shared_pool.waitAllTasksDone();
+
 	return;
 
 }

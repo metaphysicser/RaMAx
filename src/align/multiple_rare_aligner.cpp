@@ -65,7 +65,7 @@ void MultipleRareAligner::starAlignment(
             
         }
 
-        SpeciesMatchVec3DPtrMapPtr mathc_ptr = alignMultipleQuerys(
+        SpeciesMatchVec3DPtrMapPtr mathc_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
             ACCURATE_SEARCH, fast_build, allow_MEM
         );
@@ -74,7 +74,7 @@ void MultipleRareAligner::starAlignment(
     return;
 }
 
-SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
+SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
     SpeciesName                ref_name,
     SpeciesFastaManagerMap& species_fasta_manager_map,
     SearchMode                 search_mode,
@@ -101,6 +101,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
 
     /* ---------- 2. 如果已存在结果文件直接读取 ---------- */
     if (std::filesystem::exists(anchor_file)) {
+        spdlog::info("[alignMultipleQuerys] Load from {}", anchor_file.string());
         auto mp = std::make_shared<SpeciesMatchVec3DPtrMap>();
         if (loadSpeciesMatchMap(anchor_file, mp))
             return mp;
@@ -156,7 +157,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleQuerys(
     }
 
     /* ---------- 7. 保存到文件 ---------- */
-    saveSpeciesMatchMap(anchor_file, result_map);
+    // saveSpeciesMatchMap(anchor_file, result_map);
     spdlog::info("[alignMultipleQuerys] all species done. Saved to {}", anchor_file.string());
 
     return result_map;

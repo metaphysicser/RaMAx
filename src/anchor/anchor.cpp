@@ -143,7 +143,7 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRef& repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
-    uint_t thread_num)
+	ThreadPool& pool)
 {
     //------------------------------------------------------------
     // 0) 初始化 4‑D 输出矩阵  [strand][query][ref]
@@ -176,7 +176,6 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     //------------------------------------------------------------
     // 2) 并行遍历 3‑D 数据，slice 级别开任务
     //------------------------------------------------------------
-    ThreadPool pool(thread_num);
 
     for (auto& slice : *anchors)
     {
@@ -220,8 +219,7 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     anchors->shrink_to_fit();
 }
 
-void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num) {
-    ThreadPool pool(thread_num);
+void sortMatchByRefStart(MatchByQueryRef& anchors, ThreadPool& pool) {
 
     for (auto& row : anchors) {
         for (auto& vec : row) {
@@ -238,9 +236,8 @@ void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num) {
 }
 
 // anchors[strand][query][ref] -- MatchByStrandByQueryRef
-void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, uint_t thread_num)
+void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, ThreadPool& pool)
 {
-    ThreadPool pool(thread_num);
 
     for (auto& strand_layer : anchors)          // 第一维：Strand
         for (auto& query_row : strand_layer)    // 第二维：query-chr

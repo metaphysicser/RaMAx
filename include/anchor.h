@@ -5,7 +5,7 @@
 // 引入必要的头文件
 // ------------------------------------------------------------------
 #include "config.hpp"              // 包含通用配置（如类型定义）
-#include "cigar.h"                 // CIGAR 字符串表示比对信息
+#include "align.h"
 #include <memory>                 // 用于智能指针（如 std::shared_ptr）
 #include <vector>                 // 用于 std::vector 容器
 #include <algorithm>              // 提供算法（如 sort 等）
@@ -141,10 +141,10 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRef& repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
-    uint_t thread_num);
+    ThreadPool& pool);
 
-void sortMatchByRefStart(MatchByQueryRef& anchors, uint_t thread_num);
-void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, uint_t thread_num);
+void sortMatchByRefStart(MatchByQueryRef& anchors, ThreadPool& pool);
+void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, ThreadPool& pool);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
