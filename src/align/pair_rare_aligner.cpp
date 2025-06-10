@@ -191,63 +191,28 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 }
 
 
-
-//--------------------------------------------------------------------
-// 主函数：直接将 slice 写入 (queryIdx, refIdx) 桶
-//--------------------------------------------------------------------
 void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	FastaManager& query_fasta_manager)
 {
 	ThreadPool shared_pool(thread_num);
-	MatchByStrandByQueryRef unique_anchors;
-	MatchByStrandByQueryRef repeat_anchors;
+	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
+	MatchByStrandByQueryRefPtr repeat_anchors = std::make_shared<MatchByStrandByQueryRef>();;
 
 	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
 		*ref_fasta_manager_ptr, query_fasta_manager, shared_pool);
 
+	shared_pool.waitAllTasksDone();
 
 	sortMatchByQueryStart(unique_anchors, shared_pool);
 	sortMatchByQueryStart(repeat_anchors, shared_pool);
 
-
-	//--------------------------------------------------------------------
-// ⬇ 1. 额外的 3-D 结果桶，和 unique_anchors 同形
-//--------------------------------------------------------------------
-	ClusterVecPtrByStrandByQueryRef cluster_results;
-	cluster_results.resize(2);                      // strand: 0 = FORWARD, 1 = REVERSE
-
-	for (auto& query_layer : cluster_results) {
-		query_layer.resize(unique_anchors.size());          // 每条 strand 下的所有 query-chr
-		for (auto& ref_row : query_layer)
-			ref_row.resize(unique_anchors.front().size());            // 每个 (strand, query) 下的所有 ref-chr
-	}
-
-	//--------------------------------------------------------------------
-	// 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
-	//--------------------------------------------------------------------
-	for (uint_t k = 0; k < 2; k++) {
-		for (uint_t i = 0; i < unique_anchors.size(); ++i) {
-			for (uint_t j = 0; j < unique_anchors[i].size(); ++j) {
-					MatchVec& unique_vec = unique_anchors[k][i][j];
-					MatchVec& repeat_vec = repeat_anchors[k][i][j];
-
-					// 先把下标复制到局部，避免 lambda 捕获引用后被后续循环修改
-					auto kk = k;
-					auto ii = i;
-					auto jj = j;
-
-					shared_pool.enqueue([&cluster_results, kk, ii, jj,
-						&unique_vec, &repeat_vec]()
-						{
-							// ⬇ 收集返回值
-							cluster_results[kk][ii][jj] = clusterChrMatch(
-								unique_vec,
-								repeat_vec);   // 已排序
-						});
-			}
-		}
-	}
-
+	shared_pool.waitAllTasksDone();
+	
+	ClusterVecPtrByStrandByQueryRef cluster_results = clusterAllChrMatch(
+		unique_anchors,
+		repeat_anchors,
+		shared_pool);
+	
 	shared_pool.waitAllTasksDone();
 
 	return;

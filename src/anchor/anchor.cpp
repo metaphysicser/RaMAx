@@ -139,8 +139,8 @@
 // 适配 4‑D 结构的聚类分发
 //--------------------------------------------------------------------
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
-    MatchByStrandByQueryRef& unique_anchors,
-    MatchByStrandByQueryRef& repeat_anchors,
+    MatchByStrandByQueryRefPtr unique_anchors,
+    MatchByStrandByQueryRefPtr repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
 	ThreadPool& pool)
@@ -153,12 +153,12 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     const uint_t ref_chr_cnt = static_cast<uint_t>(ref_fasta_manager.idx_map.size());
     const uint_t query_chr_cnt = static_cast<uint_t>(query_fasta_manager.idx_map.size());
 
-    auto initTarget = [&](MatchByStrandByQueryRef& tgt) {
-        tgt.resize(STRAND_CNT);
+    auto initTarget = [&](MatchByStrandByQueryRefPtr& tgt) {
+        (*tgt).resize(STRAND_CNT);
         for (uint_t s = 0; s < STRAND_CNT; ++s) {
-            tgt[s].resize(query_chr_cnt);              // [query]
+            (*tgt)[s].resize(query_chr_cnt);              // [query]
             for (uint_t q = 0; q < query_chr_cnt; ++q)
-                tgt[s][q].resize(ref_chr_cnt);         // [ref]
+                (*tgt)[s][q].resize(ref_chr_cnt);         // [ref]
         }
         };
 
@@ -200,8 +200,8 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
 
                 std::lock_guard<std::mutex> lk(rowLocks[rowLockIdx(sIdx, qIdx)]);
                 MatchVec& tgt = (vec.size() == 1)
-                    ? unique_anchors[sIdx][qIdx][rIdx]
-                    : repeat_anchors[sIdx][qIdx][rIdx];
+                    ? (*unique_anchors)[sIdx][qIdx][rIdx]
+                    : (*repeat_anchors)[sIdx][qIdx][rIdx];
                     tgt.insert(tgt.end(),
                         std::make_move_iterator(vec.begin()),
                         std::make_move_iterator(vec.end()));
@@ -219,27 +219,27 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     anchors->shrink_to_fit();
 }
 
-void sortMatchByRefStart(MatchByQueryRef& anchors, ThreadPool& pool) {
-
-    for (auto& row : anchors) {
-        for (auto& vec : row) {
-            pool.enqueue([&vec]() {
-                if (vec.size() == 0) return;
-                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
-                    return (a.ref_region.start < b.ref_region.start) || (a.ref_region.start == b.ref_region.start && a.query_region.start < b.query_region.start);
-                    });
-                });
-        }
-    }
-
-    pool.waitAllTasksDone();
-}
+//void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool) {
+//
+//    for (auto& row : *anchors) {
+//        for (auto& vec : row) {
+//            pool.enqueue([&vec]() {
+//                if (vec.size() == 0) return;
+//                std::sort(vec.begin(), vec.end(), [](const Match& a, const Match& b) {
+//                    return (a.ref_region.start < b.ref_region.start) || (a.ref_region.start == b.ref_region.start && a.query_region.start < b.query_region.start);
+//                    });
+//                });
+//        }
+//    }
+//
+//    pool.waitAllTasksDone();
+//}
 
 // anchors[strand][query][ref] -- MatchByStrandByQueryRef
-void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, ThreadPool& pool)
+void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool)
 {
 
-    for (auto& strand_layer : anchors)          // 第一维：Strand
+    for (auto& strand_layer : *anchors)          // 第一维：Strand
         for (auto& query_row : strand_layer)    // 第二维：query-chr
             for (auto& vec : query_row)         // 第三维：ref-chr
             {

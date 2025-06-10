@@ -168,6 +168,6 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesFastaManagerMap& species_fasta_manager_map, 
     SpeciesMatchVec3DPtrMapPtr species_match_map
     ) {
-
+    ThreadPool shared_pool(thread_num);
 }
 

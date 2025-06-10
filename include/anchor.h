@@ -87,12 +87,16 @@ using SpeciesMatchVec3DPtrMapPtr = std::shared_ptr<SpeciesMatchVec3DPtrMap>;
 using MatchByRef = std::vector<MatchVec>;
 using MatchByQueryRef = std::vector<MatchByRef>;
 using MatchByStrandByQueryRef = std::vector<MatchByQueryRef>;
+using MatchByStrandByQueryRefPtr = std::shared_ptr<MatchByStrandByQueryRef>;
+
+using SpeciesMatchByStrandByQueryRefPtrMap = std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr>;
 
 using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
 using MatchClusterVecPtr = std::shared_ptr<MatchClusterVec>;
 using ClusterVecPtrByQueryRef = std::vector<std::vector<MatchClusterVecPtr>>;
 using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
+using ClusterVecPtrByStrandByQueryRefPtr = std::shared_ptr<ClusterVecPtrByStrandByQueryRef>;
 
 inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
 inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
@@ -137,14 +141,14 @@ using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
-    MatchByStrandByQueryRef& unique_anchors,
-    MatchByStrandByQueryRef& repeat_anchors,
+    MatchByStrandByQueryRefPtr unique_anchors,
+    MatchByStrandByQueryRefPtr repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
     ThreadPool& pool);
 
-void sortMatchByRefStart(MatchByQueryRef& anchors, ThreadPool& pool);
-void sortMatchByQueryStart(MatchByStrandByQueryRef& anchors, ThreadPool& pool);
+// void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
+void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
 
 AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
@@ -156,6 +160,11 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     int_t      max_gap,
     int_t      diagdiff,
     double     diagfactor);
+
+ClusterVecPtrByStrandByQueryRef
+clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
+    const MatchByStrandByQueryRefPtr& repeat_anchors,
+    ThreadPool& pool);
 
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）

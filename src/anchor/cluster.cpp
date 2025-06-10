@@ -90,8 +90,67 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
             clusters.emplace_back();
         }
         clusters[cid].push_back(std::move(unique_match[idx]));
+        // clusters[cid].push_back(unique_match[idx]);
     }
     return clusters;
+}
+
+ClusterVecPtrByStrandByQueryRef clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors, const MatchByStrandByQueryRefPtr& repeat_anchors, ThreadPool& pool)
+{
+    if (!unique_anchors || !repeat_anchors) {
+        spdlog::warn("[clusterAllChrAnchors] empty anchor ptr");
+        return ClusterVecPtrByStrandByQueryRef();
+    }
+
+    /* ---------- 1. 构建结果桶，shape 与 unique_anchors 相同 ---------- */
+    ClusterVecPtrByStrandByQueryRef cluster_results;
+    cluster_results.resize(2);                      // strand: 0 = FORWARD, 1 = REVERSE
+
+    for (auto& query_layer : cluster_results) {
+        query_layer.resize(unique_anchors->size());          // 每条 strand 下的所有 query-chr
+        for (auto& ref_row : query_layer)
+            ref_row.resize(unique_anchors->front().size());            // 每个 (strand, query) 下的所有 ref-chr
+    }
+
+    //--------------------------------------------------------------------
+    // 2. 主循环 —— 为每个 (i,j) 任务预留位置并提交线程池
+    //--------------------------------------------------------------------
+    using ClusterFuture = std::future<std::shared_ptr<MatchClusterVec>>;
+    std::vector<ClusterFuture> futures;
+
+    // 2. 提交任务
+    for (uint_t k = 0; k < 2; k++) {
+        for (uint_t i = 0; i < unique_anchors->size(); ++i) {
+            for (uint_t j = 0; j < (*unique_anchors)[i].size(); ++j) {
+                // 获取当前块的引用
+                MatchVec& unique_vec = (*unique_anchors)[k][i][j];
+                MatchVec& repeat_vec = (*repeat_anchors)[k][i][j];
+
+                // 提交任务并存储 future
+                futures.emplace_back(
+                    pool.enqueue([&unique_vec, &repeat_vec]() {
+                        return clusterChrMatch(
+                            unique_vec,
+                            repeat_vec
+                        );
+                        })
+                );
+            }
+        }
+    }
+
+    // 3. 收集结果
+    size_t idx = 0;
+    for (uint_t k = 0; k < 2; k++) {
+        for (uint_t i = 0; i < unique_anchors->size(); ++i) {
+            for (uint_t j = 0; j < (*unique_anchors)[i].size(); ++j) {
+                // 获取结果并放入 cluster_results
+                cluster_results[k][i][j] = futures[idx++].get();
+            }
+        }
+    }
+
+    return std::move(cluster_results);
 }
 
 // 2. 给定一个 cluster，返回其最佳非交叉链（DP O(N^2)）
