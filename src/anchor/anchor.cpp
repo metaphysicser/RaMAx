@@ -143,81 +143,76 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRefPtr repeat_anchors,
     FastaManager& ref_fasta_manager,
     FastaManager& query_fasta_manager,
-	ThreadPool& pool)
+    ThreadPool& pool)
 {
     //------------------------------------------------------------
-    // 0) 初始化 4‑D 输出矩阵  [strand][query][ref]
+    // 0) 初始化输出矩阵 [strand][query][ref]
     //------------------------------------------------------------
-    constexpr uint_t STRAND_CNT = 2;            // FORWARD=0, REVERSE=1
-
+    constexpr uint_t STRAND_CNT = 2;                         // 0=FWD,1=REV
     const uint_t ref_chr_cnt = static_cast<uint_t>(ref_fasta_manager.idx_map.size());
     const uint_t query_chr_cnt = static_cast<uint_t>(query_fasta_manager.idx_map.size());
 
     auto initTarget = [&](MatchByStrandByQueryRefPtr& tgt) {
-        (*tgt).resize(STRAND_CNT);
+        tgt->resize(STRAND_CNT);
         for (uint_t s = 0; s < STRAND_CNT; ++s) {
-            (*tgt)[s].resize(query_chr_cnt);              // [query]
+            (*tgt)[s].resize(query_chr_cnt);
             for (uint_t q = 0; q < query_chr_cnt; ++q)
-                (*tgt)[s][q].resize(ref_chr_cnt);         // [ref]
+                (*tgt)[s][q].resize(ref_chr_cnt);
         }
         };
-
     initTarget(unique_anchors);
     initTarget(repeat_anchors);
 
     //------------------------------------------------------------
-    // 1) 行级互斥锁: 针对 (strand, query) 组合各一把锁
+    // 1) 行级互斥锁：放到堆上，用 shared_ptr 延长生命周期
     //------------------------------------------------------------
-    std::vector<std::mutex> rowLocks(STRAND_CNT * query_chr_cnt);
-    auto rowLockIdx = [&](uint_t strand, uint_t qIdx) {
-        return strand * query_chr_cnt + qIdx;
-        };
+    auto rowLocks = std::make_shared<std::vector<std::mutex>>(STRAND_CNT * query_chr_cnt);
 
     //------------------------------------------------------------
-    // 2) 并行遍历 3‑D 数据，slice 级别开任务
+    // 2) 并行遍历 3-D 数据，slice 级别开任务
     //------------------------------------------------------------
-
-    for (auto& slice : *anchors)
-    {
-        pool.enqueue([&, slice]() {              // ← 值捕获
-            if (slice.empty()) return;
-
-            const Match& first = slice.front().front();
-
-            // 1. strand 索引归一化
-            uint_t sIdx = (first.strand == REVERSE ? 1u : 0u);
-
-            auto itQ = query_fasta_manager.idx_map.find(first.query_region.chr_name);
-            if (itQ == query_fasta_manager.idx_map.end()) return;
-            uint_t qIdx = itQ->second;
-
-            for (auto& vec : slice)
+    for (auto& slice : *anchors) {
+        // 按值捕获 slice、rowLocks、unique_anchors 等
+        pool.enqueue(
+            [slice,                                               // 值
+            rowLocks,                                            // 值 (shared_ptr)
+            unique_anchors, repeat_anchors,                      // 值 (shared_ptr)
+            &ref_fasta_manager, &query_fasta_manager,            // 引用
+            query_chr_cnt] () mutable
             {
-                if (vec.empty()) continue;
-                auto itR = ref_fasta_manager.idx_map.find(vec.front().ref_region.chr_name);
-                if (itR == ref_fasta_manager.idx_map.end()) continue;
-                uint_t rIdx = itR->second;
+                if (slice.empty()) return;
 
-                std::lock_guard<std::mutex> lk(rowLocks[rowLockIdx(sIdx, qIdx)]);
-                MatchVec& tgt = (vec.size() == 1)
-                    ? (*unique_anchors)[sIdx][qIdx][rIdx]
-                    : (*repeat_anchors)[sIdx][qIdx][rIdx];
-                    tgt.insert(tgt.end(),
-                        std::make_move_iterator(vec.begin()),
-                        std::make_move_iterator(vec.end()));
-            }
+                const Match& first = slice.front().front();
+                uint_t sIdx = (first.strand == REVERSE ? 1u : 0u);
+
+                auto itQ = query_fasta_manager.idx_map.find(first.query_region.chr_name);
+                if (itQ == query_fasta_manager.idx_map.end()) return;
+                uint_t qIdx = itQ->second;
+
+                for (auto& vec : slice) {
+                    if (vec.empty()) continue;
+
+                    auto itR = ref_fasta_manager.idx_map.find(vec.front().ref_region.chr_name);
+                    if (itR == ref_fasta_manager.idx_map.end()) continue;
+                    uint_t rIdx = itR->second;
+
+                    // 计算锁下标并加锁
+                    uint_t lockIdx = sIdx * query_chr_cnt + qIdx;
+                    std::lock_guard<std::mutex> lk((*rowLocks)[lockIdx]);
+
+                    MatchVec& tgt = (vec.size() == 1)
+                        ? (*unique_anchors)[sIdx][qIdx][rIdx]
+                        : (*repeat_anchors)[sIdx][qIdx][rIdx];
+
+                        tgt.insert(tgt.end(),
+                            std::make_move_iterator(vec.begin()),
+                            std::make_move_iterator(vec.end()));
+                }
             });
     }
-
-
-    pool.waitAllTasksDone();
-
-    //------------------------------------------------------------
-    // 3) 释放原始 3‑D 数据以节省内存
-    //------------------------------------------------------------
-    anchors->clear();
-    anchors->shrink_to_fit();
+    // **不再在这里 wait；由调用者在外部 pool.waitAllTasksDone() 同步**
 }
+
 
 //void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool) {
 //
@@ -252,7 +247,6 @@ void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool
                     });
             }
 
-    pool.waitAllTasksDone();
 }
 
 
