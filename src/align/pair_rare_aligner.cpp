@@ -202,13 +202,16 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 		*ref_fasta_manager_ptr, query_fasta_manager, shared_pool);
 
 	shared_pool.waitAllTasksDone();
+	//anchors->clear();
+	//anchors->shrink_to_fit();
+	anchors.reset();
 
 	sortMatchByQueryStart(unique_anchors, shared_pool);
 	sortMatchByQueryStart(repeat_anchors, shared_pool);
 
 	shared_pool.waitAllTasksDone();
 	
-	ClusterVecPtrByStrandByQueryRef cluster_results = clusterAllChrMatch(
+	ClusterVecPtrByStrandByQueryRefPtr cluster_ptr = clusterAllChrMatch(
 		unique_anchors,
 		repeat_anchors,
 		shared_pool);

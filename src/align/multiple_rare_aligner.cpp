@@ -65,10 +65,14 @@ void MultipleRareAligner::starAlignment(
             
         }
 
-        SpeciesMatchVec3DPtrMapPtr mathc_ptr = alignMultipleGenome(
+        SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
             ACCURATE_SEARCH, fast_build, allow_MEM
         );
+
+		filterMultipeSpeciesAnchors(
+			ref_name, species_fasta_manager_map, match_ptr
+		);
 
     }
     return;
@@ -164,10 +168,106 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 }
 
 void MultipleRareAligner::filterMultipeSpeciesAnchors(
-    SpeciesName                ref_name,
-    SpeciesFastaManagerMap& species_fasta_manager_map, 
-    SpeciesMatchVec3DPtrMapPtr species_match_map
-    ) {
-    ThreadPool shared_pool(thread_num);
-}
+    SpeciesName                       ref_name,
+    SpeciesFastaManagerMap& species_fm_map,
+    SpeciesMatchVec3DPtrMapPtr        species_match_map)
+{
+    if (!species_match_map || species_match_map->empty()) return;
 
+
+    ThreadPool pool(thread_num);                      // 全局线程池
+
+    /*-------------- 预分配表 ----------------------------------------*/
+    std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> unique_map;
+    std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> repeat_map;
+    SpeciesClusterMap cluster_map;                    // 最终结果
+
+    /*========================= Phase-1  : group =====================*/
+    for (auto it = species_match_map->begin();
+        it != species_match_map->end(); ++it)
+    {
+        const SpeciesName  species = it->first;
+        if (species == ref_name) continue;
+
+        MatchVec3DPtr mv3_ptr = it->second;
+        FastaManager& qfm = species_fm_map.at(species);
+        FastaManager& rfm = species_fm_map.at(ref_name);
+
+        auto u_ptr = std::make_shared<MatchByStrandByQueryRef>();
+        auto r_ptr = std::make_shared<MatchByStrandByQueryRef>();
+        unique_map[species] = u_ptr;
+        repeat_map[species] = r_ptr;
+
+        // 把所有需要的变量显式捕获
+        pool.enqueue(
+            [&mv3_ptr,
+            &u_ptr,
+            &r_ptr,
+            &qfm,
+            &rfm,
+            &pool]()
+            {
+                groupMatchByQueryRef(mv3_ptr,
+                    u_ptr,
+                    r_ptr,
+                    rfm,
+                    qfm,
+                    pool);          // 仍用同一池
+            });
+    }
+    pool.waitAllTasksDone();                          // —— Phase-1 完
+    
+    // 一步到位，最快释放
+    for (auto it = species_match_map->begin();
+        it != species_match_map->end(); ++it)
+    {
+        it->second.reset();   // 释放 MatchVec3D 对象占用的全部内存
+    }
+    species_match_map->clear();         // 清掉 map 自身节点
+
+
+    /*========================= Phase-2  : sort ======================*/
+    for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
+        MatchByStrandByQueryRefPtr u_ptr = it->second;
+        pool.enqueue([&u_ptr, &pool]() {
+            sortMatchByQueryStart(u_ptr, pool);
+            });
+    }
+    for (auto it = repeat_map.begin(); it != repeat_map.end(); ++it) {
+        MatchByStrandByQueryRefPtr r_ptr = it->second;
+        pool.enqueue([&r_ptr, &pool]() {
+            sortMatchByQueryStart(r_ptr, pool);
+            });
+    }
+    pool.waitAllTasksDone();                          // —— Phase-2 完
+
+    /*========================= Phase-3  : cluster ===================*/
+    using Fut = std::future<ClusterVecPtrByStrandByQueryRefPtr>;
+    std::unordered_map<SpeciesName, Fut> fut_map;
+
+    for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
+        const SpeciesName  species = it->first;
+        auto               u_ptr = it->second;
+        auto               r_ptr = repeat_map.at(species);
+
+        fut_map.emplace(
+            species,
+            pool.enqueue(
+                [&u_ptr, &r_ptr, &pool]() -> ClusterVecPtrByStrandByQueryRefPtr {
+                    return clusterAllChrMatch(u_ptr, r_ptr, pool);
+                })
+        );
+    }
+
+    // pool.waitAllTasksDone();
+    // 收集 future
+    for (auto it = fut_map.begin(); it != fut_map.end(); ++it) {
+        const SpeciesName& species = it->first;
+        ClusterVecPtrByStrandByQueryRefPtr clus_ptr = it->second.get();
+        cluster_map.emplace(species, std::move(clus_ptr));
+    }
+    pool.waitAllTasksDone();                          // —— Phase-3 完
+
+    return;
+
+}

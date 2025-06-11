@@ -98,6 +98,10 @@ using ClusterVecPtrByQueryRef = std::vector<std::vector<MatchClusterVecPtr>>;
 using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
 using ClusterVecPtrByStrandByQueryRefPtr = std::shared_ptr<ClusterVecPtrByStrandByQueryRef>;
 
+using SpeciesClusterMap =
+std::unordered_map<SpeciesName, ClusterVecPtrByStrandByQueryRefPtr>;
+using SpeciesClusterMapPtr = std::shared_ptr<SpeciesClusterMap>;
+
 inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
 inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
 inline uint_t len1(const Match& m) { return static_cast<uint_t>(m.ref_region.length); }
@@ -161,7 +165,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     int_t      diagdiff,
     double     diagfactor);
 
-ClusterVecPtrByStrandByQueryRef
+ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
