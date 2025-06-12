@@ -339,10 +339,105 @@ int main(int argc, char** argv) {
 	FastaManager query_fasta_manager(species_path_map["query"], getFaiIndexPath(species_path_map["query"]));
 	
 	MatchVec3DPtr anchors = pra.alignPairGenome(
-		"query", query_fasta_manager, ACCURATE_SEARCH, false);
+		"query", query_fasta_manager, FAST_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
+
+	// ------------------------------
+// 临时验证：检查anchors的序列匹配正确性
+// ------------------------------
+	spdlog::info("开始验证 anchors 结果的正确性…");
+
+	auto reverseComplement = [](const std::string& seq) -> std::string {
+		std::string result;
+		result.reserve(seq.length());
+		for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+			result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
+		}
+		return result;
+		};
+
+	uint64_t total_matches = 0;
+	uint64_t correct_matches = 0;
+	uint64_t incorrect_matches = 0;
+
+	std::string query_str = query_fasta_manager.concatRecords();
+	std::string ref_str = pra.ref_fasta_manager_ptr->concatRecords();
+
+	// 把 mismatches 暂存在线程私有 vector，最后统一打印日志
+	std::vector<std::string> global_warns;
+
+#pragma omp parallel
+	{
+		std::vector<std::string> local_warns;  // 线程私有
+
+#pragma omp for collapse(3) \
+        reduction(+: total_matches, correct_matches, incorrect_matches) \
+        schedule(dynamic)
+		for (size_t i = 0; i < anchors->size(); ++i) {
+			for (size_t j = 0; j < (*anchors)[i].size(); ++j) {
+				for (size_t k = 0; k < (*anchors)[i][j].size(); ++k) {
+					const Match& match = (*anchors)[i][j][k];
+					++total_matches;
+
+					try {
+						std::string ref_seq = ref_str.substr(match.ref_region.start,
+							match.ref_region.length);
+
+						std::string query_seq = query_fasta_manager.getSubSequence(
+							match.query_region.chr_name,
+							match.query_region.start,
+							match.query_region.length);
+
+						if (match.strand == REVERSE) {
+							query_seq = reverseComplement(query_seq);
+						}
+
+						if (ref_seq == query_seq) {
+							++correct_matches;
+						}
+						else {
+							++incorrect_matches;
+							// 只在本地字符串中记录，退出 parallel 再统一写日志
+							local_warns.emplace_back(fmt::format(
+								"序列不匹配: ref_chr={}, ref_start={}, query_chr={}, "
+								"query_start={}, length={}, strand={}",
+								match.ref_region.chr_name,
+								match.ref_region.start,
+								match.query_region.chr_name,
+								match.query_region.start,
+								match.ref_region.length,
+								(match.strand == FORWARD ? "FORWARD" : "REVERSE")));
+						}
+					}
+					catch (const std::exception& e) {
+						++incorrect_matches;
+						local_warns.emplace_back(fmt::format("异常: {}", e.what()));
+					}
+				}
+			}
+		} // omp for
+
+		// 线程安全地把本线程的 warn 合并到全局
+#pragma omp critical
+		{
+			global_warns.insert(global_warns.end(),
+				local_warns.begin(),
+				local_warns.end());
+		}
+	} // omp parallel
+
+	// 统一输出 warn，避免并行 I/O
+	for (const auto& w : global_warns) {
+		spdlog::warn("{}", w);
+	}
+
+	spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
+		total_matches,
+		correct_matches,
+		incorrect_matches,
+		total_matches ? (100.0 * correct_matches / total_matches) : 0.0);
 
 	// ------------------------------
 	// 步骤 3：过滤锚点

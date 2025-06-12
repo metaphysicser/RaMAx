@@ -222,6 +222,7 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
         std::reverse(query.begin(), query.end());
     }
     else {
+        //std::reverse(query.begin(), query.end());
         for (char& ch : query) {
             ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
         }
@@ -237,10 +238,18 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
         RegionVec region_vec;
         uint_t match_length = findSubSeqAnchors(
             query.c_str() + total_length, query_length - total_length, allow_MEM,
-            region_vec,  min_anchor_length, max_anchor_frequency);
+            region_vec, min_anchor_length, max_anchor_frequency);
+
 
         if (!region_vec.empty()) {
-            Region query_region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            Region query_region;
+            if (strand == FORWARD) {
+                query_region = Region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            }
+            else {
+                query_region = Region(query_chr, total_length + query_offset, match_length);
+            }
+
             MatchVec anchor_ptr_list;
 
             for (uint_t i = 0; i < region_vec.size(); i++) {
@@ -286,7 +295,13 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, 
             region_vec, min_anchor_length, max_anchor_frequency);
 
         if (!region_vec.empty()) {
-            Region query_region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            Region query_region;
+            if (strand == FORWARD) {
+                query_region = Region(query_chr, query_length - match_length - total_length + query_offset, match_length);
+            }
+            else {
+                query_region = Region(query_chr, total_length + query_offset, match_length);
+            }
             MatchVec anchor_ptr_list;
             uint_t ref_end_pos = region_vec[0].start + match_length;
 
@@ -370,7 +385,14 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(
 			max_anchor_frequency);
 
         if (!regs.empty()) {
-            Region query_region(query_chr, query_length - right_len - right_pos + query_offset, right_len);
+            Region query_region;
+            if (strand == FORWARD) {
+                query_region = Region(query_chr, query_length - right_len - right_pos + query_offset, right_len);
+            }
+            else {
+                query_region = Region(query_chr, query_offset + right_pos, right_len);
+            }
+           
             MatchVec anchor_ptr_list;
 
             for (uint_t i = 0; i < regs.size(); i++) {
@@ -481,7 +503,14 @@ void FM_Index::bisectAnchors(const std::string& query,
 	// 如果mid_is_mum是false，写入，如果是true，判断same_as_left和same_as_right都为false则写入，否则不写入
 	/* ---- 若找到匹配就写结果 ---- */
 	if ((regs.size() == 1 || allow_MEM) && !mid_is_mum || (!same_as_left && !same_as_right)) {
-		Region qreg(query_chr, query_length - mid_len - mid + query_offset, mid_len);
+        Region qreg;
+        if (strand == FORWARD) {
+            qreg = Region(query_chr, query_length - mid_len - mid + query_offset, mid_len);
+        }
+        else {
+            qreg = Region(query_chr, query_offset + mid, mid_len);
+        }
+       
         MatchVec lst;
 		for (auto const& rg : regs) {
 			Match  m(rg, qreg, strand);
@@ -540,10 +569,6 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, bool 
                 region_vec.push_back(Region(name, ref_pos, match_length));
             }
         }
-    }
-
-    if (region_vec.size() > 1) {
-        std::cout << 1 << std::endl;
     }
 
 	return match_length;
