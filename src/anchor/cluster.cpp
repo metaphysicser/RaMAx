@@ -218,3 +218,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match,
 
     return best_chain_clusters;
 }
+
+void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr, ThreadPool& pool) {
+    return;
+}
