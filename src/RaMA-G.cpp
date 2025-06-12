@@ -339,10 +339,106 @@ int main(int argc, char** argv) {
 	FastaManager query_fasta_manager(species_path_map["query"], getFaiIndexPath(species_path_map["query"]));
 	
 	MatchVec3DPtr anchors = pra.alignPairGenome(
-		"query", query_fasta_manager, ACCURATE_SEARCH, false);
+		"query", query_fasta_manager, FAST_SEARCH, false);
 	auto t_end_align = std::chrono::steady_clock::now();
 	std::chrono::duration<double> align_time = t_end_align - t_start_align;
 	spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
+
+	// ------------------------------
+// 临时验证：检查anchors的序列匹配正确性
+// ------------------------------
+	{
+		spdlog::info("开始验证anchors结果的正确性...");
+
+		// 反向互补函数
+		auto reverseComplement = [](const std::string& seq) -> std::string {
+			std::string result;
+			result.reserve(seq.length());
+			for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+				result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
+			}
+			return result;
+			};
+
+		uint_t total_matches = 0;
+		uint_t correct_matches = 0;
+		uint_t incorrect_matches = 0;
+
+		std::string query_str = query_fasta_manager.concatRecords();
+		std::string ref_str = pra.ref_fasta_manager_ptr->concatRecords();
+
+		// 遍历三维向量中的所有匹配
+		for (size_t i = 0; i < anchors->size(); ++i) {
+			for (size_t j = 0; j < (*anchors)[i].size(); ++j) {
+				for (size_t k = 0; k < (*anchors)[i][j].size(); ++k) {
+					const Match& match = (*anchors)[i][j][k];
+					total_matches++;
+
+					try {
+						// 获取参考序列片段
+						std::string ref_seq = ref_str.substr(match.ref_region.start, match.ref_region.length);
+						// std::string ref_seq = pra.ref_fasta_manager.getSubSequence(
+						// 	match.ref_region.chr_name,
+						// 	match.ref_region.start,
+						// 	match.ref_region.length
+						// );
+
+						// 获取查询序列片段
+						std::string query_seq = query_str.substr(match.query_region.start, match.query_region.length);
+						// std::string query_seq = query_fasta_manager.getSubSequence(
+						// 	match.query_region.chr_name,
+						// 	match.query_region.start,
+						// 	match.query_region.length
+						// );
+
+						// 如果是反向链，对查询序列取反向互补
+						if (match.strand == REVERSE) {
+							query_seq = reverseComplement(query_seq);
+						}
+
+						// 比较序列是否相同
+						if (ref_seq == query_seq) {
+							correct_matches++;
+						}
+						else {
+							incorrect_matches++;
+
+							// 输出前几个不匹配的详细信息用于调试
+							
+								if (incorrect_matches <= 5) {
+									spdlog::warn("序列不匹配 #{}: ref_chr={}, ref_start={}, query_chr={}, query_start={}, length={}, strand={}",
+										incorrect_matches,
+										match.ref_region.chr_name,
+										match.ref_region.start,
+										match.query_region.chr_name,
+										match.query_region.start,
+										match.ref_region.length,
+										(match.strand == FORWARD ? "FORWARD" : "REVERSE")
+									);
+
+									// 显示序列前50个字符进行对比
+									std::string ref_preview = ref_seq.length() > 50 ? ref_seq.substr(0, 50) + "..." : ref_seq;
+									std::string query_preview = query_seq.length() > 50 ? query_seq.substr(0, 50) + "..." : query_seq;
+									spdlog::warn("  参考序列: {}", ref_seq);
+									spdlog::warn("  查询序列: {}", query_seq);
+								}
+							}
+						
+
+					}
+					catch (const std::exception& e) {
+						spdlog::error("验证匹配时发生异常: {}", e.what());
+						incorrect_matches++;
+					}
+				}
+			}
+		}
+
+		spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
+			total_matches, correct_matches, incorrect_matches,
+			total_matches > 0 ? (100.0 * correct_matches / total_matches) : 0.0
+		);
+	}
 
 	// ------------------------------
 	// 步骤 3：过滤锚点
