@@ -347,98 +347,97 @@ int main(int argc, char** argv) {
 	// ------------------------------
 // 临时验证：检查anchors的序列匹配正确性
 // ------------------------------
+	spdlog::info("开始验证 anchors 结果的正确性…");
+
+	auto reverseComplement = [](const std::string& seq) -> std::string {
+		std::string result;
+		result.reserve(seq.length());
+		for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+			result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
+		}
+		return result;
+		};
+
+	uint64_t total_matches = 0;
+	uint64_t correct_matches = 0;
+	uint64_t incorrect_matches = 0;
+
+	std::string query_str = query_fasta_manager.concatRecords();
+	std::string ref_str = pra.ref_fasta_manager_ptr->concatRecords();
+
+	// 把 mismatches 暂存在线程私有 vector，最后统一打印日志
+	std::vector<std::string> global_warns;
+
+#pragma omp parallel
 	{
-		spdlog::info("开始验证anchors结果的正确性...");
+		std::vector<std::string> local_warns;  // 线程私有
 
-		// 反向互补函数
-		auto reverseComplement = [](const std::string& seq) -> std::string {
-			std::string result;
-			result.reserve(seq.length());
-			for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
-				result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
-			}
-			return result;
-			};
-
-		uint_t total_matches = 0;
-		uint_t correct_matches = 0;
-		uint_t incorrect_matches = 0;
-
-		std::string query_str = query_fasta_manager.concatRecords();
-		std::string ref_str = pra.ref_fasta_manager_ptr->concatRecords();
-
-		// 遍历三维向量中的所有匹配
+#pragma omp for collapse(3) \
+        reduction(+: total_matches, correct_matches, incorrect_matches) \
+        schedule(dynamic)
 		for (size_t i = 0; i < anchors->size(); ++i) {
 			for (size_t j = 0; j < (*anchors)[i].size(); ++j) {
 				for (size_t k = 0; k < (*anchors)[i][j].size(); ++k) {
 					const Match& match = (*anchors)[i][j][k];
-					total_matches++;
+					++total_matches;
 
 					try {
-						// 获取参考序列片段
-						std::string ref_seq = ref_str.substr(match.ref_region.start, match.ref_region.length);
-						// std::string ref_seq = pra.ref_fasta_manager.getSubSequence(
-						// 	match.ref_region.chr_name,
-						// 	match.ref_region.start,
-						// 	match.ref_region.length
-						// );
+						std::string ref_seq = ref_str.substr(match.ref_region.start,
+							match.ref_region.length);
 
-						// 获取查询序列片段
-						std::string query_seq = query_str.substr(match.query_region.start, match.query_region.length);
-						// std::string query_seq = query_fasta_manager.getSubSequence(
-						// 	match.query_region.chr_name,
-						// 	match.query_region.start,
-						// 	match.query_region.length
-						// );
+						std::string query_seq = query_fasta_manager.getSubSequence(
+							match.query_region.chr_name,
+							match.query_region.start,
+							match.query_region.length);
 
-						// 如果是反向链，对查询序列取反向互补
 						if (match.strand == REVERSE) {
 							query_seq = reverseComplement(query_seq);
 						}
 
-						// 比较序列是否相同
 						if (ref_seq == query_seq) {
-							correct_matches++;
+							++correct_matches;
 						}
 						else {
-							incorrect_matches++;
-
-							// 输出前几个不匹配的详细信息用于调试
-							
-								if (incorrect_matches <= 50) {
-									spdlog::warn("序列不匹配 #{}: ref_chr={}, ref_start={}, query_chr={}, query_start={}, length={}, strand={}",
-										incorrect_matches,
-										match.ref_region.chr_name,
-										match.ref_region.start,
-										match.query_region.chr_name,
-										match.query_region.start,
-										match.ref_region.length,
-										(match.strand == FORWARD ? "FORWARD" : "REVERSE")
-									);
-
-									// 显示序列前50个字符进行对比
-									std::string ref_preview = ref_seq.length() > 50 ? ref_seq.substr(0, 50) + "..." : ref_seq;
-									std::string query_preview = query_seq.length() > 50 ? query_seq.substr(0, 50) + "..." : query_seq;
-									spdlog::warn("  参考序列: {}", ref_seq);
-									spdlog::warn("  查询序列: {}", query_seq);
-								}
-							}
-						
-
+							++incorrect_matches;
+							// 只在本地字符串中记录，退出 parallel 再统一写日志
+							local_warns.emplace_back(fmt::format(
+								"序列不匹配: ref_chr={}, ref_start={}, query_chr={}, "
+								"query_start={}, length={}, strand={}",
+								match.ref_region.chr_name,
+								match.ref_region.start,
+								match.query_region.chr_name,
+								match.query_region.start,
+								match.ref_region.length,
+								(match.strand == FORWARD ? "FORWARD" : "REVERSE")));
+						}
 					}
 					catch (const std::exception& e) {
-						spdlog::error("验证匹配时发生异常: {}", e.what());
-						incorrect_matches++;
+						++incorrect_matches;
+						local_warns.emplace_back(fmt::format("异常: {}", e.what()));
 					}
 				}
 			}
-		}
+		} // omp for
 
-		spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
-			total_matches, correct_matches, incorrect_matches,
-			total_matches > 0 ? (100.0 * correct_matches / total_matches) : 0.0
-		);
+		// 线程安全地把本线程的 warn 合并到全局
+#pragma omp critical
+		{
+			global_warns.insert(global_warns.end(),
+				local_warns.begin(),
+				local_warns.end());
+		}
+	} // omp parallel
+
+	// 统一输出 warn，避免并行 I/O
+	for (const auto& w : global_warns) {
+		spdlog::warn("{}", w);
 	}
+
+	spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
+		total_matches,
+		correct_matches,
+		incorrect_matches,
+		total_matches ? (100.0 * correct_matches / total_matches) : 0.0);
 
 	// ------------------------------
 	// 步骤 3：过滤锚点

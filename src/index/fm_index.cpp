@@ -222,8 +222,8 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
         std::reverse(query.begin(), query.end());
     }
     else {
+        //std::reverse(query.begin(), query.end());
         for (char& ch : query) {
-            // std::reverse(query.begin(), query.end());          // 先反转
             ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
         }
     }
@@ -238,7 +238,8 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
         RegionVec region_vec;
         uint_t match_length = findSubSeqAnchors(
             query.c_str() + total_length, query_length - total_length, allow_MEM,
-            region_vec,  min_anchor_length, max_anchor_frequency);
+            region_vec, min_anchor_length, max_anchor_frequency);
+
 
         if (!region_vec.empty()) {
             Region query_region;
@@ -248,7 +249,7 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
             else {
                 query_region = Region(query_chr, total_length + query_offset, match_length);
             }
-            
+
             MatchVec anchor_ptr_list;
 
             for (uint_t i = 0; i < region_vec.size(); i++) {
@@ -568,10 +569,6 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length, bool 
                 region_vec.push_back(Region(name, ref_pos, match_length));
             }
         }
-    }
-
-    if (region_vec.size() > 1) {
-        std::cout << 1 << std::endl;
     }
 
 	return match_length;
