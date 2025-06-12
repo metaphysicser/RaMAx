@@ -405,7 +405,7 @@ int main(int argc, char** argv) {
 
 							// 输出前几个不匹配的详细信息用于调试
 							
-								if (incorrect_matches <= 5) {
+								if (incorrect_matches <= 50) {
 									spdlog::warn("序列不匹配 #{}: ref_chr={}, ref_start={}, query_chr={}, query_start={}, length={}, strand={}",
 										incorrect_matches,
 										match.ref_region.chr_name,
