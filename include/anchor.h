@@ -293,23 +293,6 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
                                  uint_t min_chunk_size = 10000);
 
 // ------------------------------------------------------------------
-// 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
-// ------------------------------------------------------------------
-// using AnchorPoint = bg::model::point<Coord_t, 2, bg::cs::cartesian>;
-// using AnchorBox = bg::model::box<AnchorPoint>;
-// using AnchorEntry = std::pair<AnchorBox, AnchorPtr>;
-// using AnchorRTree = bgi::rtree<AnchorEntry, bgi::quadratic<64>>;
-//
-// // 构建一个 Anchor 的空间包围盒，用于空间索引
-// inline AnchorBox make_box(const Anchor& a) {
-//     const auto& r = a.match.ref_region;
-//     const auto& q = a.match.query_region;
-//     AnchorPoint min_pt{ r.start, q.start };
-//     AnchorPoint max_pt{ r.start + r.length, q.start + q.length };
-//     return AnchorBox{ min_pt, max_pt };
-// }
-
-// ------------------------------------------------------------------
 // Cereal 序列化支持：用于将结构写入文件或从文件读取
 // ------------------------------------------------------------------
 namespace cereal {
