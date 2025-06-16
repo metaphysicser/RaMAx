@@ -2,6 +2,7 @@
 #define RARE_ALIGNER_H
 #include "config.hpp"
 #include "index.h"
+#include "seqpro.h"
 #include "threadpool.h"
 
 // 多基因组比对核心调度类
@@ -35,18 +36,20 @@ public:
     );
 
     void starAlignment(
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
         uint_t tree_root,
         SearchMode                 search_mode,
         bool                       fast_build,
-        bool                       allow_MEM);
+        bool                       allow_MEM,
+        bool                       mask_mode=false);
 
-    SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM);
+    SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM);
 
-    void filterMultipeSpeciesAnchors(SpeciesName ref_name, SpeciesFastaManagerMap& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
-    
-   
-   
-    
+    void filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
+
+
+
+
 };
 
 
@@ -55,8 +58,8 @@ public:
     FilePath work_dir;
     FilePath index_dir;
 
-    FastaManager* ref_fasta_manager_ptr;
-    FM_Index ref_index;
+    SeqPro::ManagerVariant* ref_seqpro_manager;
+    std::optional<FM_Index> ref_index;
 
     uint_t chunk_size;
     uint_t overlap_size;
@@ -83,13 +86,13 @@ public:
         this->round_id = mra.round_id;
     }
 
-    MatchVec3DPtr alignPairGenome(SpeciesName query_name, FastaManager& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
-    FilePath buildIndex(const std::string prefix, FastaManager& ref_fasta_manager_, bool fast_build);
+    MatchVec3DPtr alignPairGenome(SpeciesName query_name, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
+    FilePath buildIndex(const std::string prefix, SeqPro::ManagerVariant& ref_fasta_manager_, bool fast_build);
 
 
-    MatchVec3DPtr findQueryFileAnchor(const std::string prefix, FastaManager& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool);
+    MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool);
 
-    void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, FastaManager& query_fasta_manager);
+    void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager);
 
 };
 

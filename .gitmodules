@@ -62,3 +62,6 @@
 [submodule "benchmark/mwgAlignAnalysis"]
 	path = benchmark/mwgAlignAnalysis
 	url = https://github.com/dentearl/mwgAlignAnalysis.git
+[submodule "submodule/kseqpp"]
+	path = submodule/kseqpp
+	url = https://github.com/cartoonist/kseqpp.git

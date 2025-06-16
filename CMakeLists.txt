@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.8)
+﻿cmake_minimum_required(VERSION 3.10)
 
 project("RaMAx")
 
@@ -10,8 +10,8 @@ if(POLICY CMP0141)
     "$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-# 设置 C++17 标准
-set(CMAKE_CXX_STANDARD 17)
+# 设置 C++20 标准
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -60,6 +60,7 @@ find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(OpenMP)
 find_package(Threads REQUIRED)
+find_package(TBB REQUIRED)
 
 # ================= 公共源文件 =================
 set(RAMA_COMMON_SOURCES
@@ -68,15 +69,17 @@ set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/newick_tree.cpp"
     "${INDEX_DIR}/fm_index.cpp"
     "${INDEX_DIR}/bigBWT_build.cpp"
-    "${BIGBWT_DIR}/newscan.cpp"
-    "${BIGBWT_DIR}/utils.c"
-    "${BIGBWT_DIR}/xerrors.c"
+    "${INDEX_DIR}/bigBWT/newscan.cpp"
+    "${INDEX_DIR}/bigBWT/utils.c"
+    "${INDEX_DIR}/bigBWT/xerrors.c"
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
     "${ANCHOR_DIR}/anchor.cpp"
     "${ANCHOR_DIR}/anchor_io.cpp"
+    "${ANCHOR_DIR}/anchor_chunk.cpp"
     "${ANCHOR_DIR}/cluster.cpp"
     "${ALIGN_DIR}/cigar.cpp"
+    "${PREPROCESS_DIR}/SeqPro.cpp"
     "${ALIGN_DIR}/pair_rare_aligner.cpp"
     "${ALIGN_DIR}/multiple_rare_aligner.cpp"
 )
@@ -113,6 +116,8 @@ function(configure_rama_target target)
         divsufsort64
         Threads::Threads
         wfa2cpp_static
+        TBB::tbb
+        OpenMP::OpenMP_CXX
     )
 
     target_compile_definitions(${target} PRIVATE M64)

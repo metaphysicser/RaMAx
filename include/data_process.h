@@ -21,7 +21,9 @@
 #include <queue>
 #include <unordered_map>
 #include <algorithm>
+#include <cstdint>
 
+class FastaManager;
 // 初始化 kseq 使用 gzFile 类型
 KSEQ_INIT(gzFile, gzread)
 
@@ -96,13 +98,13 @@ public:
 
     // 将多个记录拼接为一个序列（用于压缩或合并）
     std::string concatRecords(char terminator = '\0',
-        size_t limit = std::numeric_limits<size_t>::max());
+        size_t limit = SIZE_MAX);
 
     // 获取序列文件的基本统计信息
     struct Stats {
         size_t record_count = 0;
         size_t total_bases = 0;
-        size_t min_len = std::numeric_limits<size_t>::max();
+        size_t min_len = SIZE_MAX;
         size_t max_len = 0;
         size_t average_len = 0;
     };
