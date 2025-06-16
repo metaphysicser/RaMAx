@@ -38,10 +38,12 @@ MultipleRareAligner::MultipleRareAligner(
 }
 
 void MultipleRareAligner::starAlignment(
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
     uint_t tree_root,
     SearchMode                 search_mode,
     bool                       fast_build,
-    bool                       allow_MEM)
+    bool                       allow_MEM,
+    bool                       mask_mode)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
 	uint_t leaf_num = leaf_vec.size();
@@ -51,18 +53,12 @@ void MultipleRareAligner::starAlignment(
     /*for (uint_t i = 0; i < leaf_num; i++) {*/
 		uint_t ref_id = leaf_vec[i];
 		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
-				
-        SpeciesFastaManagerMap species_fasta_manager_map;
+        std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
         for (uint_t j = i; j < leaf_num; j++) {
             uint_t query_id = leaf_vec[j];
 			SpeciesName query_name = newick_tree.getNodes()[query_id].name;
-			FilePath query_fasta_path = species_path_map[query_name];
-			FastaManager query_fasta_manager(query_fasta_path, getFaiIndexPath(query_fasta_path));
-            species_fasta_manager_map.emplace(
-                query_name,                      // key
-                std::move(query_fasta_manager)   // value：右值，触发 move 构造
-            );
-            
+            auto query_fasta_manager = seqpro_managers.at(query_name);
+            species_fasta_manager_map.emplace(query_name, query_fasta_manager);
         }
 
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
@@ -80,7 +76,7 @@ void MultipleRareAligner::starAlignment(
 
 SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
     SpeciesName                ref_name,
-    SpeciesFastaManagerMap& species_fasta_manager_map,
+    std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map,
     SearchMode                 search_mode,
     bool                       fast_build,
     bool                       allow_MEM)
@@ -117,7 +113,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
     std::filesystem::create_directories(ref_index_path);
 
     PairRareAligner pra(*this);
-	pra.buildIndex(ref_name, species_fasta_manager_map[ref_name], fast_build);
+	pra.buildIndex(ref_name, *species_fasta_manager_map[ref_name], fast_build);
 	spdlog::info("[alignMultipleQuerys] reference index built for {}.", ref_name);
 
     /* ---------- 4. 创建共享线程池 ---------- */
@@ -131,14 +127,14 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
         if (sp == ref_name) continue;           // 跳过参考
 
         std::string   prefix = ref_name + "_vs_" + sp;
-        FastaManager& fm = kv.second;
+        auto& fm = kv.second;
 
         fut_map.emplace(
             sp,
             std::async(std::launch::async,
                 [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool]() -> MatchVec3DPtr {
                     // 统一走单物种比对逻辑，公用 shared_pool
-                    return pra.findQueryFileAnchor(prefix, fm, search_mode, allow_MEM, shared_pool);
+                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool);
                 })
         );
     }
@@ -169,7 +165,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 
 void MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesName                       ref_name,
-    SpeciesFastaManagerMap& species_fm_map,
+    std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map,
     SpeciesMatchVec3DPtrMapPtr        species_match_map)
 {
     if (!species_match_map || species_match_map->empty()) return;
@@ -190,8 +186,8 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
         if (species == ref_name) continue;
 
         MatchVec3DPtr mv3_ptr = it->second;
-        FastaManager& qfm = species_fm_map.at(species);
-        FastaManager& rfm = species_fm_map.at(ref_name);
+        auto& qfm = species_fm_map.at(species);
+        auto& rfm = species_fm_map.at(ref_name);
 
         auto u_ptr = std::make_shared<MatchByStrandByQueryRef>();
         auto r_ptr = std::make_shared<MatchByStrandByQueryRef>();
@@ -210,13 +206,13 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
                 groupMatchByQueryRef(mv3_ptr,
                     u_ptr,
                     r_ptr,
-                    rfm,
-                    qfm,
+                    *rfm,
+                    *qfm,
                     pool);          // 仍用同一池
             });
     }
     pool.waitAllTasksDone();                          // —— Phase-1 完
-    
+
     // 一步到位，最快释放
     for (auto it = species_match_map->begin();
         it != species_match_map->end(); ++it)

@@ -1,4 +1,5 @@
 #include "rare_aligner.h"
+#include "anchor.h"
 
 PairRareAligner::PairRareAligner(const FilePath work_dir,
 	const uint_t thread_num,
@@ -25,8 +26,8 @@ PairRareAligner::PairRareAligner(const FilePath work_dir,
 }
 
 MatchVec3DPtr PairRareAligner::alignPairGenome(
-	SpeciesName query_name, 
-	FastaManager& query_fasta_manager,
+	SpeciesName query_name,
+	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
 	bool allow_MEM) {
 
@@ -39,7 +40,7 @@ MatchVec3DPtr PairRareAligner::alignPairGenome(
 
 }
 
-FilePath PairRareAligner::buildIndex(const std::string prefix, FastaManager& ref_fasta_manager_, bool fast_build) {
+FilePath PairRareAligner::buildIndex(const std::string prefix, SeqPro::ManagerVariant& ref_fasta_manager_, bool fast_build) {
 
 	FilePath ref_index_path = index_dir / prefix;
 
@@ -47,23 +48,37 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, FastaManager& ref
 		std::filesystem::create_directories(ref_index_path);
 	}
 
-	ref_fasta_manager_ptr = &ref_fasta_manager_;
+	ref_seqpro_manager = &ref_fasta_manager_;
+	// 使用 std::visit 来获取 fasta_path
+	std::string fasta_path_str;
+	std::visit([&fasta_path_str](auto&& manager_ptr) {
+		using PtrType = std::decay_t<decltype(manager_ptr)>;
+		if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+			// 如果是 SequenceManager，直接调用 getFastaPath()
+			fasta_path_str = manager_ptr->getFastaPath();
+		} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+			// 如果是 MaskedSequenceManager，先 getOriginalManager() 再 getFastaPath()
+			fasta_path_str = manager_ptr->getOriginalManager().getFastaPath();
+		} else {
+			throw std::runtime_error("Unhandled manager type in variant.");
+		}
+	}, ref_fasta_manager_);
 
 	// index_dir的路径加上prefix的前缀加上fasta_manager.fasta_path_的扩展名
-	FilePath output_path = ref_index_path / (prefix + std::filesystem::path(ref_fasta_manager_ptr->fasta_path_).extension().string());
+	FilePath output_path = ref_index_path / (prefix + std::filesystem::path(fasta_path_str).extension().string());
 
-	ref_index = FM_Index(prefix, ref_fasta_manager_ptr);
+	ref_index.emplace(prefix, ref_fasta_manager_);
 
 	FilePath idx_file_path = ref_index_path / (prefix + "." + FMINDEX_EXTESION);
 
 	spdlog::info("Indexing with prefix: {}, index path: {}", prefix, ref_index_path.string());
 
 	if (!std::filesystem::exists(idx_file_path)) {
-		ref_index.buildIndex(output_path, fast_build, thread_num);
-		ref_index.saveToFile(idx_file_path.string());
+		ref_index->buildIndex(output_path, fast_build, thread_num);
+		ref_index->saveToFile(idx_file_path.string());
 	}
 	else {
-		ref_index.loadFromFile(idx_file_path.string());
+		ref_index->loadFromFile(idx_file_path.string());
 	}
 	spdlog::info("Indexing finished, index path: {}", ref_index_path.string());
 
@@ -72,7 +87,7 @@ FilePath PairRareAligner::buildIndex(const std::string prefix, FastaManager& ref
 
 MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	const std::string prefix,
-	FastaManager& query_fasta_manager,
+	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
 	bool allow_MEM,
 	ThreadPool& pool)
@@ -96,7 +111,8 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	}
 
 	/* ---------- 读取 FASTA 并分片 ---------- */
-	RegionVec chunks = query_fasta_manager.preAllocateChunks(chunk_size, overlap_size);
+	RegionVec chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size);
+	// 智能分块策略：自动根据序列数量和长度选择最优的分块方式
 
 	/* ---------- ① 计时：搜索 Anchor ---------- */
 	auto t_search0 = std::chrono::steady_clock::now();
@@ -126,8 +142,18 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
-						MatchVec2DPtr forwoard_matches = ref_index.findAnchors(
+						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
+							using PtrType = std::decay_t<decltype(manager_ptr)>;
+							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+							} else {
+								throw std::runtime_error("Unhandled manager type in variant.");
+							}
+						}, query_fasta_manager);
+						if (seq.length() <ck.length) continue;
+						MatchVec2DPtr forwoard_matches = ref_index->findAnchors(
 							ck.chr_name, seq, search_mode,
 							Strand::FORWARD,
 							allow_MEM,
@@ -147,9 +173,18 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = query_fasta_manager.getSubSequence(ck.chr_name, ck.start, ck.length);
-						
-						MatchVec2DPtr reverse_matches = ref_index.findAnchors(
+						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
+							using PtrType = std::decay_t<decltype(manager_ptr)>;
+							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+							} else {
+								throw std::runtime_error("Unhandled manager type in variant.");
+							}
+						}, query_fasta_manager);
+						if (seq.length() <ck.length) continue;
+						MatchVec2DPtr reverse_matches = ref_index->findAnchors(
 							ck.chr_name, seq, MIDDLE_SEARCH,
 							Strand::REVERSE,
 							allow_MEM,
@@ -192,32 +227,33 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 
 void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
-	FastaManager& query_fasta_manager)
+	SeqPro::ManagerVariant& query_fasta_manager)
 {
 	ThreadPool shared_pool(thread_num);
 	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
 	MatchByStrandByQueryRefPtr repeat_anchors = std::make_shared<MatchByStrandByQueryRef>();;
 
 	groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
-		*ref_fasta_manager_ptr, query_fasta_manager, shared_pool);
+		*ref_seqpro_manager, query_fasta_manager, shared_pool);
 
 	shared_pool.waitAllTasksDone();
 	//anchors->clear();
 	//anchors->shrink_to_fit();
 	anchors.reset();
-
+	spdlog::info("groupMatchByQueryRef done");
 	sortMatchByQueryStart(unique_anchors, shared_pool);
 	sortMatchByQueryStart(repeat_anchors, shared_pool);
 
 	shared_pool.waitAllTasksDone();
-	
+	spdlog::info("sortMatchByQueryStart done");
+
 	ClusterVecPtrByStrandByQueryRefPtr cluster_ptr = clusterAllChrMatch(
 		unique_anchors,
 		repeat_anchors,
 		shared_pool);
-	
-	shared_pool.waitAllTasksDone();
 
+	shared_pool.waitAllTasksDone();
+	spdlog::info("clusterAllChrMatch done");
 	return;
 
 }

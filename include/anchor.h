@@ -9,6 +9,11 @@
 #include <memory>                 // 用于智能指针（如 std::shared_ptr）
 #include <vector>                 // 用于 std::vector 容器
 #include <algorithm>              // 提供算法（如 sort 等）
+#include <list>                   // 用于 std::list 容器
+#include <SeqPro.h>
+
+// 前向声明，避免循环包含
+class ThreadPool;
 
 // boost 空间索引相关头文件（当前注释掉）
 // #include <boost/geometry.hpp>
@@ -18,8 +23,6 @@
 
 #define ANCHOR_EXTENSION "anchor"  // Anchor 文件保存使用的默认扩展名
 
-// 前向声明
-class FastaManager;
 // ------------------------------------------------------------------
 // 类型别名定义
 // ------------------------------------------------------------------
@@ -147,8 +150,8 @@ using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRefPtr unique_anchors,
     MatchByStrandByQueryRefPtr repeat_anchors,
-    FastaManager& ref_fasta_manager,
-    FastaManager& query_fasta_manager,
+    SeqPro::ManagerVariant& ref_fasta_manager,
+    SeqPro::ManagerVariant& query_fasta_manager,
     ThreadPool& pool);
 
 // void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
@@ -169,6 +172,56 @@ ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
+
+// ------------------------------------------------------------------
+// 智能序列分块函数
+// ------------------------------------------------------------------
+
+/**
+ * @brief 智能预分配序列分块，支持自动分块策略选择
+ * 
+ * 该函数会根据数据量大小智能选择分块策略：
+ * - 当序列数量较多时（>= max_sequences_threshold），按序列划分而不是按长度切分
+ * - 当序列数量较少但总长度很大时，按指定大小切分序列并保留重叠区域
+ * 
+ * @param seq_manager SeqPro::Manager对象，用于获取序列信息
+ * @param chunk_size 每个chunk的目标大小（碱基数）
+ * @param overlap_size chunk之间的重叠大小（碱基数）
+ * @param max_sequences_threshold 序列数量阈值，超过此值时按序列划分
+ * @param min_chunk_size 最小chunk大小，小于此值的序列不会被进一步切分
+ * @return RegionVec 分块结果，每个Region代表一个chunk
+ */
+RegionVec preAllocateChunks(const SeqPro::ManagerVariant& seq_manager,
+                           uint_t chunk_size,
+                           uint_t overlap_size = 0,
+                           size_t max_sequences_threshold = 1000,
+                           uint_t min_chunk_size = 10000);
+
+/**
+ * @brief 按序列划分的简单分块策略
+ * 
+ * 当序列数量较多时使用，每个序列作为一个独立的chunk
+ * 
+ * @param seq_manager SeqPro::Manager对象
+ * @return RegionVec 分块结果，每个序列一个chunk
+ */
+RegionVec preAllocateChunksBySequence(const SeqPro::ManagerVariant& seq_manager);
+
+/**
+ * @brief 按大小划分的分块策略（原始FastaManager逻辑）
+ * 
+ * 当序列数量较少但总长度很大时使用，会对长序列进行切分
+ * 
+ * @param seq_manager SeqPro::Manager对象
+ * @param chunk_size 每个chunk的目标大小
+ * @param overlap_size chunk之间的重叠大小
+ * @param min_chunk_size 最小chunk大小，小于此值的序列不会被切分
+ * @return RegionVec 分块结果
+ */
+RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
+                                 uint_t chunk_size,
+                                 uint_t overlap_size = 0,
+                                 uint_t min_chunk_size = 10000);
 
 // ------------------------------------------------------------------
 // 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）

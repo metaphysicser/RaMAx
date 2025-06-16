@@ -1,4 +1,5 @@
 #include "anchor.h"
+#include "data_process.h"
 
 // ────────────────────────────────────────────
 //  Constructors / reset
@@ -128,9 +129,12 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
                 MatchVec& rept = (*repeat_anchors)[k][i][j];
 
                 futures.emplace_back(
-                    pool.enqueue([&uniq, &rept]() -> std::shared_ptr<MatchClusterVec> {
-                        return clusterChrMatch(uniq, rept);   // 返回 MatchClusterVecPtr
-                        }));
+    pool.enqueue(
+        [p_uniq = &uniq, p_rept = &rept]() -> std::shared_ptr<MatchClusterVec> {
+            return clusterChrMatch(*p_uniq, *p_rept);
+        }
+    )
+);
             }
         }
     }
