@@ -10,11 +10,7 @@
 #include <vector>                 // 用于 std::vector 容器
 #include <algorithm>              // 提供算法（如 sort 等）
 
-// boost 空间索引相关头文件（当前注释掉）
-// #include <boost/geometry.hpp>
-// #include <boost/geometry/geometries/point.hpp>
-// #include <boost/geometry/geometries/box.hpp>
-// #include <boost/geometry/index/rtree.hpp>
+#include <queue>
 
 #define ANCHOR_EXTENSION "anchor"  // Anchor 文件保存使用的默认扩展名
 
@@ -25,6 +21,35 @@ class FastaManager;
 // ------------------------------------------------------------------
 // 定义坐标类型（可在 config.hpp 中设为 uint32_t 或 uint64_t）
 using Coord_t = uint_t;
+
+/* 区间与 map 类型 */
+using IntervalMap = std::map<int_t, int_t>;          // key = beg, value = end   (右开)
+
+/* 插入非重叠区间到 map（调用处已保证不重叠，只需 emplace 即可） */
+inline void insertInterval(IntervalMap& m, int_t l, int_t r) { m.emplace(l, r); }
+
+/* 判断 [l,r) 是否与 map 中已有区间重叠；若重叠，把那条区间的 [L,R) 返到 outBox */
+inline bool overlap1D(const IntervalMap& m,
+    int_t l, int_t r,
+    int_t& L, int_t& R)
+{
+    if (m.empty()) return false;
+
+    auto it = m.lower_bound(l);          // 第一个 beg ≥ l
+    if (it != m.end() && it->first < r) {  // 与右邻区间重叠
+        L = it->first; R = it->second;
+        return true;
+    }
+    if (it != m.begin()) {                 // 与左邻区间重叠？
+        --it;
+        if (it->second > l) {
+            L = it->first; R = it->second;
+            return true;
+        }
+    }
+    return false;
+}
+
 
 // ------------------------------------------------------------------
 // 区域 Region 与 比对 Match 的结构定义
@@ -94,8 +119,13 @@ using SpeciesMatchByStrandByQueryRefPtrMap = std::unordered_map<SpeciesName, Mat
 using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
 using MatchClusterVecPtr = std::shared_ptr<MatchClusterVec>;
-using ClusterVecPtrByQueryRef = std::vector<std::vector<MatchClusterVecPtr>>;
+
+using ClusterVecPtrByRef = std::vector<MatchClusterVecPtr>;
+using ClusterVecPtrByQueryRef = std::vector<ClusterVecPtrByRef>;
 using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
+
+using ClusterVecPtrByRefPtr = std::shared_ptr<ClusterVecPtrByRef>;
+using ClusterVecPtrByRefPtrVec = std::vector<ClusterVecPtrByRefPtr>;
 using ClusterVecPtrByStrandByQueryRefPtr = std::shared_ptr<ClusterVecPtrByStrandByQueryRef>;
 
 using SpeciesClusterMap =
@@ -114,6 +144,48 @@ inline int_t diag(const Match& m) {
 inline void releaseCluster(MatchVec& cluster) {
     MatchVec tmp; tmp.swap(cluster);
 }
+
+/* ---------- 辅助：计算簇跨度 ---------- */
+inline int_t clusterSpan(const MatchCluster& cl)
+{
+    return start1(cl.back()) + len1(cl.back())
+        - start1(cl.front());
+}
+
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByStrandByQueryRefPtr unique_anchors,
+    MatchByStrandByQueryRefPtr repeat_anchors,
+    FastaManager& ref_fasta_manager,
+    FastaManager& query_fasta_manager,
+    ThreadPool& pool);
+
+// void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
+void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
+
+AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
+
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
+
+MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
+
+MatchClusterVec buildClusters(MatchVec& unique_match,
+    int_t      max_gap,
+    int_t      diagdiff,
+    double     diagfactor);
+
+ClusterVecPtrByStrandByQueryRefPtr
+clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
+    const MatchByStrandByQueryRefPtr& repeat_anchors,
+    ThreadPool& pool);
+
+// 把 [strand][query][ref] 结构重排为按 ref 聚合的一维向量
+ClusterVecPtrByRefPtrVec
+groupClustersByRef(ClusterVecPtrByStrandByQueryRefPtr& src);
+
+void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr,
+    ThreadPool& pool,
+    int_t                                MIN_SPAN,
+    int_t                                MIN_MATCH);
 
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
@@ -143,49 +215,6 @@ using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
 
 using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
-
-void groupMatchByQueryRef(MatchVec3DPtr& anchors,
-    MatchByStrandByQueryRefPtr unique_anchors,
-    MatchByStrandByQueryRefPtr repeat_anchors,
-    FastaManager& ref_fasta_manager,
-    FastaManager& query_fasta_manager,
-    ThreadPool& pool);
-
-// void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
-void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
-
-AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
-
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
-
-MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
-
-MatchClusterVec buildClusters(MatchVec& unique_match,
-    int_t      max_gap,
-    int_t      diagdiff,
-    double     diagfactor);
-
-ClusterVecPtrByStrandByQueryRefPtr
-clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
-    const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool);
-
-// ------------------------------------------------------------------
-// 空间索引（注释掉的部分，若启用 Boost RTree 可用于高效的空间查询）
-// ------------------------------------------------------------------
-// using AnchorPoint = bg::model::point<Coord_t, 2, bg::cs::cartesian>;
-// using AnchorBox = bg::model::box<AnchorPoint>;
-// using AnchorEntry = std::pair<AnchorBox, AnchorPtr>;
-// using AnchorRTree = bgi::rtree<AnchorEntry, bgi::quadratic<64>>;
-//
-// // 构建一个 Anchor 的空间包围盒，用于空间索引
-// inline AnchorBox make_box(const Anchor& a) {
-//     const auto& r = a.match.ref_region;
-//     const auto& q = a.match.query_region;
-//     AnchorPoint min_pt{ r.start, q.start };
-//     AnchorPoint max_pt{ r.start + r.length, q.start + q.length };
-//     return AnchorBox{ min_pt, max_pt };
-// }
 
 // ------------------------------------------------------------------
 // Cereal 序列化支持：用于将结构写入文件或从文件读取
@@ -241,26 +270,6 @@ bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
 
 bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
 bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
-// ------------------------------------------------------------------
-// （注释掉）双基因组比对结构体：用于管理两个物种之间的 Anchor 信息
-// ------------------------------------------------------------------
-// class PairGenomeAnchor {
-// public:
-//     PairGenomeAnchor() = default;
-//     PairGenomeAnchor(SpeciesName ref, SpeciesName query,
-//         AnchorPtrListVec init_anchors);
-//
-//     void rebuild();                            // 重新构建 R-Tree
-//     void insertAnchorRtree(AnchorPtr ap);      // 插入 anchor 到空间索引
-//     void removeAnchorRtree(AnchorPtr ap);      // 从空间索引中移除 anchor
-//     std::vector<AnchorPtr> query(const AnchorBox& region) const; // 查询 anchor
-//
-// private:
-//     SpeciesName       ref_species{};           // 参考物种名称
-//     SpeciesName       query_species{};         // 查询物种名称
-//     AnchorPtrListVec  anchors{};               // anchor 列表
-//     AnchorRTree   anchor_rtree{};              // 空间索引树
-// };
 
 class UnionFind
 {

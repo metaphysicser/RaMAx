@@ -78,7 +78,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 实现合并模块 RaMA-merge
 - [ ] 🟢 实现pipeline模块RaMA-prepare，输出所有命令完成比对
 - [ ] 🟠 完善单元测试模块
-- [ ] 🟢 优化cmake(如sdsl的编译速度,windowmasker的安装（权限）)
+- [ ] 🟢 优化cmake(如sdsl的编译速度,windowmasker的安装（权限)，使用新的cmake来管理submodule）
 - [ ] 🟢 增加conda和docker的安装方式
 - [ ] 🟢 完善README文档，包含安装、使用、开发等说明
 - [ ] 🟢 单独把fmidex作为一个轮子开源到一个新仓库
