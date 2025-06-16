@@ -1,0 +1,1264 @@
+#include "SeqPro.h"
+#include <algorithm>
+#include <cctype>
+#include <fcntl.h>
+#include <fstream>
+#include <sstream>
+#include <sys/mman.h>
+#include <unistd.h>
+
+namespace SeqPro {
+
+// ========================
+// MaskManager 实现
+// ========================
+
+const std::vector<MaskInterval> MaskManager::empty_intervals_;
+
+bool MaskManager::loadFromIntervalFile(const std::filesystem::path &interval_file) {
+  std::ifstream file(interval_file);
+  if (!file.is_open()) {
+    return false;
+  }
+
+  clear();
+
+  std::string line;
+  std::string current_seq_name;
+  SequenceId current_seq_id = 0;
+
+  while (std::getline(file, line)) {
+    if (line.empty()) continue;
+
+    if (line[0] == '>') {
+      // 序列头部
+      current_seq_name = line.substr(1);
+      // 清理序列名
+      size_t space_pos = current_seq_name.find_first_of(" \t");
+      if (space_pos != std::string::npos) {
+        current_seq_name = current_seq_name.substr(0, space_pos);
+      }
+      current_seq_id = getOrCreateSequenceId(current_seq_name);
+    } else {
+      // 解析区间行
+      std::istringstream iss(line);
+      std::string token;
+      while (iss >> token) {
+        size_t dash_pos = token.find('-');
+        if (dash_pos != std::string::npos) {
+          try {
+            // 转换为0-based坐标
+            Position start = std::stoull(token.substr(0, dash_pos)) - 1;
+            Position end = std::stoull(token.substr(dash_pos + 1));
+            if (start < end) {
+              addMaskInterval(current_seq_id, MaskInterval(start, end));
+            }
+          } catch (const std::exception &) {
+            // 忽略解析错误
+          }
+        }
+      }
+    }
+  }
+
+  // 排序并合并重叠区间
+  for (auto &pair : mask_intervals_) {
+    sortAndMergeIntervals(pair.second);
+  }
+
+  return true;
+}
+
+void MaskManager::addMaskInterval(const std::string &seq_name, const MaskInterval &interval) {
+  SequenceId seq_id = getOrCreateSequenceId(seq_name);
+  addMaskInterval(seq_id, interval);
+}
+
+void MaskManager::addMaskInterval(SequenceId seq_id, const MaskInterval &interval) {
+  mask_intervals_[seq_id].push_back(interval);
+}
+
+bool MaskManager::isMaskPosition(SequenceId seq_id, Position pos) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return false;
+  }
+
+  const auto &intervals = it->second;
+  // 二分查找
+  auto comp = [](const MaskInterval &interval, Position pos) {
+    return interval.end <= pos;
+  };
+  auto lower = std::lower_bound(intervals.begin(), intervals.end(), pos, comp);
+  return lower != intervals.end() && lower->contains(pos);
+}
+
+const std::vector<MaskInterval> &MaskManager::getMaskIntervals(SequenceId seq_id) const {
+  auto it = mask_intervals_.find(seq_id);
+  return (it != mask_intervals_.end()) ? it->second : empty_intervals_;
+}
+
+Position MaskManager::mapToMaskedPosition(SequenceId seq_id, Position original_pos) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return original_pos;
+  }
+
+  const auto &intervals = it->second;
+  Position masked_pos = original_pos;
+  
+  for (const auto &interval : intervals) {
+    if (interval.start > original_pos) {
+      break;
+    }
+    if (interval.contains(original_pos)) {
+      // 位置在重复区域内
+      return MaskedSequenceManager::INVALID_POSITION;
+    }
+    if (interval.end <= original_pos) {
+      masked_pos -= interval.length();
+    }
+  }
+
+  return masked_pos;
+}
+
+Position MaskManager::mapToOriginalPosition(SequenceId seq_id, Position masked_pos) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return masked_pos;
+  }
+
+  const auto &intervals = it->second;
+  Position original_pos = masked_pos;
+  Position accumulated_masked = 0;
+
+  for (const auto &interval : intervals) {
+    Position interval_start_in_masked = interval.start - accumulated_masked;
+    
+    if (masked_pos < interval_start_in_masked) {
+      // 目标位置在当前区间之前
+      break;
+    }
+    
+    // 累加跳过的遮蔽碱基
+    original_pos += interval.length();
+    accumulated_masked += interval.length();
+  }
+
+  return original_pos;
+}
+
+Length MaskManager::getMaskedSequenceLength(SequenceId seq_id, Length original_length) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return original_length;
+  }
+
+  const auto &intervals = it->second;
+  Length masked_bases = 0;
+  
+  for (const auto &interval : intervals) {
+    if (interval.start >= original_length) {
+      break;
+    }
+    Position interval_end = std::min(interval.end, original_length);
+    masked_bases += (interval_end - interval.start);
+  }
+  
+  return original_length - masked_bases;
+}
+
+std::vector<std::pair<Position, Position>> MaskManager::getValidRanges(
+    SequenceId seq_id, Position start, Position end) const {
+  
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return {{start, end}};
+  }
+
+  const auto &intervals = it->second;
+  std::vector<std::pair<Position, Position>> valid_ranges;
+  Position current_pos = start;
+
+  for (const auto &interval : intervals) {
+    if (interval.start >= end) {
+      break;
+    }
+    if (interval.end <= start) {
+      continue;
+    }
+
+    if (current_pos < interval.start && interval.start < end) {
+      valid_ranges.emplace_back(current_pos, std::min(interval.start, end));
+    }
+
+    current_pos = std::max(current_pos, interval.end);
+  }
+
+  if (current_pos < end) {
+    valid_ranges.emplace_back(current_pos, end);
+  }
+
+  return valid_ranges;
+}
+
+void MaskManager::clear() {
+  mask_intervals_.clear();
+  name_to_id_mapping_.clear();
+}
+
+Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return 0;
+  }
+
+  const auto &intervals = it->second;
+  Length total = 0;
+  for (const auto &interval : intervals) {
+    total += interval.length();
+  }
+  return total;
+}
+
+SequenceId MaskManager::getOrCreateSequenceId(const std::string &seq_name) {
+  auto it = name_to_id_mapping_.find(seq_name);
+  if (it != name_to_id_mapping_.end()) {
+    return it->second;
+  }
+
+  SequenceId new_id = static_cast<SequenceId>(name_to_id_mapping_.size());
+  name_to_id_mapping_[seq_name] = new_id;
+  return new_id;
+}
+
+void MaskManager::sortAndMergeIntervals(std::vector<MaskInterval> &intervals) {
+  if (intervals.empty()) return;
+
+  // 排序
+  std::sort(intervals.begin(), intervals.end(),
+            [](const MaskInterval &a, const MaskInterval &b) {
+              return a.start < b.start;
+            });
+
+  // 合并重叠区间
+  std::vector<MaskInterval> merged;
+  merged.reserve(intervals.size());
+  merged.push_back(intervals[0]);
+
+  for (size_t i = 1; i < intervals.size(); ++i) {
+    if (merged.back().end >= intervals[i].start) {
+      // 重叠，合并
+      merged.back().end = std::max(merged.back().end, intervals[i].end);
+    } else {
+      // 不重叠，添加新区间
+      merged.push_back(intervals[i]);
+    }
+  }
+
+  intervals = std::move(merged);
+}
+
+// ========================
+// SequenceIndex 实现
+// ========================
+
+void SequenceIndex::addSequence(const SequenceInfo &info) {
+  if (name_to_id_.count(info.name)) {
+    throw SequenceException("Sequence name already exists: " + info.name);
+  }
+
+  sequences_.push_back(info);
+  name_to_id_[info.name] = info.id;
+}
+
+const SequenceInfo *SequenceIndex::getSequenceInfo(const std::string &name) const {
+  auto it = name_to_id_.find(name);
+  if (it == name_to_id_.end()) {
+    return nullptr;
+  }
+  return getSequenceInfo(it->second);
+}
+
+const SequenceInfo *SequenceIndex::getSequenceInfo(SequenceId id) const {
+  for (const auto &seq : sequences_) {
+    if (seq.id == id) {
+      return &seq;
+    }
+  }
+  return nullptr;
+}
+
+SequenceId SequenceIndex::getSequenceId(const std::string &name) const {
+  auto it = name_to_id_.find(name);
+  return (it != name_to_id_.end()) ? it->second : INVALID_ID;
+}
+
+std::vector<std::string> SequenceIndex::getSequenceNames() const {
+  std::vector<std::string> names;
+  names.reserve(sequences_.size());
+  for (const auto &seq : sequences_) {
+    names.push_back(seq.name);
+  }
+  return names;
+}
+
+void SequenceIndex::clear() {
+  sequences_.clear();
+  name_to_id_.clear();
+}
+
+Position SequenceIndex::getTotalGlobalLength() const {
+  if (sequences_.empty()) {
+    return 0;
+  }
+  const auto &last_seq = sequences_.back();
+  return last_seq.global_start_pos + last_seq.length;
+}
+
+const SequenceInfo *SequenceIndex::getSequenceInfoByGlobalPosition(Position global_pos) const {
+  if (sequences_.empty()) {
+    return nullptr;
+  }
+
+  // 二分查找
+  auto it = std::upper_bound(sequences_.begin(), sequences_.end(), global_pos,
+                             [](Position pos, const SequenceInfo &info) {
+                               return pos < info.global_start_pos;
+                             });
+
+  if (it == sequences_.begin()) {
+    return nullptr;
+  }
+
+  --it;
+  if (global_pos < it->global_start_pos + it->length) {
+    return &(*it);
+  }
+
+  return nullptr;
+}
+
+// ========================
+// MemoryMapper 实现
+// ========================
+
+MemoryMapper::MemoryMapper(const std::filesystem::path &file_path)
+    : mapped_data_(nullptr), file_size_(0), fd_(-1) {
+
+  fd_ = open(file_path.c_str(), O_RDONLY);
+  if (fd_ == -1) {
+    throw FileException("Cannot open file: " + file_path.string());
+  }
+
+  file_size_ = lseek(fd_, 0, SEEK_END);
+  if (file_size_ == static_cast<size_t>(-1)) {
+    close(fd_);
+    throw FileException("Cannot determine file size: " + file_path.string());
+  }
+
+  mapped_data_ = mmap(nullptr, file_size_, PROT_READ, MAP_SHARED, fd_, 0);
+  if (mapped_data_ == MAP_FAILED) {
+    close(fd_);
+    throw FileException("Cannot map file to memory: " + file_path.string());
+  }
+}
+
+MemoryMapper::~MemoryMapper() { 
+  cleanup(); 
+}
+
+MemoryMapper::MemoryMapper(MemoryMapper &&other) noexcept
+    : mapped_data_(other.mapped_data_), file_size_(other.file_size_), fd_(other.fd_) {
+  other.mapped_data_ = nullptr;
+  other.file_size_ = 0;
+  other.fd_ = -1;
+}
+
+MemoryMapper &MemoryMapper::operator=(MemoryMapper &&other) noexcept {
+  if (this != &other) {
+    cleanup();
+    mapped_data_ = other.mapped_data_;
+    file_size_ = other.file_size_;
+    fd_ = other.fd_;
+    other.mapped_data_ = nullptr;
+    other.file_size_ = 0;
+    other.fd_ = -1;
+  }
+  return *this;
+}
+
+std::span<const char> MemoryMapper::getData(Position offset, Length length) const {
+  if (!isValid()) {
+    throw FileException("Memory mapper is not valid");
+  }
+
+  if (offset + length > file_size_) {
+    throw FileException("Request exceeds file size");
+  }
+
+  const char *data_ptr = static_cast<const char *>(mapped_data_) + offset;
+  return std::span<const char>(data_ptr, length);
+}
+
+void MemoryMapper::cleanup() {
+  if (mapped_data_ && mapped_data_ != MAP_FAILED) {
+    munmap(mapped_data_, file_size_);
+  }
+  if (fd_ != -1) {
+    close(fd_);
+  }
+  mapped_data_ = nullptr;
+  file_size_ = 0;
+  fd_ = -1;
+}
+
+// ========================
+// SequenceManager 实现
+// ========================
+
+SequenceManager::SequenceManager(const std::filesystem::path &fasta_path)
+    : fasta_path_(fasta_path), max_threads_(std::thread::hardware_concurrency()) {
+
+  if (!utils::isValidFastaFile(fasta_path)) {
+    throw FileException("Invalid FASTA file: " + fasta_path.string());
+  }
+
+  memory_mapper_ = std::make_unique<MemoryMapper>(fasta_path);
+  buildIndex();
+}
+
+void SequenceManager::buildIndex() {
+  has_ambiguous_bases = false;
+  auto file_data = memory_mapper_->getData(0, memory_mapper_->getFileSize());
+  sequence_index_.clear();
+
+  std::string current_name;
+  Position current_length = 0;
+  Position sequence_start_offset = 0;
+  SequenceId seq_id = 0;
+  uint32_t line_width = 0;
+  uint32_t line_bytes = 0;
+  bool first_seq_line = true;
+  Position global_offset = 0;
+
+  Position i = 0;
+  while (i < file_data.size()) {
+    Position line_start = i;
+
+    // 找到行尾
+    while (i < file_data.size() && file_data[i] != '\n') {
+      ++i;
+    }
+        Position line_end_pos = i;
+    if (i < file_data.size()) {
+      ++i; // 跳过换行符
+    }
+
+     Position current_line_length = line_end_pos - line_start;
+    if (current_line_length > 0 && file_data[line_start + current_line_length - 1] == '\r') {
+      current_line_length--; // 如果行尾是\r，则长度减一
+    }
+
+    if (current_line_length > 0 && file_data[line_start] == '>') {
+      // 保存前一个序列
+      if (!current_name.empty()) {
+        SequenceInfo info(seq_id++, current_name, current_length, global_offset,
+                          sequence_start_offset, line_width, line_bytes);
+        sequence_index_.addSequence(info);
+        global_offset += current_length;
+      }
+
+      // 解析新序列名
+      std::string header(file_data.data() + line_start + 1, current_line_length - 1);
+      current_name = utils::cleanSequenceName(header);
+      current_length = 0;
+      sequence_start_offset = i;
+      first_seq_line = true;
+
+    } else if (!current_name.empty() && current_line_length > 0) {
+
+      if (!has_ambiguous_bases) {
+        const char* line_ptr = file_data.data() + line_start;
+        for (Position j = 0; j < current_line_length; ++j) {
+          const char base = line_ptr[j];
+          if (base == 'N' || base == 'n') {
+            has_ambiguous_bases = true;
+            break; // 找到后立即退出内层循环
+          }
+        }
+      }
+
+      if (first_seq_line) {
+        line_width = current_line_length;
+        line_bytes = i - line_start;
+        first_seq_line = false;
+      }
+      current_length += current_line_length;
+    }
+  }
+
+  // 保存最后一个序列
+  if (!current_name.empty()) {
+    SequenceInfo info(seq_id, current_name, current_length, global_offset,
+                      sequence_start_offset, line_width, line_bytes);
+    sequence_index_.addSequence(info);
+  }
+}
+
+std::string SequenceManager::getSubSequence(const std::string &seq_name, Position start, Length length) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return getSubSequence(seq_id, start, length);
+}
+
+std::string SequenceManager::getSubSequence(SequenceId seq_id, Position start, Length length) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  
+  const auto *info = sequence_index_.getSequenceInfo(seq_id);
+  if (!info) {
+    throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+  }
+
+  if (start >= info->length) {
+    throw SequenceException("Start position out of bounds");
+  }
+
+  length = std::min(length, info->length - start);
+  return extractSequence(*info, start, length);
+}
+
+std::string SequenceManager::extractSequence(const SequenceInfo &info, Position start, Length length) const {
+  if (length == 0) return "";
+
+  std::string result;
+  result.reserve(length);
+
+  Position seq_pos = start;
+  Length remaining = length;
+
+  while (remaining > 0) {
+    // 计算在文件中的位置
+    Position line_num = seq_pos / info.line_width;
+    Position char_offset_in_line = seq_pos % info.line_width;
+    Position file_pos = info.file_offset + line_num * info.line_bytes + char_offset_in_line;
+    
+    // 计算本次读取的长度
+    Position chars_remaining_in_line = info.line_width - char_offset_in_line;
+    Length chars_to_read = std::min(remaining, chars_remaining_in_line);
+
+    // 读取数据
+    auto data = memory_mapper_->getData(file_pos, chars_to_read);
+    result.append(data.data(), chars_to_read);
+
+    seq_pos += chars_to_read;
+    remaining -= chars_to_read;
+  }
+
+  return result;
+}
+
+std::string SequenceManager::getSubSequenceGlobal(Position global_start, Length length) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+
+  if (length == 0) return "";
+
+  std::string result;
+  result.reserve(length);
+
+  Position current_pos = global_start;
+  Length remaining = length;
+
+  while (remaining > 0) {
+    const auto *seq_info = sequence_index_.getSequenceInfoByGlobalPosition(current_pos);
+    if (!seq_info) {
+      throw SequenceException("Invalid global position: " + std::to_string(current_pos));
+    }
+
+    Position local_start = current_pos - seq_info->global_start_pos;
+    Length read_length = std::min(remaining, seq_info->length - local_start);
+
+    std::string segment = extractSequence(*seq_info, local_start, read_length);
+    result.append(segment);
+
+    current_pos += read_length;
+    remaining -= read_length;
+  }
+
+  return result;
+}
+
+SequenceId SequenceManager::getSequenceId(const std::string &seq_name) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return sequence_index_.getSequenceId(seq_name);
+}
+
+std::vector<std::string> SequenceManager::getSequenceNames() const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return sequence_index_.getSequenceNames();
+}
+
+Length SequenceManager::getSequenceLength(const std::string &seq_name) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_name);
+  return info ? info->length : 0;
+}
+
+Length SequenceManager::getSequenceLength(SequenceId seq_id) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_id);
+  return info ? info->length : 0;
+}
+
+size_t SequenceManager::getSequenceCount() const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return sequence_index_.getSequenceCount();
+}
+
+bool SequenceManager::isValidPosition(const std::string &seq_name, Position pos, Length len) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_name);
+  if (!info) return false;
+  return pos < info->length && pos + len <= info->length;
+}
+
+bool SequenceManager::isValidPosition(SequenceId seq_id, Position pos, Length len) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_id);
+  if (!info) return false;
+  return pos < info->length && pos + len <= info->length;
+}
+
+const SequenceInfo* SequenceManager::getSequenceInfoFromGlobalPosition(Position global_pos) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return sequence_index_.getSequenceInfoByGlobalPosition(global_pos);
+}
+
+std::string SequenceManager::getSequenceNameFromGlobalPosition(Position global_pos) const {
+  const auto *info = getSequenceInfoFromGlobalPosition(global_pos);
+  return info ? info->name : "";
+}
+
+std::pair<SequenceId, Position> SequenceManager::globalToLocal(Position global_pos) const {
+  const auto *info = getSequenceInfoFromGlobalPosition(global_pos);
+  if (info) {
+    Position local_pos = global_pos - info->global_start_pos;
+    return {info->id, local_pos};
+  }
+  return {SequenceIndex::INVALID_ID, 0};
+}
+
+Position SequenceManager::localToGlobal(const std::string& seq_name, Position local_pos) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_name);
+  if (!info) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  if (local_pos >= info->length) {
+    throw SequenceException("Local position out of bounds");
+  }
+  return info->global_start_pos + local_pos;
+}
+
+Position SequenceManager::localToGlobal(SequenceId seq_id, Position local_pos) const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  const auto *info = sequence_index_.getSequenceInfo(seq_id);
+  if (!info) {
+    throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+  }
+  if (local_pos >= info->length) {
+    throw SequenceException("Local position out of bounds");
+  }
+  return info->global_start_pos + local_pos;
+}
+
+Length SequenceManager::getTotalLength() const {
+  std::shared_lock<std::shared_mutex> lock(mutex_);
+  return sequence_index_.getTotalGlobalLength();
+}
+
+std::string SequenceManager::concatAllSequences(char separator) const {
+  auto seq_names = getSequenceNames();
+  return concatSequences(seq_names, separator);
+}
+
+std::string SequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
+  std::string result;
+  
+  // 预估大小
+  size_t estimated_size = 0;
+  for (const auto& seq_name : seq_names) {
+    estimated_size += getSequenceLength(seq_name);
+    if (separator != '\0') {
+      estimated_size += 1;
+    }
+  }
+  result.reserve(estimated_size);
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    try {
+      Length length = getSequenceLength(seq_names[i]);
+      std::string sequence = getSubSequence(seq_names[i], 0, length);
+      result.append(sequence);
+      
+      if (separator != '\0' && i < seq_names.size() - 1) {
+        result.push_back(separator);
+      }
+    } catch (const std::exception&) {
+      // 忽略错误
+    }
+  }
+
+  return result;
+}
+
+void SequenceManager::streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
+                                     char separator, size_t buffer_size) const {
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    try {
+      Length length = getSequenceLength(seq_names[i]);
+      Position pos = 0;
+      
+      while (pos < length) {
+        Length read_length = std::min(buffer_size, static_cast<size_t>(length - pos));
+        std::string chunk = getSubSequence(seq_names[i], pos, read_length);
+        output.write(chunk.c_str(), chunk.size());
+        pos += read_length;
+      }
+
+      if (separator != '\0' && i < seq_names.size() - 1) {
+        output.put(separator);
+      }
+    } catch (const std::exception&) {
+      // 忽略错误
+    }
+  }
+}
+
+std::vector<SequenceManager::Result> SequenceManager::batchQuery(const std::vector<Query> &queries, 
+                                                               size_t num_threads) const {
+  if (num_threads == 0) {
+    num_threads = max_threads_;
+  }
+
+  std::vector<Result> results;
+  results.reserve(queries.size());
+
+  if (num_threads <= 1 || queries.size() < num_threads) {
+    // 单线程处理
+    for (const auto& query : queries) {
+      try {
+        std::string sequence = getSubSequence(query.seq_name, query.start, query.length);
+        results.emplace_back(Result{std::move(sequence), query.id, true, ""});
+      } catch (const std::exception& e) {
+        results.emplace_back(Result{"", query.id, false, e.what()});
+      }
+    }
+  } else {
+    // 多线程处理
+    std::vector<std::future<Result>> futures;
+    futures.reserve(queries.size());
+
+    for (const auto& query : queries) {
+      futures.emplace_back(std::async(std::launch::async, [this, &query]() -> Result {
+        try {
+          std::string sequence = getSubSequence(query.seq_name, query.start, query.length);
+          return Result{std::move(sequence), query.id, true, ""};
+        } catch (const std::exception& e) {
+          return Result{"", query.id, false, e.what()};
+        }
+      }));
+    }
+
+    for (auto& future : futures) {
+      results.push_back(future.get());
+    }
+  }
+
+  return results;
+}
+
+void SequenceManager::setMaxThreads(size_t max_threads) {
+  max_threads_ = std::max(size_t(1), max_threads);
+}
+
+// ========================
+// MaskedSequenceManager 实现
+// ========================
+
+MaskedSequenceManager::MaskedSequenceManager(std::unique_ptr<SequenceManager> seq_manager,
+                                             const std::filesystem::path &mask_file)
+      : original_manager_(std::move(seq_manager)), cache_valid_(false) {
+
+  // 检查 original_manager_ 是否有效
+  if (!original_manager_) {
+    throw SeqProException("MaskedSequenceManager received a null SequenceManager.");
+  }
+
+  if (!mask_manager_.loadFromIntervalFile(mask_file)) {
+    throw FileException("Cannot load mask file: " + mask_file.string());
+  }
+
+  auto seq_names = original_manager_->getSequenceNames();
+  for (const auto &name : seq_names) {
+    mask_manager_.getOrCreateSequenceId(name);
+  }
+}
+
+std::string MaskedSequenceManager::getSubSequence(const std::string &seq_name, 
+                                                Position start, Length length) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return getSubSequence(seq_id, start, length);
+}
+
+std::string MaskedSequenceManager::getSubSequence(SequenceId seq_id, 
+                                                Position start, Length length) const {
+  // 验证遮蔽坐标
+  if (!isValidPosition(seq_id, start, length)) {
+    throw SequenceException("Invalid masked position");
+  }
+
+  // 转换为原始坐标并获取有效区间
+  Position original_start = toOriginalPosition(seq_id, start);
+  Position original_end = toOriginalPosition(seq_id, start + length - 1);
+  
+  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
+  
+  std::string result;
+  result.reserve(length);
+  
+  for (const auto &range : valid_ranges) {
+    Position range_length = range.second - range.first;
+    std::string segment = original_manager_->getSubSequence(seq_id, range.first, range_length);
+    result.append(segment);
+  }
+
+  return result;
+}
+
+std::string MaskedSequenceManager::getSubSequenceGlobal(Position global_start, Length length) const {
+  ensureCacheValid();
+
+  if (length == 0) return "";
+
+  std::string result;
+  result.reserve(length);
+
+  Position current_pos = global_start;
+  Length remaining = length;
+
+  while (remaining > 0) {
+    auto [seq_id, local_pos] = globalToLocal(current_pos);
+    if (seq_id == SequenceIndex::INVALID_ID) {
+      throw SequenceException("Invalid global masked position: " + std::to_string(current_pos));
+    }
+
+    Length seq_remaining = getSequenceLength(seq_id) - local_pos;
+    Length read_length = std::min(remaining, seq_remaining);
+
+    std::string segment = getSubSequence(seq_id, local_pos, read_length);
+    result.append(segment);
+
+    current_pos += read_length;
+    remaining -= read_length;
+  }
+
+  return result;
+}
+
+Length MaskedSequenceManager::getSequenceLength(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getSequenceLength(seq_id);
+}
+
+Length MaskedSequenceManager::getSequenceLength(SequenceId seq_id) const {
+  Length original_length = original_manager_->getSequenceLength(seq_id);
+  return mask_manager_.getMaskedSequenceLength(seq_id, original_length);
+}
+
+Length MaskedSequenceManager::getTotalLength() const {
+  ensureCacheValid();
+  return total_masked_length_;
+}
+
+bool MaskedSequenceManager::isValidPosition(const std::string &seq_name, Position pos, Length len) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return false;
+  }
+  return isValidPosition(seq_id, pos, len);
+}
+
+bool MaskedSequenceManager::isValidPosition(SequenceId seq_id, Position pos, Length len) const {
+  Length masked_length = getSequenceLength(seq_id);
+  return pos < masked_length && pos + len <= masked_length;
+}
+
+Position MaskedSequenceManager::toOriginalPosition(const std::string &seq_name, Position masked_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return toOriginalPosition(seq_id, masked_pos);
+}
+
+Position MaskedSequenceManager::toOriginalPosition(SequenceId seq_id, Position masked_pos) const {
+  return mask_manager_.mapToOriginalPosition(seq_id, masked_pos);
+}
+
+Position MaskedSequenceManager::toMaskedPosition(const std::string &seq_name, Position original_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return toMaskedPosition(seq_id, original_pos);
+}
+
+Position MaskedSequenceManager::toMaskedPosition(SequenceId seq_id, Position original_pos) const {
+  return mask_manager_.mapToMaskedPosition(seq_id, original_pos);
+}
+
+std::vector<Position> MaskedSequenceManager::toOriginalPositions(const std::string &seq_name, 
+                                                               const std::vector<Position> &masked_positions) const {
+  std::vector<Position> results;
+  results.reserve(masked_positions.size());
+  for (Position pos : masked_positions) {
+    results.push_back(toOriginalPosition(seq_name, pos));
+  }
+  return results;
+}
+
+std::vector<Position> MaskedSequenceManager::toMaskedPositions(const std::string &seq_name, 
+                                                             const std::vector<Position> &original_positions) const {
+  std::vector<Position> results;
+  results.reserve(original_positions.size());
+  for (Position pos : original_positions) {
+    results.push_back(toMaskedPosition(seq_name, pos));
+  }
+  return results;
+}
+
+std::pair<SequenceId, Position> MaskedSequenceManager::globalToLocal(Position global_masked_pos) const {
+  ensureCacheValid();
+  
+  const auto *seq_info = getSequenceInfoByMaskedGlobalPosition(global_masked_pos);
+  if (seq_info) {
+    auto it = global_offset_cache_.find(seq_info->id);
+    if (it != global_offset_cache_.end()) {
+      Position local_pos = global_masked_pos - it->second;
+      return {seq_info->id, local_pos};
+    }
+  }
+  
+  return {SequenceIndex::INVALID_ID, 0};
+}
+
+Position MaskedSequenceManager::localToGlobal(const std::string& seq_name, Position local_masked_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return localToGlobal(seq_id, local_masked_pos);
+}
+
+Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_masked_pos) const {
+  ensureCacheValid();
+  
+  if (!isValidPosition(seq_id, local_masked_pos)) {
+    throw SequenceException("Local masked position out of bounds");
+  }
+  
+  auto it = global_offset_cache_.find(seq_id);
+  if (it != global_offset_cache_.end()) {
+    return it->second + local_masked_pos;
+  }
+  
+  throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+}
+
+bool MaskedSequenceManager::isMaskPosition(const std::string &seq_name, Position original_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return false;
+  }
+  return isMaskPosition(seq_id, original_pos);
+}
+
+bool MaskedSequenceManager::isMaskPosition(SequenceId seq_id, Position original_pos) const {
+  return mask_manager_.isMaskPosition(seq_id, original_pos);
+}
+
+const std::vector<MaskInterval>& MaskedSequenceManager::getMaskIntervals(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  return mask_manager_.getMaskIntervals(seq_id);
+}
+
+const std::vector<MaskInterval>& MaskedSequenceManager::getMaskIntervals(SequenceId seq_id) const {
+  return mask_manager_.getMaskIntervals(seq_id);
+}
+
+Length MaskedSequenceManager::getMaskedBases(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getMaskedBases(seq_id);
+}
+
+Length MaskedSequenceManager::getMaskedBases(SequenceId seq_id) const {
+  return mask_manager_.getTotalMaskedBases(seq_id);
+}
+
+Length MaskedSequenceManager::getTotalMaskedBases() const {
+  Length total = 0;
+  auto seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    total += getMaskedBases(seq_name);
+  }
+  return total;
+}
+
+std::string MaskedSequenceManager::concatAllSequences(char separator) const {
+  auto seq_names = getSequenceNames();
+  return concatSequences(seq_names, separator);
+}
+
+std::string MaskedSequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
+  std::string result;
+  
+  // 预估大小
+  size_t estimated_size = 0;
+  for (const auto& seq_name : seq_names) {
+    estimated_size += getSequenceLength(seq_name);
+    if (separator != '\0') {
+      estimated_size += 1;
+    }
+  }
+  result.reserve(estimated_size);
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    try {
+      Length length = getSequenceLength(seq_names[i]);
+      std::string sequence = getSubSequence(seq_names[i], 0, length);
+      result.append(sequence);
+      
+      if (separator != '\0' && i < seq_names.size() - 1) {
+        result.push_back(separator);
+      }
+    } catch (const std::exception&) {
+      // 忽略错误
+    }
+  }
+
+  return result;
+}
+
+void MaskedSequenceManager::streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
+                                          char separator, size_t buffer_size) const {
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    try {
+      Length length = getSequenceLength(seq_names[i]);
+      Position pos = 0;
+      
+      while (pos < length) {
+        Length read_length = std::min(buffer_size, static_cast<size_t>(length - pos));
+        std::string chunk = getSubSequence(seq_names[i], pos, read_length);
+        output.write(chunk.c_str(), chunk.size());
+        pos += read_length;
+      }
+
+      if (separator != '\0' && i < seq_names.size() - 1) {
+        output.put(separator);
+      }
+    } catch (const std::exception&) {
+      // 忽略错误
+    }
+  }
+}
+
+std::vector<MaskedSequenceManager::Result> MaskedSequenceManager::batchQuery(const std::vector<Query> &queries, 
+                                                                           size_t num_threads) const {
+  if (num_threads == 0) {
+    num_threads = original_manager_->getMaxThreads();
+  }
+
+  std::vector<Result> results;
+  results.reserve(queries.size());
+
+  if (num_threads <= 1 || queries.size() < num_threads) {
+    // 单线程处理
+    for (const auto& query : queries) {
+      try {
+        std::string sequence = getSubSequence(query.seq_name, query.start, query.length);
+        results.emplace_back(Result{std::move(sequence), query.id, true, ""});
+      } catch (const std::exception& e) {
+        results.emplace_back(Result{"", query.id, false, e.what()});
+      }
+    }
+  } else {
+    // 多线程处理
+    std::vector<std::future<Result>> futures;
+    futures.reserve(queries.size());
+
+    for (const auto& query : queries) {
+      futures.emplace_back(std::async(std::launch::async, [this, &query]() -> Result {
+        try {
+          std::string sequence = getSubSequence(query.seq_name, query.start, query.length);
+          return Result{std::move(sequence), query.id, true, ""};
+        } catch (const std::exception& e) {
+          return Result{"", query.id, false, e.what()};
+        }
+      }));
+    }
+
+    for (auto& future : futures) {
+      results.push_back(future.get());
+    }
+  }
+
+  return results;
+}
+
+std::vector<std::string> MaskedSequenceManager::getSequenceNames() const {
+  return original_manager_->getSequenceNames();
+}
+
+SequenceId MaskedSequenceManager::getSequenceId(const std::string &seq_name) const {
+  return original_manager_->getSequenceId(seq_name);
+}
+
+size_t MaskedSequenceManager::getSequenceCount() const {
+  return original_manager_->getSequenceCount();
+}
+
+void MaskedSequenceManager::buildGlobalOffsetCache() const {
+  global_offset_cache_.clear();
+  total_masked_length_ = 0;
+  
+  auto seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    SequenceId seq_id = getSequenceId(seq_name);
+    global_offset_cache_[seq_id] = total_masked_length_;
+    total_masked_length_ += getSequenceLength(seq_id);
+  }
+  
+  cache_valid_ = true;
+}
+
+void MaskedSequenceManager::ensureCacheValid() const {
+  if (!cache_valid_) {
+    buildGlobalOffsetCache();
+  }
+}
+
+const SequenceInfo* MaskedSequenceManager::getSequenceInfoByMaskedGlobalPosition(Position global_masked_pos) const {
+  ensureCacheValid();
+  
+  // 查找包含该全局遮蔽位置的序列
+  const SequenceInfo* found_info = nullptr;
+  
+  for (const auto& [seq_id, global_offset] : global_offset_cache_) {
+    Length masked_length = getSequenceLength(seq_id);
+    if (global_masked_pos >= global_offset && 
+        global_masked_pos < global_offset + masked_length) {
+      found_info = original_manager_->getIndex().getSequenceInfo(seq_id);
+      break;
+    }
+  }
+  
+  return found_info;
+}
+
+// ========================
+// 工具函数实现
+// ========================
+
+namespace utils {
+
+bool isValidFastaFile(const std::filesystem::path &file_path) {
+  if (!std::filesystem::exists(file_path)) {
+    return false;
+  }
+
+  std::ifstream file(file_path);
+  if (!file) {
+    return false;
+  }
+
+  std::string first_line;
+  std::getline(file, first_line);
+  return !first_line.empty() && first_line[0] == '>';
+}
+
+bool isValidMaskFile(const std::filesystem::path &mask_file) {
+  if (!std::filesystem::exists(mask_file)) {
+    return false;
+  }
+
+  std::ifstream file(mask_file);
+  if (!file) {
+    return false;
+  }
+
+  std::string first_line;
+  std::getline(file, first_line);
+  return !first_line.empty() && (first_line[0] == '>' || std::isdigit(first_line[0]));
+}
+
+std::string getReadableFileSize(const std::filesystem::path &file_path) {
+  if (!std::filesystem::exists(file_path)) {
+    return "File not found";
+  }
+
+  auto size = std::filesystem::file_size(file_path);
+  const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+  int unit = 0;
+  double readable_size = static_cast<double>(size);
+
+  while (readable_size >= 1024.0 && unit < 4) {
+    readable_size /= 1024.0;
+    unit++;
+  }
+
+  std::ostringstream oss;
+  oss.precision(2);
+  oss << std::fixed << readable_size << " " << units[unit];
+  return oss.str();
+}
+
+std::string cleanSequenceName(const std::string &name) {
+  std::string clean_name = name;
+  
+  // 去除首尾空白
+  clean_name.erase(0, clean_name.find_first_not_of(" \t\n\r\f\v"));
+  clean_name.erase(clean_name.find_last_not_of(" \t\n\r\f\v") + 1);
+
+  // 截取到第一个空格或制表符
+  size_t space_pos = clean_name.find_first_of(" \t");
+  if (space_pos != std::string::npos) {
+    clean_name = clean_name.substr(0, space_pos);
+  }
+
+  return clean_name;
+}
+
+bool isValidDNASequence(const std::string &sequence) {
+  return std::all_of(sequence.begin(), sequence.end(), [](char c) {
+    char upper_c = std::toupper(c);
+    return upper_c == 'A' || upper_c == 'T' || upper_c == 'G' ||
+           upper_c == 'C' || upper_c == 'N';
+  });
+}
+
+} // namespace utils
+
+} // namespace SeqPro

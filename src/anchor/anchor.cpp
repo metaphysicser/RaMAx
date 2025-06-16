@@ -1,5 +1,8 @@
 #include "anchor.h"
-#include "data_process.h" 
+
+#include <SeqPro.h>
+
+#include "data_process.h"
 
 // 构造函数（注释掉了）：初始化参考物种、查询物种及其锚点集合，并重建 R 树。
 //PairGenomeAnchor::PairGenomeAnchor(SpeciesName ref,
@@ -141,17 +144,35 @@
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRefPtr unique_anchors,
     MatchByStrandByQueryRefPtr repeat_anchors,
-    FastaManager& ref_fasta_manager,
-    FastaManager& query_fasta_manager,
-    ThreadPool& pool)
+    SeqPro::ManagerVariant& ref_fasta_manager,
+    SeqPro::ManagerVariant& query_fasta_manager,
+	ThreadPool& pool)
 {
     //------------------------------------------------------------
     // 0) 初始化输出矩阵 [strand][query][ref]
     //------------------------------------------------------------
     constexpr uint_t STRAND_CNT = 2;                         // 0=FWD,1=REV
-    const uint_t ref_chr_cnt = static_cast<uint_t>(ref_fasta_manager.idx_map.size());
-    const uint_t query_chr_cnt = static_cast<uint_t>(query_fasta_manager.idx_map.size());
+    const uint_t ref_chr_cnt = std::visit([](auto&& manager) {
+        using PtrType = std::decay_t<decltype(manager)>;
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+            return manager->getSequenceCount();
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+            return manager->getSequenceCount();
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
+    }, ref_fasta_manager);
 
+    const uint_t query_chr_cnt = std::visit([](auto&& manager) {
+        using PtrType = std::decay_t<decltype(manager)>;
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+            return manager->getSequenceCount();
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+            return manager->getSequenceCount();
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
+    }, query_fasta_manager);
     auto initTarget = [&](MatchByStrandByQueryRefPtr& tgt) {
         tgt->resize(STRAND_CNT);
         for (uint_t s = 0; s < STRAND_CNT; ++s) {
@@ -185,16 +206,35 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
                 const Match& first = slice.front().front();
                 uint_t sIdx = (first.strand == REVERSE ? 1u : 0u);
 
-                auto itQ = query_fasta_manager.idx_map.find(first.query_region.chr_name);
-                if (itQ == query_fasta_manager.idx_map.end()) return;
-                uint_t qIdx = itQ->second;
+            uint_t qIdx = std::visit([&first](auto&& manager) {
+                using PtrType = std::decay_t<decltype(manager)>;
+                if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return manager->getSequenceId(first.query_region.chr_name);
+                } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return manager->getSequenceId(first.query_region.chr_name);
+                } else {
+                    throw std::runtime_error("Unhandled manager type in variant.");
+                }
+            }, query_fasta_manager);
 
-                for (auto& vec : slice) {
-                    if (vec.empty()) continue;
+            if(qIdx == SeqPro::SequenceIndex::INVALID_ID) return;
 
-                    auto itR = ref_fasta_manager.idx_map.find(vec.front().ref_region.chr_name);
-                    if (itR == ref_fasta_manager.idx_map.end()) continue;
-                    uint_t rIdx = itR->second;
+            for (auto& vec : slice)
+            {
+                if (vec.empty()) continue;
+
+                uint_t rIdx = std::visit([&vec](auto&& manager) {
+                    using PtrType = std::decay_t<decltype(manager)>;
+                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                        return manager->getSequenceId(vec.front().ref_region.chr_name);
+                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                        return manager->getSequenceId(vec.front().ref_region.chr_name);
+                    } else {
+                        throw std::runtime_error("Unhandled manager type in variant.");
+                    }
+                }, ref_fasta_manager);
+
+                if(rIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
                     // 计算锁下标并加锁
                     uint_t lockIdx = sIdx * query_chr_cnt + qIdx;
