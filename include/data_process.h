@@ -6,21 +6,16 @@
 // -----------------------------
 #include <regex>
 #include <string>
-#include <fstream>
 #include <stdexcept>
 #include <cctype>
 #include <curl/curl.h>      // 用于 URL 请求
-#include <fcntl.h>
-#include <sys/mman.h>       // 用于内存映射读取文件
 #include <zlib.h>           // 用于处理 gzip 压缩格式
 #include "config.hpp"
 #include "anchor.h"
 #include "kseq.h"           // 用于解析 FASTA 格式
 #include <cstdlib>
 #include <limits>
-#include <queue>
 #include <unordered_map>
-#include <algorithm>
 #include <cstdint>
 
 class FastaManager;

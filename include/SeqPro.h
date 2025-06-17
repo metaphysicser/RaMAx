@@ -410,7 +410,9 @@ using SharedManagerVariant = std::shared_ptr<ManagerVariant>;
   
 // === 工具函数 ===
 namespace utils {
-
+  std::filesystem::path cleanFastaFile(const std::filesystem::path &input_fasta,
+                                                const std::filesystem::path &output_fasta,
+                                                uint64_t line_width);
 bool isValidFastaFile(const std::filesystem::path &file_path);
 bool isValidMaskFile(const std::filesystem::path &mask_file);
 std::string getReadableFileSize(const std::filesystem::path &file_path);
