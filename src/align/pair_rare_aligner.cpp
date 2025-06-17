@@ -253,7 +253,10 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 		shared_pool);
 
 	shared_pool.waitAllTasksDone();
+
 	spdlog::info("clusterAllChrMatch done");
+
+	filterClustersByGreedy(cluster_ptr, shared_pool, 50);
 	return;
 
 }

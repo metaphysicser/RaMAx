@@ -152,6 +152,72 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     return cluster_ptr;   // 返回 shared_ptr
 }
 
+/*!
+ * \brief  把 src（三维：strand × query × ref）按 ref 合并
+ *         每个 ref 得到一个合并后的 MatchClusterVecPtr
+ *
+ * \param  src  输入三维结构（shared_ptr 外围保持不变）
+ * \return      shared_ptr< vector< MatchClusterVecPtr > >
+ */
+inline ClusterVecPtrByRefPtr
+groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src)
+{
+    /* ---------- 0. 早退 ---------- */
+    auto by_ref = std::make_shared<ClusterVecPtrByRef>();   // 最终返回对象
+    if (!src || src->empty() || (*src)[0].empty()) return by_ref;
+
+    /* ---------- 1. 基础信息 ---------- */
+    const size_t ref_n = (*src)[0][0].size();               // 所有行列数一致
+
+    /* ---------- 2. 统计每个 ref 的簇总量 & 记录首矢量指针 ---------- */
+    std::vector<size_t> cluster_counts(ref_n, 0);
+    std::vector<MatchClusterVec*> first_src_vec(ref_n, nullptr);
+
+    for (auto& query_layer : *src)          // strand
+        for (auto& ref_row : query_layer)   // query
+            for (size_t r = 0; r < ref_n; ++r) {
+                auto& vec = *ref_row[r];
+                cluster_counts[r] += vec.size();
+                if (!first_src_vec[r] && !vec.empty())
+                    first_src_vec[r] = &vec;             // 只记录第一次出现
+            }
+
+    /* ---------- 3. 构造目标数组，首矢量直接 swap ---------- */
+    by_ref->resize(ref_n);
+    std::vector<bool> swapped(ref_n, false);
+
+    for (size_t r = 0; r < ref_n; ++r) {
+        auto dst = std::make_shared<MatchClusterVec>();
+        if (first_src_vec[r]) {                          // 有首矢量就直接搬进来
+            dst->swap(*first_src_vec[r]);                // 零拷贝
+            swapped[r] = true;
+        }
+        dst->reserve(cluster_counts[r]);                 // 再保证容量充足
+        (*by_ref)[r] = std::move(dst);
+    }
+
+    /* ---------- 4. 把其余簇 append 进去 ---------- */
+    for (auto& query_layer : *src)
+        for (auto& ref_row : query_layer)
+            for (size_t r = 0; r < ref_n; ++r) {
+                auto& src_vec = *ref_row[r];
+                if (src_vec.empty()) continue;
+
+                auto& dst = *(*by_ref)[r];
+                if (swapped[r]) {
+                    dst.insert(dst.end(),
+                        std::make_move_iterator(src_vec.begin()),
+                        std::make_move_iterator(src_vec.end()));
+                }
+                else {                                 // 之前全空，直接 swap
+                    dst.swap(src_vec);
+                    swapped[r] = true;
+                }
+            }
+
+    return by_ref;                                       // shared_ptr 返回
+}
+
 
 // 2. 给定一个 cluster，返回其最佳非交叉链（DP O(N^2)）
 MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
@@ -190,12 +256,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 /* ───────────────────────────────────────────────────────── *
  * 对外主函数                                              *
  * ───────────────────────────────────────────────────────── */
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match,
-    MatchVec& repeat_match,
-    int_t      max_gap,
-    int_t      diagdiff,
-    double     diagfactor,
-    int_t      min_cluster_length)
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap, int_t diagdiff, double diagfactor, int_t min_cluster_length)
 {
     // 1. 聚簇
     MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
@@ -222,3 +283,158 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match,
 
     return best_chain_clusters;
 }
+
+ /*!
+  * \brief  把 cl 依照冲突矩形切成 ≤2 段
+  *         · 仅当 ref_hit 为 true 时才检查 [bad_r_beg,bad_r_end)
+  *         · 仅当 query_hit 为 true 时才检查 [bad_q_beg,bad_q_end)
+  *
+  * \return 0 段：整簇都冲突；1 段：完全无冲突；2 段：被矩形切成前/后两段
+  */
+inline MatchClusterVec
+splitCluster(const MatchCluster& cl,
+    bool  ref_hit,
+    int_t bad_r_beg, int_t bad_r_end,
+    bool  query_hit,
+    int_t bad_q_beg, int_t bad_q_end)
+{
+    MatchClusterVec parts;
+    if (cl.empty()) return parts;
+
+    /* ---------- 1. λ 判断“命中” ---------- */
+    auto hit = [&](const Match& m) -> bool
+        {
+            bool r_overlap = false;   
+            bool q_overlap = false;
+
+            if (ref_hit) {
+                int_t rb = start1(m), re = rb + len1(m);
+                r_overlap = !(re <= bad_r_beg || rb >= bad_r_end);
+            }
+            if (query_hit) {
+                int_t qb = start2(m), qe = qb + len2(m);
+                q_overlap = !(qe <= bad_q_beg || qb >= bad_q_end);
+            }
+
+            /* 两个维度都要满足要检查的那部分 */
+            return r_overlap || q_overlap;
+        };
+
+    /* ---------- 2. 找第一次 / 最后一次命中 ---------- */
+    size_t first_hit = cl.size();   // 未命中
+    size_t last_hit = 0;
+
+    for (size_t i = 0; i < cl.size(); ++i)
+        if (hit(cl[i])) {
+            first_hit = std::min(first_hit, i);
+            last_hit = i;
+        }
+
+    /* ---------- 3. 根据命中情况切分 ---------- */
+    if (first_hit == cl.size()) {              // 完全不冲突
+        parts.emplace_back(cl);
+        return parts;
+    }
+
+    if (first_hit > 0)                         // 前段
+        parts.emplace_back(cl.begin(), cl.begin() + first_hit);
+
+    if (last_hit + 1 < cl.size())              // 后段
+        parts.emplace_back(cl.begin() + last_hit + 1, cl.end());
+
+    return parts;                              // 0、1 或 2 段
+}
+
+
+
+/*!
+ * \brief  在原 vector 上直接执行“两级 map + 贪婪拆分”过滤
+ * \param  clusters_ptr   ref 上的所有簇
+ * \param  MIN_SPAN       最小跨度阈值
+ * \param  MIN_MATCH      最小匹配数（若不想改，可写死 50）
+ */
+void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
+    int_t              MIN_SPAN)
+{
+    if (!clusters_ptr || clusters_ptr->empty()) return;
+
+    /* ---------- 1. 最大堆 ---------- */
+    struct Node { MatchCluster cl; int_t sc; };
+    auto cmp = [](const Node& a, const Node& b) { return a.sc < b.sc; };
+
+    std::vector<Node> heap;  heap.reserve(clusters_ptr->size());
+    for (auto& cl : *clusters_ptr) {
+        if (cl.empty()) continue;
+
+        int_t sc = clusterSpan(cl);                // ① 先安全读取
+        heap.push_back({ std::move(cl), sc });     // ② 再移动进堆
+    }
+    clusters_ptr->clear();                              // **清空原容器**
+    std::make_heap(heap.begin(), heap.end(), cmp);
+
+    /* ---------- 2. 两级 interval map ---------- */
+    IntervalMap refMap;
+    std::unordered_map<std::string, IntervalMap> qMaps;
+
+    /* ---------- 3. 贪婪循环 ---------- */
+    while (!heap.empty())
+    {
+        std::pop_heap(heap.begin(), heap.end(), cmp);
+        Node cur = std::move(heap.back()); heap.pop_back();
+        if (cur.sc < MIN_SPAN) continue;
+
+        uint_t rb = start1(cur.cl.front());
+        uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
+        uint_t qb = start2(cur.cl.front());
+        uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
+        const ChrName& qChr = cur.cl.front().query_region.chr_name;
+
+        int_t RL = 0, RR = 0, QL = 0, QR = 0;
+        bool ref_hit = overlap1D(refMap, rb, re, RL, RR);
+        bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
+
+        if (!ref_hit && !query_hit) {
+            insertInterval(refMap, rb, re);
+            insertInterval(qMaps[qChr], qb, qe);
+            clusters_ptr->emplace_back(std::move(cur.cl));   // **写回原 vector**
+            continue;
+        }
+
+
+        for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR, query_hit, QL, QR)) {
+            int_t sc = clusterSpan(part);
+            if (sc >= MIN_SPAN) {
+                heap.push_back({ std::move(part), sc });
+                std::push_heap(heap.begin(), heap.end(), cmp);
+            }
+
+        }
+        /* clusters_ptr 现在就是过滤后的结果 */
+    }
+}
+
+/* ============================================================= *
+ *  把三维 clusters  ->  按 ref 的一维 clusters
+ *  并行对每个 ref 走 keepWithSplitGreedy，再写回三维结构
+ * ============================================================= */
+void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr,
+    ThreadPool& pool,
+    int_t                                min_span)
+{
+    if (!cluster_ptr || cluster_ptr->empty()) return;
+
+    /* 0. 先按 ref 汇总（保持 shared_ptr 共享语义） */
+    ClusterVecPtrByRefPtr by_ref = groupClustersByRef(cluster_ptr);
+    if (!by_ref || by_ref->empty()) return;
+
+    for (size_t r = 0; r < by_ref->size(); ++r) {
+        pool.enqueue([&, r] {
+            keepWithSplitGreedy((*by_ref)[r], min_span);
+            });
+    }
+	pool.waitAllTasksDone();
+
+    return;
+
+}
+
