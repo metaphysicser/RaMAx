@@ -112,9 +112,9 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     cluster_ptr->resize(2);  // strand 维度
 
     for (auto& query_layer : *cluster_ptr) {
-        query_layer.resize(unique_anchors->size());           // query-chr
+        query_layer.resize(unique_anchors->front().size());           // query-chr
         for (auto& ref_row : query_layer)
-            ref_row.resize(unique_anchors->front().size());   // ref-chr
+            ref_row.resize(unique_anchors->front().front().size());   // ref-chr
     }
 
     // ---------- 2. 提交任务 ----------
@@ -122,9 +122,9 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     std::vector<ClusterFuture> futures;
 
     for (uint_t k = 0; k < 2; ++k) {
-        for (uint_t i = 0; i < unique_anchors->size(); ++i) {
-            for (uint_t j = 0; j < (*unique_anchors)[i].size(); ++j) {
-
+        for (uint_t i = 0; i < (*unique_anchors)[k].size(); ++i) {
+            for (uint_t j = 0; j < (*unique_anchors)[k][i].size(); ++j) {
+                
                 MatchVec& uniq = (*unique_anchors)[k][i][j];
                 MatchVec& rept = (*repeat_anchors)[k][i][j];
 
@@ -142,8 +142,8 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     // ---------- 3. 收集结果 ----------
     size_t idx = 0;
     for (uint_t k = 0; k < 2; ++k) {
-        for (uint_t i = 0; i < unique_anchors->size(); ++i) {
-            for (uint_t j = 0; j < (*unique_anchors)[i].size(); ++j) {
+        for (uint_t i = 0; i < (*unique_anchors)[k].size(); ++i) {
+            for (uint_t j = 0; j < (*unique_anchors)[k][i].size(); ++j) {
                 (*cluster_ptr)[k][i][j] = futures[idx++].get();
             }
         }
@@ -258,11 +258,16 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
  * ───────────────────────────────────────────────────────── */
 MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap, int_t diagdiff, double diagfactor, int_t min_cluster_length)
 {
+
+    auto best_chain_clusters = std::make_shared<MatchClusterVec>();
+    if (unique_match.size() == 0) {
+        return best_chain_clusters;
+    }
     // 1. 聚簇
     MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
 
     // 2. 每簇提链 + 长度过滤
-    auto best_chain_clusters = std::make_shared<MatchClusterVec>();
+    
     best_chain_clusters->reserve(clusters.size());
 
     for (auto& cluster : clusters) {
