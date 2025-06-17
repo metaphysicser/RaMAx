@@ -1183,6 +1183,60 @@ const SequenceInfo* MaskedSequenceManager::getSequenceInfoByMaskedGlobalPosition
 // ========================
 
 namespace utils {
+std::filesystem::path cleanFastaFile(const std::filesystem::path &input_fasta,
+                                              const std::filesystem::path &output_fasta,
+                                              uint64_t line_width) {
+  std::ifstream input(input_fasta);
+  std::ofstream output(output_fasta);
+  
+  if (!input.is_open() || !output.is_open()) {
+    throw FileException("Cannot open input or output file");
+  }
+
+  std::string line;
+  std::string current_sequence;
+  std::string current_header;
+  
+  while (std::getline(input, line)) {
+    if (line.empty()) continue;
+    
+    if (line[0] == '>') {
+      // 处理前一个序列
+      if (!current_header.empty() && !current_sequence.empty()) {
+        output << current_header << "\n";
+        for (size_t i = 0; i < current_sequence.length(); i += line_width) {
+          size_t chunk_size = std::min(line_width, current_sequence.length() - i);
+          output << current_sequence.substr(i, chunk_size) << "\n";
+        }
+      }
+      
+      current_header = line;
+      current_sequence.clear();
+    } else {
+      // 清理序列行：转大写，移除非法字符
+      for (char c : line) {
+        char upper_c = std::toupper(c);
+        if (upper_c == 'A' || upper_c == 'T' || upper_c == 'G' || upper_c == 'C') {
+          current_sequence += upper_c;
+        } else if (std::isalpha(c)) {
+          current_sequence += 'N'; // 非法字符转为N
+        }
+      }
+    }
+  }
+  
+  // 处理最后一个序列
+  if (!current_header.empty() && !current_sequence.empty()) {
+    output << current_header << "\n";
+    for (size_t i = 0; i < current_sequence.length(); i += line_width) {
+      size_t chunk_size = std::min(line_width, current_sequence.length() - i);
+      output << current_sequence.substr(i, chunk_size) << "\n";
+    }
+  }
+
+  return output_fasta;
+}
+
 
 bool isValidFastaFile(const std::filesystem::path &file_path) {
   if (!std::filesystem::exists(file_path)) {
