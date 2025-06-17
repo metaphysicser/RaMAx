@@ -198,27 +198,50 @@ bool copyRawData(const FilePath workdir_path, SpeciesPathMap &species_path_map,
 }
 
 // -----------------------------
-// 清洗原始数据：调用 FastaManager 清理并索引
+// 清洗原始数据：调用 SeqPro 清理并索引
 // -----------------------------
 bool cleanRawDataset(const FilePath workdir_path,
                      SpeciesPathMap &species_path_map, int thread_num) {
-  ThreadPool pool(thread_num);
-  for (auto it = species_path_map.begin(); it != species_path_map.end(); ++it) {
-    std::string species = it->first;
-    std::filesystem::path raw_path = it->second;
+  try {
+    // 确保清洗数据输出目录存在
+    FilePath clean_data_dir = workdir_path / DATA_DIR / CLEAN_DATA_DIR;
+    if (!std::filesystem::exists(clean_data_dir)) {
+      std::filesystem::create_directories(clean_data_dir);
+      spdlog::info("Created directory for cleaned data: {}", clean_data_dir.string());
+    } else {
+      spdlog::info("Cleaned data directory already exists: {}", clean_data_dir.string());
+    }
 
-    pool.enqueue([species, raw_path, &workdir_path, &species_path_map]() {
-      FastaManager fasta_manager(raw_path);
-      FilePath out_dir = workdir_path / DATA_DIR / CLEAN_DATA_DIR;
-      FilePath out_fasta = out_dir / (species + ".fasta");
-      fasta_manager.writeCleanedFasta(out_fasta, 60);
-      species_path_map[species] = out_fasta;
-      spdlog::info("Species {} cleaned file path updated to: {}", species,
-                   out_fasta.string());
-    });
+    ThreadPool pool(thread_num);
+    for (auto it = species_path_map.begin(); it != species_path_map.end(); ++it) {
+      std::string species = it->first;
+      std::filesystem::path raw_path = it->second;
+
+      pool.enqueue([species, raw_path, &workdir_path, &species_path_map]() {
+        FilePath out_dir = workdir_path / DATA_DIR / CLEAN_DATA_DIR;
+        FilePath out_fasta = out_dir / (species + ".fasta");
+        
+        // 检查清洗后的文件是否已存在
+        if (std::filesystem::exists(out_fasta)) {
+          spdlog::warn("Species {} cleaned file already exists, skipping: {}", 
+                       species, out_fasta.string());
+          species_path_map[species] = out_fasta;
+          return;
+        }
+        
+        SeqPro::utils::cleanFastaFile(raw_path, out_fasta, 60);
+        species_path_map[species] = out_fasta;
+        spdlog::info("Species {} cleaned file path updated to: {}", species,
+                     out_fasta.string());
+      });
+    }
+    pool.waitAllTasksDone();
+    spdlog::info("All raw sequence data cleaned successfully.");
+    return true;
+  } catch (const std::exception &error) {
+    spdlog::error("Error occurred during data cleaning: {}", error.what());
+    throw std::runtime_error("Failed to clean raw dataset.");
   }
-  pool.waitAllTasksDone();
-  return true;
 }
 
 // -----------------------------

@@ -2,7 +2,7 @@
 #define RARE_ALIGNER_H
 #include "config.hpp"
 #include "index.h"
-#include "seqpro.h"
+#include "SeqPro.h"
 #include "threadpool.h"
 
 // 多基因组比对核心调度类
