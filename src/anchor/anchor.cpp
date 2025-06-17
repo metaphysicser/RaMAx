@@ -155,32 +155,32 @@ void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool
 
 }
 
-
-AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
-{
-    AnchorPtrVec uniques;
-    const size_t n = anchors.size();
-    if (n == 0) return uniques;
-
-    Coord_t max_end_so_far = 0;  // 记录到当前位置前的最大 end
-
-    for (size_t i = 0; i < n; ++i) {
-        const Anchor& curr = anchors[i];
-        Coord_t curr_start = curr.match.ref_region.start;
-        Coord_t curr_end = curr_start + curr.match.ref_region.length;
-
-        bool overlap_left = (i > 0 && max_end_so_far > curr_start);
-        bool overlap_right = (i + 1 < n &&
-            anchors[i + 1].match.ref_region.start < curr_end);
-
-        if (!overlap_left && !overlap_right)
-            uniques.emplace_back(std::make_shared<Anchor>(curr));
-
-        // 更新左侧最大 end
-        if (curr_end > max_end_so_far) max_end_so_far = curr_end;
-    }
-    return std::move(uniques);
-}
+//
+//AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors)
+//{
+//    AnchorPtrVec uniques;
+//    const size_t n = anchors.size();
+//    if (n == 0) return uniques;
+//
+//    Coord_t max_end_so_far = 0;  // 记录到当前位置前的最大 end
+//
+//    for (size_t i = 0; i < n; ++i) {
+//        const Anchor& curr = anchors[i];
+//        Coord_t curr_start = curr.match.ref_region.start;
+//        Coord_t curr_end = curr_start + curr.match.ref_region.length;
+//
+//        bool overlap_left = (i > 0 && max_end_so_far > curr_start);
+//        bool overlap_right = (i + 1 < n &&
+//            anchors[i + 1].match.ref_region.start < curr_end);
+//
+//        if (!overlap_left && !overlap_right)
+//            uniques.emplace_back(std::make_shared<Anchor>(curr));
+//
+//        // 更新左侧最大 end
+//        if (curr_end > max_end_so_far) max_end_so_far = curr_end;
+//    }
+//    return std::move(uniques);
+//}
 
 
 

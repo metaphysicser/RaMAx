@@ -33,7 +33,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ### 预处理阶段
 - [x] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
 - [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
-- [ ] 🟢 实现进化树读取与解析，构建比对指导树
+- [x] 🟢 实现进化树读取与解析，构建比对指导树
 - [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
 
 ### 索引阶段
@@ -42,7 +42,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 
 ### 锚点寻找阶段
 - [X] 🟠 确保被掩蔽的序列不在参考序列中参与比对
-- [ ] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
+- [x] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
 - [ ] 🟠 findQueryFile函数线程池现在是初步使用片段数量切分chunk，可以优化为片段长度之和,把多个片段合并为一个序列
 - [X] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
 - [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
@@ -60,8 +60,8 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟠 使用比对算法完成最终结果都细化
 
 ### 星比对合并阶段开发
-- [ ] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
-- [ ] 🔴 完成初步的星比对
+- [x] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
+- [x] 🔴 完成初步的星比对
 - [ ] 🔴 完成星比对结果的合并
 - [ ] 🟢 完成迭代补充星比对结果
 
@@ -72,7 +72,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [x] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
 
 ### 完善整体框架
-- [ ] 🔴 完成多基因组比对的main函数RaMAx.cpp
+- [x] 🔴 完成多基因组比对的main函数RaMAx.cpp
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
 - [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge

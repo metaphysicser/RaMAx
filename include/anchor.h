@@ -11,7 +11,6 @@
 #include <algorithm>              // 提供算法（如 sort 等）
 #include <list>                   // 用于 std::list 容器
 #include <SeqPro.h>
-
 #include <queue>
 
 #define ANCHOR_EXTENSION "anchor"  // Anchor 文件保存使用的默认扩展名
@@ -125,7 +124,7 @@ using ClusterVecPtrByQueryRef = std::vector<ClusterVecPtrByRef>;
 using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
 
 using ClusterVecPtrByRefPtr = std::shared_ptr<ClusterVecPtrByRef>;
-using ClusterVecPtrByRefPtrVec = std::vector<ClusterVecPtrByRefPtr>;
+
 using ClusterVecPtrByStrandByQueryRefPtr = std::shared_ptr<ClusterVecPtrByStrandByQueryRef>;
 
 using SpeciesClusterMap =
@@ -155,14 +154,13 @@ inline int_t clusterSpan(const MatchCluster& cl)
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     MatchByStrandByQueryRefPtr unique_anchors,
     MatchByStrandByQueryRefPtr repeat_anchors,
-    FastaManager& ref_fasta_manager,
-    FastaManager& query_fasta_manager,
+    SeqPro::ManagerVariant& ref_fasta_manager,
+    SeqPro::ManagerVariant& query_fasta_manager,
     ThreadPool& pool);
+
 
 // void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
 void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
-
-AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
 
 MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
 
@@ -178,14 +176,7 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
 
-// 把 [strand][query][ref] 结构重排为按 ref 聚合的一维向量
-ClusterVecPtrByRefPtrVec
-groupClustersByRef(ClusterVecPtrByStrandByQueryRefPtr& src);
-
-void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr,
-    ThreadPool& pool,
-    int_t                                MIN_SPAN,
-    int_t                                MIN_MATCH);
+void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr, ThreadPool& pool, int_t min_cluster_span);
 
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
@@ -216,31 +207,6 @@ using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
 using AnchorsByRef = std::vector<AnchorVec>;
 using AnchorsByQueryRef = std::vector<AnchorsByRef>;
 
-void groupMatchByQueryRef(MatchVec3DPtr& anchors,
-    MatchByStrandByQueryRefPtr unique_anchors,
-    MatchByStrandByQueryRefPtr repeat_anchors,
-    SeqPro::ManagerVariant& ref_fasta_manager,
-    SeqPro::ManagerVariant& query_fasta_manager,
-    ThreadPool& pool);
-
-// void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
-void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
-
-AnchorPtrVec findNonOverlapAnchors(const AnchorVec& anchors);
-
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
-
-MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
-
-MatchClusterVec buildClusters(MatchVec& unique_match,
-    int_t      max_gap,
-    int_t      diagdiff,
-    double     diagfactor);
-
-ClusterVecPtrByStrandByQueryRefPtr
-clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
-    const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool);
 
 // ------------------------------------------------------------------
 // 智能序列分块函数
