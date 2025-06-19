@@ -119,12 +119,18 @@ using MatchCluster = MatchVec; // 匹配簇，包含多个匹配向量
 using MatchClusterVec = std::vector<MatchCluster>;
 using MatchClusterVecPtr = std::shared_ptr<MatchClusterVec>;
 
+using ClusterSynteny = std::vector<MatchCluster>;
+using ClusterSyntenyVec = std::vector<ClusterSynteny>;
+using ClusterSyntenyVecPtr = std::shared_ptr<ClusterSyntenyVec>;
+using ClusterSyntenyVecPtrByRef = std::vector<ClusterSyntenyVecPtr>;
+
 using ClusterVecPtrByRef = std::vector<MatchClusterVecPtr>;
 using ClusterVecPtrByQueryRef = std::vector<ClusterVecPtrByRef>;
 using ClusterVecPtrByStrandByQueryRef = std::vector<ClusterVecPtrByQueryRef>;
 
 using ClusterVecPtrByRefPtr = std::shared_ptr<ClusterVecPtrByRef>;
-
+using ClusterVecPtrByRefQuery = std::vector<ClusterVecPtrByRef>;
+using ClusterVecPtrByRefQueryPtr = std::shared_ptr<ClusterVecPtrByRefQuery>;
 using ClusterVecPtrByStrandByQueryRefPtr = std::shared_ptr<ClusterVecPtrByStrandByQueryRef>;
 
 using SpeciesClusterMap =
@@ -159,7 +165,15 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     ThreadPool& pool);
 
 
+ClusterVecPtrByRefPtr
+groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src);
 // void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool);
+
+ClusterVecPtrByRefQueryPtr
+groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
+    SeqPro::ManagerVariant& query_fasta_manager,
+    ThreadPool& pool);
+
 void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
 
 MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
@@ -176,8 +190,9 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
 
-void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr, ThreadPool& pool, int_t min_cluster_span);
-
+void filterClustersByGreedy(ClusterVecPtrByRefPtr by_ref,
+    ThreadPool& pool,
+	int_t                                min_span);
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
     Match match;                    // 匹配信息

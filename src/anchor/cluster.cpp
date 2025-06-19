@@ -159,7 +159,7 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
  * \param  src  输入三维结构（shared_ptr 外围保持不变）
  * \return      shared_ptr< vector< MatchClusterVecPtr > >
  */
-inline ClusterVecPtrByRefPtr
+ClusterVecPtrByRefPtr
 groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src)
 {
     /* ---------- 0. 早退 ---------- */
@@ -418,18 +418,82 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
     }
 }
 
+/*------------------------------------------------------------------*
+ *  by_ref        : shared_ptr<vector<MatchClusterVecPtr>>  (ref 维)
+ *  返回值 by_refQ : shared_ptr<vector< vector<MatchClusterVecPtr> >>
+ *                   └──ref──┘└────query────┘
+ *------------------------------------------------------------------*/
+ClusterVecPtrByRefQueryPtr
+groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
+    SeqPro::ManagerVariant& query_fasta_manager,
+    ThreadPool& pool)
+{
+    /* ---------- 0. 提前创建返回对象 ---------- */
+    auto by_ref_query = std::make_shared<ClusterVecPtrByRefQuery>();
+    if (!by_ref || by_ref->empty()) return by_ref_query;
+
+    /* ---------- 1. 查询染色体总数 ---------- */
+    const uint32_t query_cnt = std::visit([](auto&& mgr) {
+        return static_cast<uint32_t>(mgr->getSequenceCount());
+        }, query_fasta_manager);
+
+    /* ---------- 2. 预分配 [ref][query] 矩阵 ---------- */
+    const uint32_t ref_cnt = static_cast<uint32_t>(by_ref->size());
+    by_ref_query->resize(ref_cnt);
+    for (uint32_t r = 0; r < ref_cnt; ++r)
+        (*by_ref_query)[r].resize(query_cnt);          // 初值 = 空 vector
+
+    /* ---------- 3. 每个 ref 开一个线程任务 ---------- */
+    for (uint32_t r = 0; r < ref_cnt; ++r) {
+        auto src_ptr = (*by_ref)[r];                   // 可能为空
+        if (!src_ptr || src_ptr->empty()) continue;
+
+        /* 捕获：src_ptr 按值、by_ref_query 按 shared_ptr 值 */
+        pool.enqueue([src_ptr,
+            by_ref_query,
+            &query_fasta_manager,
+            r, query_cnt]
+            {
+                /* 指向目标行，避免 lambda 内多级索引 */
+                ClusterVecPtrByRef* dst_row = &(*by_ref_query)[r];
+
+                for (auto& cluster : *src_ptr) {
+                    if (cluster.empty()) continue;
+
+                    /* ---- 3-1 计算 query 染色体 ID ---- */
+                    const auto& m = cluster.front();
+                    uint32_t qIdx = std::visit([&](auto&& mgr) {
+                        return static_cast<uint32_t>(
+                            mgr->getSequenceId(m.query_region.chr_name));
+                        }, query_fasta_manager);
+
+                    if (qIdx >= query_cnt) continue;      // 无效或未收录
+
+                    /* ---- 3-2 若目标指针为空就创建 ---- */
+                    if (!dst_row->at(qIdx))
+                        dst_row->at(qIdx) = std::make_shared<MatchClusterVec>();
+
+                    /* ---- 3-3 把簇移动到目标桶 ---- */
+                    dst_row->at(qIdx)->emplace_back(std::move(cluster));
+                }
+                /* src_ptr 中元素已 move，src_ptr 本身随后被析构 */
+            });
+    }
+
+    /* ---------- 4. 同步，保证数据就绪 ---------- */
+    return by_ref_query;
+}
+
+
 /* ============================================================= *
  *  把三维 clusters  ->  按 ref 的一维 clusters
  *  并行对每个 ref 走 keepWithSplitGreedy，再写回三维结构
  * ============================================================= */
-void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr,
+void filterClustersByGreedy(ClusterVecPtrByRefPtr by_ref,
     ThreadPool& pool,
     int_t                                min_span)
 {
-    if (!cluster_ptr || cluster_ptr->empty()) return;
 
-    /* 0. 先按 ref 汇总（保持 shared_ptr 共享语义） */
-    ClusterVecPtrByRefPtr by_ref = groupClustersByRef(cluster_ptr);
     if (!by_ref || by_ref->empty()) return;
 
     for (size_t r = 0; r < by_ref->size(); ++r) {
@@ -437,7 +501,6 @@ void filterClustersByGreedy(ClusterVecPtrByStrandByQueryRefPtr& cluster_ptr,
             keepWithSplitGreedy((*by_ref)[r], min_span);
             });
     }
-	pool.waitAllTasksDone();
 
     return;
 
