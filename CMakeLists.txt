@@ -23,6 +23,7 @@ set(PREPROCESS_DIR     "${SOURCE_DIR}/preprocess")
 set(INDEX_DIR          "${SOURCE_DIR}/index")
 set(ALIGN_DIR          "${SOURCE_DIR}/align")
 set(ANCHOR_DIR         "${SOURCE_DIR}/anchor")
+set(GRAPH_DIR          "${SOURCE_DIR}/graph")
 set(BIGBWT_DIR         "${INDEX_DIR}/bigBWT")
 set(BIGBWT_INCLUDE_DIR "${INCLUDE_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR   "${INDEX_DIR}/suffix_array")
@@ -82,6 +83,7 @@ set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/SeqPro.cpp"
     "${ALIGN_DIR}/pair_rare_aligner.cpp"
     "${ALIGN_DIR}/multiple_rare_aligner.cpp"
+    "${GRAPH_DIR}/ramesh.cpp"
 )
 
 # ================= 主程序入口文件 =================
