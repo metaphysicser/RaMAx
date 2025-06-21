@@ -29,12 +29,14 @@ MatchVec3DPtr PairRareAligner::alignPairGenome(
 	SpeciesName query_name,
 	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
-	bool allow_MEM) {
+	bool allow_MEM,
+	sdsl::int_vector<0>& ref_global_cache,
+	SeqPro::Length sampling_interval) {
 
 	ThreadPool shared_pool(thread_num);
 
 	MatchVec3DPtr anchors = findQueryFileAnchor(
-		query_name, query_fasta_manager, search_mode, allow_MEM, shared_pool);
+		query_name, query_fasta_manager, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval);
 
 	return anchors;
 
@@ -90,7 +92,9 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
 	bool allow_MEM,
-	ThreadPool& pool)
+	ThreadPool& pool,
+	sdsl::int_vector<0>& ref_global_cache,
+	SeqPro::Length sampling_interval)
 {
 	/* ---------- 1. 结果文件路径，与多基因组保持同一目录 ---------- */
 	FilePath result_dir = work_dir / RESULT_DIR
@@ -139,7 +143,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -159,7 +163,9 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							allow_MEM,
 							ck.start,
 							0,
-							max_anchor_frequency);
+							max_anchor_frequency,
+							ref_global_cache,
+							sampling_interval);
 
 						// 合并当前chunk的matches到group_matches
 						for (const auto& match_list : *forwoard_matches) {
@@ -170,7 +176,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				}));
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -190,7 +196,9 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							allow_MEM,
 							ck.start,
 							min_anchor_length,
-							max_anchor_frequency);
+							max_anchor_frequency,
+							ref_global_cache,
+							sampling_interval);
 						// 合并当前chunk的matches到group_matches
 						for (const auto& match_list : *reverse_matches) {
 							group_matches->push_back(match_list);
