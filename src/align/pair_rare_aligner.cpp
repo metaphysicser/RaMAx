@@ -212,7 +212,6 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
 	result->reserve(futures.size());
-
 	for (auto& fut : futures) {
 		MatchVec2DPtr part = fut.get();
 		result->emplace_back(std::move(*part));
