@@ -86,11 +86,11 @@ public:
         this->round_id = mra.round_id;
     }
 
-    MatchVec3DPtr alignPairGenome(SpeciesName query_name, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM);
+    MatchVec3DPtr alignPairGenome(SpeciesName query_name, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
     FilePath buildIndex(const std::string prefix, SeqPro::ManagerVariant& ref_fasta_manager_, bool fast_build);
 
 
-    MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool);
+    MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
     void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager);
 

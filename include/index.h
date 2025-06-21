@@ -135,23 +135,31 @@ public:
                             SearchMode search_mode, Strand strand,
                             bool allow_MEM, uint_t query_offset,
                             uint_t min_anchor_length,
-                            uint_t max_anchor_frequency);
+                            uint_t max_anchor_frequency,
+                            sdsl::int_vector<0>& ref_global_cache,
+                            SeqPro::Length sampling_interval);
 
   MatchVec2DPtr findAnchorsFast(ChrName query_chr, std::string query,
                                 Strand strand, bool allow_MEM,
                                 uint_t query_offset, uint_t min_anchor_length,
-                                uint_t max_anchor_frequency);
+                                uint_t max_anchor_frequency,
+                                sdsl::int_vector<0>& ref_global_cache,
+                                SeqPro::Length sampling_interval);
 
   MatchVec2DPtr findAnchorsAccurate(ChrName query_chr, std::string query,
                                     Strand strand, bool allow_MEM,
                                     uint_t query_offset,
                                     uint_t min_anchor_length,
-                                    uint_t max_anchor_frequency);
+                                    uint_t max_anchor_frequency,
+                                    sdsl::int_vector<0>& ref_global_cache,
+                                    SeqPro::Length sampling_interval);
 
   MatchVec2DPtr findAnchorsMiddle(ChrName query_chr, std::string query,
                                   Strand strand, bool allow_MEM,
                                   uint_t query_offset, uint_t min_anchor_length,
-                                  uint_t max_anchor_frequency);
+                                  uint_t max_anchor_frequency,
+                                  sdsl::int_vector<0>& ref_global_cache,
+                                  SeqPro::Length sampling_interval);
 
   // -------------------------
   // MEM / MUM 区间拆分辅助结构与算法
@@ -166,7 +174,9 @@ public:
                      bool allow_MEM, uint_t query_offset, uint_t query_length,
                      uint_t min_anchor_length, uint_t max_anchor_frequency,
                      const MUMInfo &left, const MUMInfo &right,
-                     MatchVec2D &out);
+                     MatchVec2D &out,
+                     sdsl::int_vector<0>& ref_global_cache,
+                     SeqPro::Length sampling_interval);
 
   // -------------------------
   // 子串查找（返回匹配长度与区域）
@@ -182,7 +192,9 @@ public:
   uint_t findSubSeqAnchors(const char *query, uint_t query_length,
                            bool allow_MEM, RegionVec &region_vec,
                            uint_t min_anchor_length,
-                           uint_t max_anchor_frequency);
+                           uint_t max_anchor_frequency,
+                           sdsl::int_vector<0>& ref_global_cache,
+                           SeqPro::Length sampling_interval);
 
   // -------------------------
   // 索引序列化 / 反序列化
