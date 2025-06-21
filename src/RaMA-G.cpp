@@ -8,6 +8,7 @@
 #include "index.h"
 #include "anchor.h"
 #include "rare_aligner.h"
+#include "sequence_utils.h"
 #include <limits>
 #include <algorithm>
 #include <variant>
@@ -48,34 +49,7 @@ struct CommonArgs {
     }
 };
 
-// ------------------------------------------------------------------
-// 辅助函数：计算并记录reference的序列统计信息
-// ------------------------------------------------------------------
-template<typename ManagerType>
-void recordReferenceSequenceStats(const std::string& species_name, 
-                                 const std::unique_ptr<ManagerType>& manager,
-                                 SeqPro::Length& reference_min_seq_length) {
-    auto seq_count = manager->getSequenceCount();
-    
-    if (species_name == "reference") {
-        // 只对reference计算序列长度统计
-        auto seq_names = manager->getSequenceNames();
-        SeqPro::Length min_seq_length = std::numeric_limits<SeqPro::Length>::max();
-        SeqPro::Length max_seq_length = 0;
-        
-        for (const auto& seq_name : seq_names) {
-            auto seq_length = manager->getSequenceLength(seq_name);
-            min_seq_length = std::min(min_seq_length, seq_length);
-            max_seq_length = std::max(max_seq_length, seq_length);
-        }
-        
-        spdlog::info("[{}] Loaded {} sequences, min length: {}, max length: {}", 
-                     species_name, seq_count, min_seq_length, max_seq_length);
-        reference_min_seq_length = min_seq_length;
-    } else {
-        spdlog::info("[{}] Loaded {} sequences", species_name, seq_count);
-    }
-}
+
 
 // ------------------------------------------------------------------
 // CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
@@ -361,11 +335,11 @@ int main(int argc, char **argv) {
                         std::move(original_manager),
                         interval_files_map[species_name]
                     );
-                    spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
+                                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
-
+                    
                     // 记录序列统计信息
-                    recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
                     
                     // 移动到seqpro_managers中
                     seqpro_managers[species_name] = std::move(manager);
@@ -382,7 +356,7 @@ int main(int argc, char **argv) {
                                  species_name, cleaned_fasta_path.string());
                     
                     // 记录序列统计信息
-                    recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
                      seqpro_managers[species_name] = std::move(manager);
                 } catch (const std::exception &e) {
@@ -404,7 +378,7 @@ int main(int argc, char **argv) {
                              cleaned_fasta_path.string());
 
                 // 记录序列统计信息
-                recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
                 seqpro_managers[species_name] = std::move(manager);
             } catch (const std::exception &e) {
@@ -438,7 +412,7 @@ int main(int argc, char **argv) {
     // ------------------------------
     auto t_start_build = std::chrono::steady_clock::now();
 
-    pra.buildIndex("reference", seqpro_managers["reference"], false); // 可切换 CaPS / divsufsort
+    pra.buildIndex("reference", seqpro_managers["reference"], true); // 可切换 CaPS / divsufsort
     auto t_end_build = std::chrono::steady_clock::now();
     std::chrono::duration<double> build_time = t_end_build - t_start_build;
     spdlog::info("Index built in {:.3f} seconds.", build_time.count());
@@ -450,79 +424,9 @@ int main(int argc, char **argv) {
     sdsl::int_vector<0> ref_global_cache;
     // 初始化ref_global_cache：采样策略避免二分搜索
     auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
-    auto total_length = std::visit([](auto&& manager_ptr) {
-        return manager_ptr->getTotalLength();
-    }, seqpro_managers["reference"]);
-    auto cache_size = (total_length / sampling_interval) + 1;
-    ref_global_cache.resize(cache_size);
-
-    // Fill ref_global_cache: pre-calculate sequence IDs for each sampling point
-    spdlog::info("Filling ref_global_cache, sampling_interval={}, cache_size={}", sampling_interval, cache_size);
-    auto t_start_cache = std::chrono::steady_clock::now();
     
-    std::visit([&](auto&& manager_ptr) {
-        // 获取所有序列信息，按 global_start_pos 排序
-        auto seq_names = manager_ptr->getSequenceNames();
-        std::vector<const SeqPro::SequenceInfo*> seq_infos;
-        seq_infos.reserve(seq_names.size());
-        
-        for (const auto& name : seq_names) {
-            if constexpr (std::is_same_v<std::decay_t<decltype(manager_ptr)>, std::unique_ptr<SeqPro::SequenceManager>>) {
-                const auto* info = manager_ptr->getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
-            } else if constexpr (std::is_same_v<std::decay_t<decltype(manager_ptr)>, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                const auto* info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
-            }
-        }
-        
-        // 按全局起始位置排序
-        std::sort(seq_infos.begin(), seq_infos.end(), 
-                  [](const SeqPro::SequenceInfo* a, const SeqPro::SequenceInfo* b) {
-                      return a->global_start_pos < b->global_start_pos;
-                  });
-        
-        // 顺序填充
-        size_t current_seq_idx = 0;
-        for (SeqPro::Position i = 0; i < cache_size; ++i) {
-            SeqPro::Position sample_global_pos = i * sampling_interval;
-            
-            if (sample_global_pos >= total_length) {
-                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                continue;
-            }
-            
-            // 向前查找包含当前位置的序列
-            while (current_seq_idx < seq_infos.size()) {
-                const auto* current_seq = seq_infos[current_seq_idx];
-                SeqPro::Position seq_end = current_seq->global_start_pos + current_seq->length;
-                
-                if (sample_global_pos >= current_seq->global_start_pos && sample_global_pos < seq_end) {
-                    // 找到了包含该位置的序列
-                    ref_global_cache[i] = current_seq->id;
-                    break;
-                } else if (sample_global_pos >= seq_end) {
-                    // 当前序列已经过了，移动到下一个序列
-                    current_seq_idx++;
-                } else {
-                    // sample_global_pos < current_seq->global_start_pos, shouldn't happen
-                    spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}", 
-                                sample_global_pos, current_seq->global_start_pos);
-                    ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                    break;
-                }
-            }
-            
-            // 如果遍历完所有序列都没找到，标记为无效
-            if (current_seq_idx >= seq_infos.size()) {
-                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-            }
-        }
-    }, seqpro_managers["reference"]);
-    sdsl::util::bit_compress(ref_global_cache);
-    auto t_end_cache = std::chrono::steady_clock::now();
-    std::chrono::duration<double> cache_time = t_end_cache - t_start_cache;
-    spdlog::info("ref_global_cache filling completed in {:.3f} seconds", cache_time.count());
+    // 使用工具函数构建缓存
+    SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
 
     MatchVec3DPtr anchors = pra.alignPairGenome(
         "query", seqpro_managers["query"], FAST_SEARCH, false, ref_global_cache,sampling_interval);

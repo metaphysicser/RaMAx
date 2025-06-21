@@ -120,10 +120,10 @@ namespace RaMesh {
             blk->anchors.reserve(genome_hint);
             return blk;
         }
-
-    private:
         Block() = default;
         ~Block() = default;
+    private:
+
 
     };
 
