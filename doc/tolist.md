@@ -31,48 +31,33 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 ## 当前优先任务（🔴🟠🟢）
 
 ### 预处理阶段
-- [x] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
-- [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
-- [x] 🟢 实现进化树读取与解析，构建比对指导树
 - [ ] 🟢 支持 group 模式（基于聚类的渐进式比对）和支持 star 模式（所有序列完成星比对）
+- [ ] 🔴 增加对contig, Scaffold基因组的支持
 
 ### 索引阶段
-- [ ] 🔴 在rare_aligner.h中MultipeRareAligner中增加group比对函数，完成簇内使用星比对完成比对
-- [ ] 🟠 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
+- [ ] 🟢 在index.h中完成fmindex的优化，支持拼接的序列用\01作为分割符号
 
 ### 锚点寻找阶段
-- [X] 🟠 确保被掩蔽的序列不在参考序列中参与比对
-- [x] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
 - [ ] 🟠 findQueryFile函数线程池现在是初步使用片段数量切分chunk，可以优化为片段长度之和,把多个片段合并为一个序列
-- [X] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
-- [ ] 🟠 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
-- [X] 🟠 支持反向链的寻找
-
+- [ ] 🟢 优化FM_index类中的bisectAnchors和findAnchorsAccurate函数，因为现在找到的锚点不是严格意义的MUM，还可以向左扩展，并确保输出准确
 
 ### 锚点过滤功能开发
-- [X] 🔴 在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
-- [ ] 🟠 在align.h中完成双序列比对类的开发，支持锚点的延伸和细化
-- [ ] 🟠 Match在cluster的过程中，可能会把overlap的两个锚点其中一个删掉，但实际应该合并他们
-- [ ] 🟠 完成锚点聚类->Anchor的转变
-- [X] 🟠 支持反向链的锚点过滤和聚类
-- [ ] 🟠 基于贪婪算法完成Match聚类的选择，得到比对结果
+- [ ] 🟠 基于贪婪算法完成Match聚类的选择，构建RaMesh图
 - [ ] 🟠 将repeat Match补充到比对结果中
+- [ ] 🟠 在align.h中完成双序列比对类的开发，支持锚点的延伸和细化
 - [ ] 🟠 使用比对算法完成最终结果都细化
 
 ### 星比对合并阶段开发
-- [x] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
-- [x] 🔴 完成初步的星比对
-- [ ] 🔴 完成星比对结果的合并
-- [ ] 🟢 完成迭代补充星比对结果
+- [ ] 🔴 完成RaMesh的图结构的设计和开发
+- [ ] 🔴 完成星比对结果的图结构合并
+- [ ] 🟢 完成迭代补充星比对的图结构结果
 
 ### 结果输出
 - [ ] 🟢 多基因组比对完成hal文件的输出，并支持maf文件的输出格式
 - [ ] 🟢 双基因组比对支持sam，maf，paf，delta，lav，axt格式的输出
 - [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
-- [x] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
 
 ### 完善整体框架
-- [x] 🔴 完成多基因组比对的main函数RaMAx.cpp
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
 - [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge
@@ -82,18 +67,37 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 增加conda和docker的安装方式
 - [ ] 🟢 完善README文档，包含安装、使用、开发等说明
 - [ ] 🟢 单独把fmidex作为一个轮子开源到一个新仓库
+- [ ] 🟢 单独把SeqPro作为一个轮子开源到一个新仓库
 
 ### bug修复
-- [X] 🟠 match的匹配不对应
-- [x] 🟠 fasta_manager类中的charidxmap不支持重复掩蔽
 - [ ] 🟠 query的相同位点存在两个相同位置的匹配
+- [ ] 🟠 Match在cluster的过程中，可能会把overlap的两个锚点其中一个删掉，但实际应该合并他们
 
 ### 未来计划
 - [ ] 🟢 增加对重复序列的比对支持
 - [ ] 🟢 开发可视化软件，支持自定义格式的可视化
 - [ ] 🟢 尝试引入MUMmer的后缀数组＋LCP索引方案
-- [ ] 🟢 增加对Scaffold基因组的支持
+- [ ] 🟢 使用slaping来加速后缀数组查找
 - [ ] 🟢 为RaMAx做一个主页
+
+
+## 已经完成的任务
+- [x] 🔴 在data_process.h中对所有基因组完成[重复掩蔽](https://github.com/BioinformaticsToolsmith/Red)
+- [x] 🔴 在rare_aligner.h中新增MultipeRareAligner类，用于多基因组比对，PairRareAligner暂时放弃开发。
+- [x] 🟢 实现进化树读取与解析，构建比对指导树
+- [X] 🟠 确保被掩蔽的序列不在参考序列中参与比对
+- [x] 🟠 在index.h中完成fastamanger的优化，只有部分序列的fasta快速索引到原有位置
+- [X] 🟠 支持反向链的寻找
+- [x] 🔴 完成rare_aligner.h中starAlignGroup，确认后续的开发任务
+- [x] 🔴 完成初步的星比对
+- [X] 🟠 match的匹配不对应
+- [x] 🟠 fasta_manager类中的charidxmap不支持重复掩蔽
+- [x] 🔴 完成多基因组比对的main函数RaMAx.cpp
+- [x] 🔴 完成benchmark文件夹的构建，包括双基因组比对和多基因组比对
+- [X] 🟠 支持反向链的锚点过滤和聚类
+- [X] 🟠 将fastamanager拆分为两个类，第一个类是fastaprocessor，用于处理fasta文件，第二个类是fastamanager，用于索引fasta文件
+- [X] 🔴 在anchor.h中参考 MUMmer4 mgaps.cc 实现锚点聚类这个类的实现，并完成锚点过滤的功能。
+
 ---
 
 ## 协作与开发规范
