@@ -133,8 +133,10 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
             sp,
             std::async(std::launch::async,
                 [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool]() -> MatchVec3DPtr {
-                    // 统一走单物种比对逻辑，公用 shared_pool
-                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool);
+                    // 在多基因组对齐中，每个查询物种使用独立的空缓存（暂时禁用缓存功能）
+                    sdsl::int_vector<0> empty_cache;
+                    SeqPro::Length null;
+                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, empty_cache,null);
                 })
         );
     }
