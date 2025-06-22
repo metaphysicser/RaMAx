@@ -58,6 +58,7 @@ RaMAx 旨在实现基于聚类的局部 all-all 渐进式多基因组比对，�
 - [ ] 🟢 实现自定义比对格式，开发自定义格式与其他格式的转换工具
 
 ### 完善整体框架
+- [ ] 🟢 把能改为unique的指针都改为shared
 - [ ] 🟢 实现预处理模块子程序 RaMA-preprocess
 - [ ] 🟢 实现比对模块 RaMA-G（预留子命令 build、align、map）
 - [ ] 🟢 实现合并模块 RaMA-merge

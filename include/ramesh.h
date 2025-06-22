@@ -12,6 +12,7 @@
 #include <atomic>
 #include <unordered_map>
 #include <vector>
+#include <map>
 #include <memory_resource>
 #include <shared_mutex>
 #include "config.hpp"
@@ -27,11 +28,68 @@ namespace RaMesh {
     using BlockPtr = std::shared_ptr<Block>;
     using WeakBlock = std::weak_ptr<Block>;
 
-    using SegPtr = Segment*;                 // 生命周期由所属 Block 控制
-    using SegAtom = std::atomic<SegPtr>;      // 原子可见裸指针
+    using SegPtr = Segment*;
 
-    using SegVec = std::vector<SegAtom>;
-    using ChrSegVecMap = std::unordered_map<ChrName, SegVec>;
+    struct SegAtom {
+        std::atomic<SegPtr> p{ nullptr };
+
+        SegAtom() = default;
+        explicit SegAtom(SegPtr s) noexcept : p(s) {}
+
+        /* 不可拷贝 */
+        SegAtom(const SegAtom&) = delete;
+        SegAtom& operator=(const SegAtom&) = delete;
+
+        /* 允许移动 */
+        SegAtom(SegAtom&& other) noexcept {
+            p.store(other.p.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+        }
+        SegAtom& operator=(SegAtom&& other) noexcept {
+            p.store(other.p.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+            return *this;
+        }
+
+        /* --------- 转发接口（保持与 std::atomic 指针一致） --------- */
+        inline void store(SegPtr v,
+            std::memory_order mo = std::memory_order_seq_cst) noexcept
+        {
+            p.store(v, mo);
+        }
+
+        inline SegPtr load(std::memory_order mo = std::memory_order_seq_cst) const noexcept
+        {
+            return p.load(mo);
+        }
+
+        inline SegPtr exchange(SegPtr v,
+            std::memory_order mo = std::memory_order_seq_cst) noexcept
+        {
+            return p.exchange(v, mo);
+        }
+
+        inline bool compare_exchange_weak(SegPtr& expected, SegPtr desired,
+            std::memory_order mo = std::memory_order_seq_cst) noexcept
+        {
+            return p.compare_exchange_weak(expected, desired, mo);
+        }
+
+        inline bool compare_exchange_strong(SegPtr& expected, SegPtr desired,
+            std::memory_order mo = std::memory_order_seq_cst) noexcept
+        {
+            return p.compare_exchange_strong(expected, desired, mo);
+        }
+
+        /* 方便读取：允许隐式转成裸指针 */
+        operator SegPtr() const noexcept { return p.load(std::memory_order_relaxed); }
+    };
+
+
+    // 方便使用的别名保持不变
+    using SegAtomVec = std::vector<SegAtom>;
+
+    using ChrSegMap = std::unordered_map<ChrName, SegAtomVec>;
 
 
     /* ---------- 链表节点 ---------- */
@@ -115,7 +173,7 @@ namespace RaMesh {
     public:
         ChrName ref_chr;
 
-        ChrSegVecMap anchors;
+        ChrSegMap anchors;
 
         mutable std::shared_mutex rw;
 
@@ -156,7 +214,6 @@ namespace RaMesh {
          */
         static BlockPtr create_from_match(const Match& match);
 
-    private:
         Block() = default;
         ~Block() = default;
 
@@ -194,13 +251,13 @@ namespace RaMesh {
     public:
         /* 物种 → 基因组图 */
         std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs;
-        mutable std::shared_mutex                          species_mtx;
 
         /* 所有 Block 的弱引用（用于跨物种共享） */
         std::vector<WeakBlock> blocks;
         mutable std::mutex     rw;
 
         RaMeshMultiGenomeGraph() = default;
+        RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map);
     };
 
 

@@ -4,6 +4,7 @@
 #include "index.h"
 #include "SeqPro.h"
 #include "threadpool.h"
+#include "ramesh.h"
 
 // 多基因组比对核心调度类
 class MultipleRareAligner {
@@ -92,7 +93,7 @@ public:
 
     MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
-    void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager);
+    void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph);
 
 };
 

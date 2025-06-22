@@ -234,8 +234,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 }
 
 
-void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
-	SeqPro::ManagerVariant& query_fasta_manager)
+void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)
 {
 	ThreadPool shared_pool(thread_num);
 	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
@@ -265,10 +264,7 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 	spdlog::info("clusterAllChrMatch done");
 
 	MatchClusterVecPtr cluster_vec_ptr = groupClustersToVec(cluster_ptr, shared_pool, thread_num);
-	/*shared_pool.waitAllTasksDone();
-	spdlog::info("filterClustersByGreedy done");
-
-	ClusterVecPtrByRefQueryPtr cluster_by_ref_query = groupClustersByRefQuery(by_ref, query_fasta_manager, shared_pool);*/
+	
 	shared_pool.waitAllTasksDone();
 
 	filterClustersByGreedy(cluster_vec_ptr, 50);

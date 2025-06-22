@@ -16,8 +16,6 @@ namespace RaMesh {
         : head(h), tail(t) {
     }
 
-    /* ① 默认：占位构造 */
-    RaMeshGenomeGraph::RaMeshGenomeGraph() = default;
 
     /* ② 只有物种名 */
     RaMeshGenomeGraph::RaMeshGenomeGraph(const SpeciesName& sp)
@@ -36,5 +34,23 @@ namespace RaMesh {
             chr2end.emplace(c, GenomeEnd{});   // 先放空哨兵，后续可补 head/tail
         }
     }
+
+    RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
+        std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map)
+    {
+        for (auto& [species_name, mgr_var] : seqpro_map) {
+
+            std::vector<ChrName> chr_names = std::visit(
+                [](auto& up)->std::vector<ChrName> {
+                    return up ? up->getSequenceNames() : std::vector<ChrName>{};
+                }, mgr_var);
+
+            species_graphs.emplace(
+                std::piecewise_construct,
+                std::forward_as_tuple(species_name),
+                std::forward_as_tuple(species_name, chr_names));
+        }
+    }
+
 
 } // namespace RaMesh
