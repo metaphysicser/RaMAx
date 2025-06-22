@@ -83,7 +83,8 @@ set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/SeqPro.cpp"
     "${ALIGN_DIR}/pair_rare_aligner.cpp"
     "${ALIGN_DIR}/multiple_rare_aligner.cpp"
-    "${GRAPH_DIR}/ramesh.cpp"
+    "${GRAPH_DIR}/ramesh_node.cpp"
+    "${GRAPH_DIR}/ramesh_graph.cpp"
 )
 
 # ================= 主程序入口文件 =================
