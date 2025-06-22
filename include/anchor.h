@@ -164,6 +164,10 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     SeqPro::ManagerVariant& query_fasta_manager,
     ThreadPool& pool);
 
+MatchClusterVecPtr
+groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
+    ThreadPool& pool, uint_t thread_num);
+
 
 ClusterVecPtrByRefPtr
 groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src);
@@ -190,9 +194,8 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
 
-void filterClustersByGreedy(ClusterVecPtrByRefPtr by_ref,
-    ThreadPool& pool,
-	int_t                                min_span);
+void filterClustersByGreedy(MatchClusterVecPtr cluster_vec_ptr,
+    uint_t              min_span);
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
     Match match;                    // 匹配信息

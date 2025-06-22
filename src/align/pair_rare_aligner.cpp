@@ -264,14 +264,14 @@ void PairRareAligner::filterPairSpeciesAnchors(MatchVec3DPtr& anchors,
 
 	spdlog::info("clusterAllChrMatch done");
 
-	ClusterVecPtrByRefPtr by_ref = groupClustersByRef(cluster_ptr);
-
-	filterClustersByGreedy(by_ref, shared_pool, 50);
-	shared_pool.waitAllTasksDone();
+	MatchClusterVecPtr cluster_vec_ptr = groupClustersToVec(cluster_ptr, shared_pool, thread_num);
+	/*shared_pool.waitAllTasksDone();
 	spdlog::info("filterClustersByGreedy done");
 
-	ClusterVecPtrByRefQueryPtr cluster_by_ref_query = groupClustersByRefQuery(by_ref, query_fasta_manager, shared_pool);
+	ClusterVecPtrByRefQueryPtr cluster_by_ref_query = groupClustersByRefQuery(by_ref, query_fasta_manager, shared_pool);*/
 	shared_pool.waitAllTasksDone();
+
+	filterClustersByGreedy(cluster_vec_ptr, 50);
 
 	return;
 
