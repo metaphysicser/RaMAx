@@ -686,7 +686,7 @@ int main(int argc, char **argv) {
     std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
     spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
 
-    pra.Clusters2GraphByGreedy("query", cluster_vec_ptr, graph, 50);
+    pra.constructGraphByGreedy("query", cluster_vec_ptr, graph, 50);
 
     // ------------------------------
     // 退出

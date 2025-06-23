@@ -44,6 +44,7 @@ MatchVec3DPtr PairRareAligner::alignPairGenome(
 
 FilePath PairRareAligner::buildIndex(const std::string prefix, SeqPro::ManagerVariant& ref_fasta_manager_, bool fast_build) {
 
+	ref_name = prefix;
 	FilePath ref_index_path = index_dir / prefix;
 
 	if (!std::filesystem::exists(ref_index_path)) {
@@ -245,7 +246,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
   * @param min_span         最小跨度阈值
   */
-void PairRareAligner::Clusters2GraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
+void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
 	ThreadPool pool(thread_num);
 
@@ -301,6 +302,7 @@ void PairRareAligner::Clusters2GraphByGreedy(SpeciesName query_name, MatchCluste
 			/* 完全无冲突 —— 记录并接纳 */
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
+			graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);
 			kept.emplace_back(std::move(cur.cl));
 			continue;
 		}
@@ -310,6 +312,7 @@ void PairRareAligner::Clusters2GraphByGreedy(SpeciesName query_name, MatchCluste
 			query_hit, QL, QR)) {
 			int_t sc = clusterSpan(part);
 			if (sc >= min_span) {
+				graph.insertClusterIntoGraph(ref_name, query_name, part);
 				heap.push_back({ std::move(part), sc });
 				std::push_heap(heap.begin(), heap.end(), cmp);
 			}

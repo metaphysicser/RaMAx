@@ -87,15 +87,28 @@ namespace RaMesh {
 
 
     // 方便使用的别名保持不变
-    using SegAtomVec = std::vector<SegAtom>;
+    using SegAtomPtr = std::shared_ptr<SegAtom>;
 
-    using ChrSegMap = std::unordered_map<ChrName, SegAtomVec>;
+
+    using SpeciesChrPair = std::pair<SpeciesName, ChrName>;
+
+    /* -------------- 在 ramesh.h 中，紧跟 SpeciesChrPair 声明 -------------- */
+    struct SpeciesChrPairHash {
+        std::size_t operator()(const SpeciesChrPair& p) const noexcept {
+            std::size_t h1 = std::hash<std::string>{}(p.first);
+            std::size_t h2 = std::hash<std::string>{}(p.second);
+            /* 64-bit 版 boost::hash_combine */
+            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
+    using ChrSegMap = std::unordered_map<SpeciesChrPair, SegAtomPtr, SpeciesChrPairHash>;
 
 
     /* ---------- 链表节点 ---------- */
     struct RaMeshPath {
-        SegAtom next{ nullptr };
-        SegAtom prev{ nullptr };
+        SegAtomPtr next{ nullptr };
+        SegAtomPtr prev{ nullptr };
     };
 
     /* ---------- 主/次 比对标记 ---------- */
@@ -104,6 +117,7 @@ namespace RaMesh {
     /* ---------- 抽象节点基类 ---------- */
     class RaMeshNode : public std::enable_shared_from_this<RaMeshNode> {
     public:
+        RaMeshPath primary_path;
         [[nodiscard]] virtual bool is_head()  const noexcept = 0;
         [[nodiscard]] virtual bool is_tail()  const noexcept = 0;
         [[nodiscard]] virtual bool is_segment() const noexcept = 0;
@@ -124,7 +138,6 @@ namespace RaMesh {
         Strand   strand{ Strand::FORWARD };
         AlignRole role{ AlignRole::PRIMARY };
 
-        RaMeshPath primary_path;
         RaMeshPath secondary_path;
 
         WeakBlock parent_block;                 // ← 由裸指针改为弱引用
@@ -141,10 +154,8 @@ namespace RaMesh {
             AlignRole        role = AlignRole::PRIMARY,
             const BlockPtr& parent = nullptr);
 
-        static SegPtr create(const Region& region,
-            Strand strand = Strand::FORWARD,
-            AlignRole role = AlignRole::PRIMARY,
-            const BlockPtr& parent = nullptr);
+        static SegPtr create(uint_t start, uint_t length, Strand strand, Cigar_t cigar, AlignRole role, const BlockPtr& parent);
+        static SegPtr create_from_region(Region& region, Strand strand, Cigar_t cigar, AlignRole role, const BlockPtr& parent);
     };
 
 
@@ -230,6 +241,9 @@ namespace RaMesh {
         /* ctor ②：直接传入 head / tail */
         GenomeEnd(const std::shared_ptr<HeadSegment>& h,
             const std::shared_ptr<TailSegment>& t);
+
+        std::pair<SegPtr, SegPtr> findSurroundingSegmentRange(uint_t range_start, uint_t range_end);
+    
     };
     /* ---------- 物种级图 ---------- */
     class RaMeshGenomeGraph {
