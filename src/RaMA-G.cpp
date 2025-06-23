@@ -681,10 +681,12 @@ int main(int argc, char **argv) {
     // ------------------------------
     spdlog::info("Filtering anchors...");
     auto t_start_filer = std::chrono::steady_clock::now();
-    pra.filterPairSpeciesAnchors(anchors, seqpro_managers["query"], graph);
+    MatchClusterVecPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
     auto t_end_filer = std::chrono::steady_clock::now();
     std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
     spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
+
+    pra.Clusters2GraphByGreedy("query", cluster_vec_ptr, graph, 50);
 
     // ------------------------------
     // 退出

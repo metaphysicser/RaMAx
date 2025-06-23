@@ -13,6 +13,7 @@
 #include <SeqPro.h>
 #include <queue>
 
+
 #define ANCHOR_EXTENSION "anchor"  // Anchor 文件保存使用的默认扩展名
 
 // ------------------------------------------------------------------
@@ -194,8 +195,13 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
     ThreadPool& pool);
 
-void filterClustersByGreedy(MatchClusterVecPtr cluster_vec_ptr,
-    uint_t              min_span);
+MatchClusterVec
+splitCluster(const MatchCluster& cl,
+    bool  ref_hit,
+    int_t bad_r_beg, int_t bad_r_end,
+    bool  query_hit,
+    int_t bad_q_beg, int_t bad_q_end);
+
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
     Match match;                    // 匹配信息

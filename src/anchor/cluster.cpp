@@ -371,7 +371,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
   *
   * \return 0 段：整簇都冲突；1 段：完全无冲突；2 段：被矩形切成前/后两段
   */
-inline MatchClusterVec
+MatchClusterVec
 splitCluster(const MatchCluster& cl,
     bool  ref_hit,
     int_t bad_r_beg, int_t bad_r_end,
@@ -490,92 +490,3 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
     /* ---------- 4. 同步，保证数据就绪 ---------- */
     return by_ref_query;
 }
-
-
-/* ============================================================= *
- *  把三维 clusters  ->  按 ref 的一维 clusters
- *  并行对每个 ref 走 keepWithSplitGreedy，再写回三维结构
- * ============================================================= */
- /**
-  * @brief  全局 MatchClusterVec 上执行“两级 map + 最大堆贪婪拆分”过滤
-  *
-  * @param cluster_vec_ptr  所有 clusters 的 shared_ptr
-  * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
-  * @param min_span         最小跨度阈值
-  */
-void filterClustersByGreedy(MatchClusterVecPtr cluster_vec_ptr,
-    uint_t              min_span)
-{
-                                    // 当前单线程
-
-    if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
-
-    /* ---------- 1. 取出所有 cluster 建最大堆 ---------- */
-    struct Node {
-        MatchCluster cl;
-        int_t        span;
-    };
-    auto cmp = [](const Node& a, const Node& b) { return a.span < b.span; };
-
-    std::vector<Node> heap;
-    heap.reserve(cluster_vec_ptr->size());
-
-    for (auto& cl : *cluster_vec_ptr) {
-        if (cl.empty()) continue;
-        int_t sc = clusterSpan(cl);
-        if (sc >= min_span)
-            heap.push_back({ std::move(cl), sc });
-    }
-    cluster_vec_ptr->clear();                 // 原向量腾空
-    std::make_heap(heap.begin(), heap.end(), cmp);
-
-    /* ---------- 2. 两级 interval map（按 ChrName） ---------- */
-    std::unordered_map<ChrName, IntervalMap> rMaps;   // 参考端
-    std::unordered_map<ChrName, IntervalMap> qMaps;   // 查询端
-
-    MatchClusterVec kept; kept.reserve(heap.size());
-
-    /* ---------- 3. 贪婪循环 ---------- */
-    while (!heap.empty())
-    {
-        std::pop_heap(heap.begin(), heap.end(), cmp);
-        Node cur = std::move(heap.back());
-        heap.pop_back();
-
-        if (cur.span < min_span || cur.cl.empty()) continue;
-
-        const ChrName& refChr = cur.cl.front().ref_region.chr_name;
-        const ChrName& qChr = cur.cl.front().query_region.chr_name;
-
-        uint_t rb = start1(cur.cl.front());
-        uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
-        uint_t qb = start2(cur.cl.front());
-        uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
-
-        int_t RL = 0, RR = 0, QL = 0, QR = 0;
-        bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
-        bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
-
-        if (!ref_hit && !query_hit) {
-            /* 完全无冲突 —— 记录并接纳 */
-            insertInterval(rMaps[refChr], rb, re);
-            insertInterval(qMaps[qChr], qb, qe);
-            kept.emplace_back(std::move(cur.cl));
-            continue;
-        }
-
-        /* 有冲突 —— 拆分为 ≤ 2 段，仍按跨度丢回堆 */
-        for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR,
-            query_hit, QL, QR)) {
-            int_t sc = clusterSpan(part);
-            if (sc >= min_span) {
-                heap.push_back({ std::move(part), sc });
-                std::push_heap(heap.begin(), heap.end(), cmp);
-            }
-        }
-    }
-
-    /* ---------- 4. 输出过滤结果 ---------- */
-    *cluster_vec_ptr = std::move(kept);      // 顺序无关
-}
-

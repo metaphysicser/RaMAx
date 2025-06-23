@@ -258,6 +258,8 @@ namespace RaMesh {
 
         RaMeshMultiGenomeGraph() = default;
         RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map);
+
+        void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName query_name, const MatchCluster& cluster);
     };
 
 

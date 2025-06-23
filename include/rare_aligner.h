@@ -93,7 +93,9 @@ public:
 
     MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, ThreadPool& pool, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
-    void filterPairSpeciesAnchors(MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph);
+    void Clusters2GraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
+
+    MatchClusterVecPtr filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph);
 
 };
 
