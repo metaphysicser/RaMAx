@@ -26,7 +26,7 @@ bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
         }
         return manager_ptr->concatAllSequences('\0');
     }, fasta_manager);
-    size_t n = T.size();
+    size_t n = T.size() + 1;
     if (n == 0)
         return false;
 
@@ -43,7 +43,7 @@ template<typename index_t>
 bool FM_Index::buildIndexUsingCaPSImpl(const std::string &T,
                                        uint_t thread_count) {
     using SA_t = index_t;
-    size_t n = T.size();
+    size_t n = T.size() + 1;
 
     // 设置 parlay 线程数（用于 CaPS 并行）
     std::string value = std::to_string(thread_count);

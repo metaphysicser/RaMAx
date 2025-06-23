@@ -178,44 +178,11 @@ namespace RaMesh {
         mutable std::shared_mutex rw;
 
         /* 工厂：返回 BlockPtr，便于统一持有 */
-        static BlockPtr make(std::size_t genome_hint = 1);
-
-        /**
- * @brief 创建一个空 Block，仅设置 ref_chr
- * @param ref_chr     参考染色体名称 (可用于后续插 Segment)
- * @param genome_hint anchors 容器预留容量提示
- * @return BlockPtr   新建 shared_ptr<Block>
- */
-        static BlockPtr create_empty(const ChrName& ref_chr,
-            std::size_t    genome_hint = 1);
-
-        /**
-         * @brief 从一个 Region 初始化 Block：设置 ref_chr 并向 anchors[ref_chr] 插入对应 Segment
-         * @param region      参考基因组区间，用于初始化一个 Segment
-         * @param strand      Segment 链方向
-         * @param role        AlignRole（Primary/Secondary）
-         * @param parent      如果非空，则设置新 Segment 的 parent_block，为弱引用
-         * @param genome_hint anchors map 预留容量
-         * @return BlockPtr   新建 shared_ptr<Block>，其中已插入一个基于 region 的 Segment
-         */
-        static BlockPtr create_from_region(const Region& region,
-            Strand         strand = Strand::FORWARD,
-            AlignRole      role = AlignRole::PRIMARY);
-
-        /**
-         * @brief 从一个 Match 初始化 Block：
-         *  - 设置 ref_chr = match.ref_region.chr_name
-         *  - 向 anchors[ref_chr] 插入一个 Segment（基于 ref_region）
-         *  - （可扩展：如需同时处理 query_region，可自行再插入）
-         * @param match       Match 对象
-         * @param parent      如果非空，则设置新 Segment 的 parent_block
-         * @param genome_hint anchors map 预留容量
-         * @return BlockPtr   新建 shared_ptr<Block>，其中已插入 ref_region 对应 Segment
-         */
-        static BlockPtr create_from_match(const Match& match);
 
         Block() = default;
         ~Block() = default;
+    private:
+
 
     };
 
