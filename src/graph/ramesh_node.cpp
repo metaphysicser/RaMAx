@@ -1,170 +1,167 @@
-﻿/* ramesh.cpp  (与 ramesh.h v0.4 对应) */
+﻿/* ramesh.cpp —— patch 2025-06-24 */
 #include "ramesh.h"
 
 namespace RaMesh {
 
-    /* ------------------------------------------------------------------ */
-        /* SegPtr 工厂                                                         */
-        /* ------------------------------------------------------------------ */
+    /* ========================================================= *
+ *  Segment 带 SegmentRole 的工厂实现                          *
+ *  （放在 namespace RaMesh 内，与其他实现并列）              *
+ * ========================================================= */
     SegPtr Segment::create(uint_t        start,
-        uint_t        length,
-        const Cigar_t& cigar,
-        Strand        strand,
-        AlignRole     role,
-        const BlockPtr& parent)
+        uint_t        len,
+        Strand        sd,
+        Cigar_t       cg,
+        AlignRole     rl,
+        SegmentRole   sl,
+        const BlockPtr& bp)
     {
         auto* seg = new Segment;
-        seg->start = start;
-        seg->length = length;
-        seg->cigar = cigar;
-        seg->strand = strand;
-        seg->role = role;
-        if (parent) seg->parent_block = parent;
 
+        /* —— 基本字段 —— */
+        seg->start = start;
+        seg->length = len;
+        seg->cigar = cg;
+        seg->strand = sd;
+
+        /* —— 角色标记 —— */
+        seg->align_role = rl;         // PRIMARY / SECONDARY
+        seg->seg_role = sl;         // SEGMENT / HEAD / TAIL
+
+        /* —— 所属 Block —— */
+        if (bp) seg->parent_block = bp;
+
+        /* —— 链表指针初始为空 —— */
         seg->primary_path.next = nullptr;
         seg->primary_path.prev = nullptr;
         seg->secondary_path.next = nullptr;
         seg->secondary_path.prev = nullptr;
-        return seg;
-    }
 
-    SegPtr Segment::create(uint_t        start,
-        uint_t        length,
-        Strand        strand,
-        Cigar_t       cigar,
-        AlignRole     role,
-        const BlockPtr& parent)
-    {
-        return Segment::create(start, length, cigar, strand, role, parent);
+        return seg;                   // SegPtr = Segment*
     }
 
     SegPtr Segment::create_from_region(Region& region,
-        Strand      strand,
-        Cigar_t     cigar,
-        AlignRole   role,
-        const BlockPtr& parent)
+        Strand      sd,
+        Cigar_t     cg,
+        AlignRole   rl,
+        SegmentRole sl,
+        const BlockPtr& bp)
     {
+        /* 统一转调到上一个工厂，防止代码重复 */
         return Segment::create(region.start,
             region.length,
-            cigar,
-            strand,
-            role,
-            parent);
+            sd,
+            cg,
+            rl,
+            sl,
+            bp);
     }
 
-    /* ------------------------------------------------------------------ */
-    /* Sentinel 节点                                                       */
-    /* ------------------------------------------------------------------ */
-    std::shared_ptr<HeadSegment> HeadSegment::create()
+
+    /******************  Sentinel factories  ******************/
+    SegPtr Segment::create_head()
     {
-        auto h = std::make_shared<HeadSegment>();
-        h->primary_path.next = nullptr;
-        h->primary_path.prev = nullptr;
-        return h;
+        auto* seg = new Segment;
+        seg->seg_role = SegmentRole::HEAD;
+        seg->align_role = AlignRole::PRIMARY;   // 无意义，占位
+        // 链表指针置空
+        seg->primary_path.next = nullptr;
+        seg->primary_path.prev = nullptr;
+        return seg;
     }
 
-    std::shared_ptr<TailSegment> TailSegment::create()
+    SegPtr Segment::create_tail()
     {
-        auto t = std::make_shared<TailSegment>();
-        t->primary_path.next = nullptr;
-        t->primary_path.prev = nullptr;
-        return t;
+        auto* seg = new Segment;
+        seg->seg_role = SegmentRole::TAIL;
+        seg->align_role = AlignRole::PRIMARY;
+        seg->primary_path.next = nullptr;
+        seg->primary_path.prev = nullptr;
+        return seg;
     }
 
+    ///******************  GenomeEnd ctor  **********************/
+    //GenomeEnd::GenomeEnd()
+    //{
+    //    SegPtr headSeg = Segment::create_head();
+    //    SegPtr tailSeg = Segment::create_tail();
+
+    //    head = make_atom(headSeg);
+    //    tail = make_atom(tailSeg);
+
+    //    headSeg->primary_path.next = tail;
+    //    tailSeg->primary_path.prev = head;
+    //}
 
 
-    /* ------------------------------------------------------------------ */
-    /* GenomeEnd 构造 & 查找                                               */
-    /* ------------------------------------------------------------------ */
-    GenomeEnd::GenomeEnd()
-        : head(HeadSegment::create()),
-        tail(TailSegment::create())
-    {
-        head->primary_path.next = std::make_shared<SegAtom>(
-            reinterpret_cast<SegPtr>(tail.get()));
-        tail->primary_path.prev = std::make_shared<SegAtom>(
-            reinterpret_cast<SegPtr>(head.get()));
-    }
-
-    GenomeEnd::GenomeEnd(const std::shared_ptr<HeadSegment>& h,
-        const std::shared_ptr<TailSegment>& t)
-        : head(h), tail(t)
-    {
-        head->primary_path.next = std::make_shared<SegAtom>(
-            reinterpret_cast<SegPtr>(t.get()));
-        t->primary_path.prev = std::make_shared<SegAtom>(
-            reinterpret_cast<SegPtr>(h.get()));
-    }
-
-    std::pair<SegPtr, SegPtr>
+    /* ========================================================= *
+     * 4. 区间定位  prev / next                                   *
+     * ========================================================= */
+    std::pair<SegAtomPtr, SegAtomPtr>
         GenomeEnd::findSurroundingSegmentRange(uint_t range_start,
             uint_t range_end)
     {
-        SegPtr prev = reinterpret_cast<SegPtr>(head.get());
-        SegPtr curr = head->primary_path.next
-            ? head->primary_path.next->load()
-            : reinterpret_cast<SegPtr>(tail.get());
+        SegAtomPtr headAtom = head;
+        SegAtomPtr tailAtom = tail;
+        SegPtr     tailPtr = tail->load();
 
-        while (curr && curr != reinterpret_cast<SegPtr>(tail.get()))
+
+        bool head_next_tail = headAtom->load()->primary_path.next->load()->is_tail();
+        /* 空链：head 直接指向 tail */
+        if (head_next_tail) {
+            return { headAtom, tailAtom };
+        }
+
+
+        SegAtomPtr prevAtom = headAtom;
+        SegAtomPtr currAtom =(headAtom->load())->primary_path.next;
+
+        while (currAtom && currAtom->load() && currAtom->load() != tailPtr)
         {
-            auto* seg = dynamic_cast<Segment*>(curr);
-            if (!seg) {
-                curr = reinterpret_cast<RaMeshNode*>(curr)
-                    ->primary_path.next
-                    ? reinterpret_cast<RaMeshNode*>(curr)
-                    ->primary_path.next->load()
-                    : reinterpret_cast<SegPtr>(tail.get());
-                continue;
-            }
+			SegPtr seg = currAtom->load();
+            uint_t s_beg = seg->start;
+            uint_t s_end = seg->start + seg->length;
 
-            uint_t seg_start = seg->start;
-            uint_t seg_end = seg->start + seg->length;
-
-            if (seg_end <= range_start) {
-                prev = curr;
-                curr = seg->primary_path.next
-                    ? seg->primary_path.next->load()
-                    : reinterpret_cast<SegPtr>(tail.get());
+            if (s_end <= range_start) {                   // 仍在区间左侧
+                prevAtom = currAtom;
+                currAtom = seg->primary_path.next ? seg->primary_path.next
+                    : tailAtom;
             }
-            else if (seg_start >= range_end) {
+            else if (s_beg >= range_end) {                // 已到右侧
                 break;
             }
-            else {                            // overlap
+            else {                                        // overlap
                 break;
             }
         }
-        return { prev, curr };
+        return { prevAtom, currAtom };
     }
 
-    /* ------------------------------------------------------------------ */
-    /* Block 工厂                                                         */
-    /* ------------------------------------------------------------------ */
-    BlockPtr Block::make(std::size_t genome_hint)
+    /* ========================================================= *
+     * 5. Block 工厂                                              *
+     * ========================================================= */
+    BlockPtr Block::make(std::size_t hint)
     {
         auto bp = std::make_shared<Block>();
-        bp->anchors.reserve(genome_hint);
+        bp->anchors.reserve(hint);
         return bp;
     }
 
-    BlockPtr Block::create_empty(const ChrName& ref_chr,
-        std::size_t    genome_hint)
+    BlockPtr Block::create_empty(const ChrName& chr, std::size_t hint)
     {
-        auto bp = Block::make(genome_hint);
-        bp->ref_chr = ref_chr;
+        auto bp = Block::make(hint);
+        bp->ref_chr = chr;
         return bp;
     }
 
     BlockPtr Block::create_from_region(const Region& region,
-        Strand        strand,
-        AlignRole     role)
+        Strand   sd,
+        AlignRole rl)
     {
         auto bp = Block::make(1);
+        auto* s = Segment::create_from_region(
+            const_cast<Region&>(region), sd, Cigar_t{}, rl, SegmentRole::SEGMENT, bp);
 
-        Segment* seg = Segment::create_from_region(
-            const_cast<Region&>(region), strand, Cigar_t{}, role, bp);
-
-        SpeciesChrPair key{ "", region.chr_name };
-        bp->anchors[key] = std::make_shared<SegAtom>(seg);
+        bp->anchors[{ "", region.chr_name }] = make_atom(s);
         bp->ref_chr = region.chr_name;
         return bp;
     }
@@ -176,25 +173,18 @@ namespace RaMesh {
         Segment* ref = Segment::create_from_region(
             const_cast<Region&>(match.ref_region),
             match.strand,
-            Cigar_t{},
-            AlignRole::PRIMARY,
-            bp);
+            Cigar_t{}, AlignRole::PRIMARY, SegmentRole::SEGMENT, bp);
 
         Segment* qry = Segment::create_from_region(
             const_cast<Region&>(match.query_region),
             match.strand,
-            Cigar_t{},
-            AlignRole::SECONDARY,
-            bp);
+            Cigar_t{}, AlignRole::PRIMARY, SegmentRole::SEGMENT, bp);
 
-        bp->anchors[{ "", match.ref_region.chr_name  }] =
-            std::make_shared<SegAtom>(ref);
-        bp->anchors[{ "", match.query_region.chr_name}] =
-            std::make_shared<SegAtom>(qry);
+        bp->anchors[{ "", match.ref_region.chr_name  }] = make_atom(ref);
+        bp->anchors[{ "", match.query_region.chr_name}] = make_atom(qry);
 
         bp->ref_chr = match.ref_region.chr_name;
         return bp;
     }
-
 
 } // namespace RaMesh

@@ -1,9 +1,15 @@
-﻿// ramesh.cpp  – 适配 ramesh.h (v0.4)
+﻿/*******************************************************
+*  ramesh.cpp – 适配 ramesh.h (v0.4-rev, 单一 Segment)
+*  2025-06-24
+*******************************************************/
 #include "ramesh.h"
+#include <iomanip>
+#include <shared_mutex>
 
 namespace RaMesh {
+
     /* ------------------------------------------------------------------ */
-    /* RaMeshGenomeGraph / MultiGenomeGraph                               */
+    /* 1. RaMeshGenomeGraph                                               */
     /* ------------------------------------------------------------------ */
     RaMeshGenomeGraph::RaMeshGenomeGraph(const SpeciesName& sp)
         : species_name(sp) {
@@ -17,27 +23,108 @@ namespace RaMesh {
         for (const auto& c : chrs) chr2end.emplace(c, GenomeEnd{});
     }
 
-    RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
-        std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map)
+    void RaMeshGenomeGraph::debug_print(std::ostream& os,
+        bool show_secondary) const
     {
-        for (auto& [sp, mgr_var] : seqpro_map) {
-            std::vector<ChrName> chr_names = std::visit(
-                [](auto& up)->std::vector<ChrName> {
-                    return up ? up->getSequenceNames() : std::vector<ChrName>{};
-                }, mgr_var);
-            species_graphs.emplace(
-                std::piecewise_construct,
-                std::forward_as_tuple(sp),
-                std::forward_as_tuple(sp, chr_names));
+        std::shared_lock lg(rw);                 // 读锁
+
+        os << "=== GenomeGraph <" << species_name << "> ===\n";
+        for (const auto& [chr, end] : chr2end)
+        {
+            os << "\n[Chromosome " << chr << "]\n";
+            os << std::left << std::setw(6) << "Idx"
+                << std::setw(12) << "Start"
+                << std::setw(10) << "Len"
+                << std::setw(4) << "Str"
+                << std::setw(6) << "Role";
+            if (show_secondary) os << "  |  Mate(ptr)";
+            os << '\n';
+
+            Segment* headSeg = end.head->load();
+            Segment* tailSeg = end.tail->load();
+
+            SegAtomPtr currAtom = headSeg->primary_path.next;
+            std::size_t idx = 0;
+
+            while (currAtom && currAtom->load() != tailSeg)
+            {
+                const Segment* seg = currAtom->load();
+
+                os << std::setw(6) << idx++
+                    << std::setw(12) << seg->start
+                    << std::setw(10) << seg->length
+                    << std::setw(4) << (seg->strand == Strand::FORWARD ? "+" : "-")
+                    << std::setw(6) << (seg->is_primary() ? "Pri" : "Sec");
+
+                if (show_secondary) {
+                    Segment* mate = seg->secondary_path.next
+                        ? seg->secondary_path.next->load()
+                        : nullptr;
+                    os << "  |  " << mate;
+                }
+                os << '\n';
+
+                currAtom = seg->primary_path.next;
+            }
+            os << "Total segments: " << idx << '\n';
         }
+        os << "=== End of Graph ===\n";
     }
 
     /* ------------------------------------------------------------------ */
-    /* insertClusterIntoGraph                                             */
+    /* 2. RaMeshMultiGenomeGraph – ctor                                   */
     /* ------------------------------------------------------------------ */
+    //RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
+    //    std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map)
+    //{
+    //    for (auto& [sp, mgr_var] : seqpro_map) {
+    //        std::vector<ChrName> chr_names = std::visit(
+    //            [](auto& up)->std::vector<ChrName> {
+    //                return up ? up->getSequenceNames()
+    //                    : std::vector<ChrName>{};
+    //            }, mgr_var);
+
+    //        species_graphs.emplace(
+    //            std::piecewise_construct,
+    //            std::forward_as_tuple(sp),
+    //            std::forward_as_tuple(sp, chr_names));
+    //    }
+    //}
+
+    /* ------------------------------------------------------------------ */
+/* 2. RaMeshMultiGenomeGraph – ctor                                   */
+/* ------------------------------------------------------------------ */
+    RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
+       std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map)
+    {
+        for (const auto& [sp, mgr_var] : seqpro_map)
+        {
+            /* 取出染色体名称列表 */
+            std::vector<ChrName> chr_names = std::visit(
+                [](const auto& up) -> std::vector<ChrName>
+                {
+                    return up ? up->getSequenceNames()
+                        : std::vector<ChrName>{};
+                },
+                mgr_var);
+
+            /* 原地构造 <key, RaMeshGenomeGraph> */
+            species_graphs.try_emplace(sp,           // map key
+                sp,           // RaMeshGenomeGraph::species_name
+                chr_names);   // vector<ChrName>
+        }
+    }
+
+
+    /* ------------------------------------------------------------------ */
+    /* 3. insertClusterIntoGraph                                          */
+    /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* insertClusterIntoGraph – 节点级写锁版本                            */
+/* ------------------------------------------------------------------ */
     void RaMeshMultiGenomeGraph::insertClusterIntoGraph(
         SpeciesName         ref_name,
-        SpeciesName         query_name,
+        SpeciesName         qry_name,
         const MatchCluster& cluster)
     {
         if (cluster.empty()) return;
@@ -45,105 +132,92 @@ namespace RaMesh {
         const ChrName& ref_chr = cluster.front().ref_region.chr_name;
         const ChrName& qry_chr = cluster.front().query_region.chr_name;
 
-        uint_t ref_start = cluster.front().ref_region.start;
-        uint_t ref_end = cluster.back().ref_region.start +
-            cluster.back().ref_region.length;
-
-        uint_t qry_start = cluster.front().query_region.start;
-        uint_t qry_end = cluster.back().query_region.start +
-            cluster.back().query_region.length;
-
         auto& refEnd = species_graphs[ref_name].chr2end[ref_chr];
-        auto& qryEnd = species_graphs[query_name].chr2end[qry_chr];
+        auto& qryEnd = species_graphs[qry_name].chr2end[qry_chr];
 
-        auto [ref_prev, ref_next] =
-            refEnd.findSurroundingSegmentRange(ref_start, ref_end);
-        auto [qry_prev, qry_next] =
-            qryEnd.findSurroundingSegmentRange(qry_start, qry_end);
+        std::scoped_lock chromWrite(refEnd.rw, qryEnd.rw);
 
-        /* 把 prev 节点的 SegAtomPtr 取出备用 */
-        auto getAtomPtr = [](SegPtr node)->SegAtomPtr {
-            if (!node) return nullptr;
-            auto* base = reinterpret_cast<RaMeshNode*>(node);
-            // head/tail/segment 均有 primary_path.next，可取其 prev/next 来获得 SegAtomPtr。
-            // 若 prev/next 为 nullptr，则需要在插入时重新创建新的 SegAtomPtr。
-            return base->primary_path.next; // 只为示例；真正使用时按需要取 prev / next
-            };
+        /* 1. 找包围区间（只读，无锁即可） */
+        uint_t ref_beg = cluster.front().ref_region.start;
+        uint_t ref_end = cluster.back().ref_region.start
+            + cluster.back().ref_region.length;
+        uint_t qry_beg = cluster.front().query_region.start;
+        uint_t qry_end = cluster.back().query_region.start
+            + cluster.back().query_region.length;
 
-        SegAtomPtr lastRefAtom =
-            (ref_prev == reinterpret_cast<SegPtr>(refEnd.head.get()))
-            ? refEnd.head->primary_path.next
-            : std::make_shared<SegAtom>(ref_prev);
+        auto [ref_prevAtom, ref_nextAtom] =
+            refEnd.findSurroundingSegmentRange(ref_beg, ref_end);
+        auto [qry_prevAtom, qry_nextAtom] =
+            qryEnd.findSurroundingSegmentRange(qry_beg, qry_end);
 
-        SegAtomPtr lastQryAtom =
-            (qry_prev == reinterpret_cast<SegPtr>(qryEnd.head.get()))
-            ? qryEnd.head->primary_path.next
-            : std::make_shared<SegAtom>(qry_prev);
+        SegAtomPtr lastRefAtom = ref_prevAtom;
+        SegAtomPtr lastQryAtom = qry_prevAtom;
 
-        /* ------ 逐 Match 插入，保持顺序 ------ */
+        /* 2. 逐 match 插入（对局部节点加写锁） */
         for (const auto& m : cluster)
         {
             BlockPtr blk = Block::make(2);
             blk->ref_chr = ref_chr;
 
-            /* —— ref side —— */
+            /* --- 构建两条新 Segment --- */
             SegPtr refSeg = Segment::create_from_region(
-                const_cast<Region&>(m.ref_region),
-                m.strand,
-                Cigar_t{},
-                AlignRole::PRIMARY,
-                blk);
-            SegAtomPtr refAtom = std::make_shared<SegAtom>(refSeg);
+                const_cast<Region&>(m.ref_region), m.strand,
+                Cigar_t{}, AlignRole::PRIMARY,
+                SegmentRole::SEGMENT, blk);
+            SegAtomPtr refAtom = make_atom(refSeg);
 
-            /* —— query side —— */
             SegPtr qrySeg = Segment::create_from_region(
-                const_cast<Region&>(m.query_region),
-                m.strand,
-                Cigar_t{},
-                AlignRole::SECONDARY,
-                blk);
-            SegAtomPtr qryAtom = std::make_shared<SegAtom>(qrySeg);
+                const_cast<Region&>(m.query_region), m.strand,
+                Cigar_t{}, AlignRole::PRIMARY,
+                SegmentRole::SEGMENT, blk);
+            SegAtomPtr qryAtom = make_atom(qrySeg);
 
-            // 双向 secondary_link
-            refSeg->secondary_path.next = qryAtom;
-            qrySeg->secondary_path.prev = refAtom;
+            blk->anchors[{ref_name, ref_chr}] = refAtom;
+            blk->anchors[{qry_name, qry_chr}] = qryAtom;
 
-            /* ------ 插入 ref 链尾 ------ */
-            auto* prevRefNode = reinterpret_cast<RaMeshNode*>(lastRefAtom->load());
-            prevRefNode->primary_path.next = refAtom;
-            refSeg->primary_path.prev = lastRefAtom;
-            lastRefAtom = refAtom;                       // 向后推进
-
-            /* ------ 插入 query 链尾 ------ */
-            auto* prevQryNode = reinterpret_cast<RaMeshNode*>(lastQryAtom->load());
-            prevQryNode->primary_path.next = qryAtom;
-            qrySeg->primary_path.prev = lastQryAtom;
-            lastQryAtom = qryAtom;                       // 向后推进
-
-            /* ------ 登记到 Block anchors ------ */
-            blk->anchors[{ref_name, ref_chr }] = refAtom;
-            blk->anchors[{query_name, qry_chr }] = qryAtom;
-
-            /* ------ 全局 Block 弱引用 ------ */
+            /* ===== 插入 ref 链 ===== */
             {
-                std::lock_guard<std::mutex> gLock(rw);
+                refSeg->primary_path.prev = lastRefAtom;
+                refSeg->primary_path.next = ref_nextAtom;
+
+                lastRefAtom->load()->primary_path.next = refAtom;
+                if (ref_nextAtom)
+                    ref_nextAtom->load()->primary_path.prev = refAtom;
+            }
+            lastRefAtom = refAtom;
+
+            /* ===== 插入 qry 链 ===== */
+            {
+                qrySeg->primary_path.prev = lastQryAtom;
+                qrySeg->primary_path.next = qry_nextAtom;
+
+                lastQryAtom->load()->primary_path.next = qryAtom;
+                if (qry_nextAtom)
+                    qry_nextAtom->load()->primary_path.prev = qryAtom;
+            }
+            lastQryAtom = qryAtom;
+
+            /* ---- 记录 block ---- */
+            {
+                std::unique_lock poolLock(rw);
                 blocks.emplace_back(WeakBlock(blk));
             }
         }
+    }
 
-        /* ------ 接尾巴与 next 哨兵/节点 ------ */
-        if (ref_next) {
-            auto* last = reinterpret_cast<RaMeshNode*>(lastRefAtom->load());
-            last->primary_path.next = std::make_shared<SegAtom>(ref_next);
-            reinterpret_cast<RaMeshNode*>(ref_next)->primary_path.prev =
-                lastRefAtom;
-        }
-        if (qry_next) {
-            auto* last = reinterpret_cast<RaMeshNode*>(lastQryAtom->load());
-            last->primary_path.next = std::make_shared<SegAtom>(qry_next);
-            reinterpret_cast<RaMeshNode*>(qry_next)->primary_path.prev =
-                lastQryAtom;
-        }
+
+    /* ------------------------------------------------------------------ */
+    /* 4. debug_print (multi-genome)                                       */
+    /* ------------------------------------------------------------------ */
+    void RaMeshMultiGenomeGraph::debug_print(std::ostream& os,
+        bool show_sec) const
+    {
+        std::shared_lock gLock(rw);
+
+        os << "\n********  Multi-Genome Graph  ********\n";
+        for (const auto& [sp, g] : species_graphs)
+            g.debug_print(os, show_sec);
+        os << "********  End of Graphs  ********\n";
     }
 
 } // namespace RaMesh

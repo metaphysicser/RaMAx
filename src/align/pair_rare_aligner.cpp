@@ -248,7 +248,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   */
 void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
-	ThreadPool pool(thread_num);
+	ThreadPool pool(1);
 
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
@@ -297,13 +297,20 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchCluste
 		int_t RL = 0, RR = 0, QL = 0, QR = 0;
 		bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
 		bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
-
+		uint_t count = 0;
 		if (!ref_hit && !query_hit) {
 			/* 完全无冲突 —— 记录并接纳 */
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
-			graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);
-			kept.emplace_back(std::move(cur.cl));
+			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
+			// graph.insertClusterIntoGraph(ref_name, query_name, part);
+			pool.enqueue([this, &graph, query_name, task_cl] {
+				graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+				});
+			// graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);
+			kept.emplace_back(cur.cl);
+
+			count++;
 			continue;
 		}
 
@@ -312,15 +319,14 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchCluste
 			query_hit, QL, QR)) {
 			int_t sc = clusterSpan(part);
 			if (sc >= min_span) {
-				graph.insertClusterIntoGraph(ref_name, query_name, part);
-				heap.push_back({ std::move(part), sc });
+				heap.push_back({ part, sc });
 				std::push_heap(heap.begin(), heap.end(), cmp);
 			}
 		}
 	}
 
 	/* ---------- 4. 输出过滤结果 ---------- */
-	*cluster_vec_ptr = std::move(kept);      // 顺序无关
+	// *cluster_vec_ptr = std::move(kept);      // 顺序无关
 }
 
 

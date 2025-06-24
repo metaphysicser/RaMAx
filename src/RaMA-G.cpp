@@ -531,38 +531,38 @@ int main(int argc, char **argv) {
     spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
 
 
-//    // ------------------------------
-//    // 临时验证：检查anchors的序列匹配正确性
-//    // ------------------------------
-//    spdlog::info("开始验证 anchors 结果的正确性…");
-//
-//    auto reverseComplement = [](const std::string &seq) -> std::string {
-//        std::string result;
-//        result.reserve(seq.length());
-//        for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
-//            result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
-//        }
-//        return result;
-//    };
-//
-//    uint64_t total_matches = 0;
-//    uint64_t correct_matches = 0;
-//    uint64_t incorrect_matches = 0;
-//
-//    uint64_t total_work_items = 0;
-//    for (const auto &level1: *anchors) {
-//        for (const auto &level2: level1) {
-//            total_work_items += level2.size();
-//        }
-//    }
-//
-//    if (total_work_items == 0) {
-//        spdlog::info("没有需要验证的匹配项。");
-//        return 0;
-//    }
-//
-//    spdlog::info("总计需要验证 {} 个匹配项。", total_work_items);
-//
+    //// ------------------------------
+    //// 临时验证：检查anchors的序列匹配正确性
+    //// ------------------------------
+    //spdlog::info("开始验证 anchors 结果的正确性…");
+
+    //auto reverseComplement = [](const std::string &seq) -> std::string {
+    //    std::string result;
+    //    result.reserve(seq.length());
+    //    for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+    //        result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
+    //    }
+    //    return result;
+    //};
+
+    //uint64_t total_matches = 0;
+    //uint64_t correct_matches = 0;
+    //uint64_t incorrect_matches = 0;
+
+    //uint64_t total_work_items = 0;
+    //for (const auto &level1: *anchors) {
+    //    for (const auto &level2: level1) {
+    //        total_work_items += level2.size();
+    //    }
+    //}
+
+    //if (total_work_items == 0) {
+    //    spdlog::info("没有需要验证的匹配项。");
+    //    return 0;
+    //}
+
+    //spdlog::info("总计需要验证 {} 个匹配项。", total_work_items);
+
 //    // --- 新增代码：用于进度的原子计数器 ---
 //    std::atomic<uint64_t> processed_items = 0;
 //    // 动态计算报告间隔，目标是报告大约100次，避免过于频繁或稀疏
@@ -687,6 +687,8 @@ int main(int argc, char **argv) {
     spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
 
     pra.constructGraphByGreedy("query", cluster_vec_ptr, graph, 50);
+
+	graph.debug_print();
 
     // ------------------------------
     // 退出
