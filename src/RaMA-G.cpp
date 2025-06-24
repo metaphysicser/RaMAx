@@ -686,7 +686,17 @@ int main(int argc, char **argv) {
     std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
     spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
 
+    // 记录构图时间
+	spdlog::info("Constructing graph by greedy algorithm...");
+	auto t_start_construct = std::chrono::steady_clock::now();
+	// 使用贪心算法构建图
+
     pra.constructGraphByGreedy("query", cluster_vec_ptr, graph, 50);
+
+	auto t_end_construct = std::chrono::steady_clock::now();
+	std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
+    spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
+    
 
 	graph.debug_print();
 

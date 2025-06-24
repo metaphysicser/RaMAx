@@ -248,7 +248,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   */
 void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
-	ThreadPool pool(1);
+	ThreadPool pool(thread_num);
 
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
