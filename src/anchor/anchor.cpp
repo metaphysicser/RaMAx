@@ -139,20 +139,60 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
 // anchors[strand][query][ref] -- MatchByStrandByQueryRef
 void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool)
 {
-
-    for (auto& strand_layer : *anchors)          // 第一维：Strand
-        for (auto& query_row : strand_layer)    // 第二维：query-chr
-            for (auto& vec : query_row)         // 第三维：ref-chr
-            {
-                // 用指针值捕获，避免 vec 变量在下一轮循环被复用后悬空
-                pool.enqueue([v = &vec]() {
-                    if (v->empty()) return;
-                    std::sort(v->begin(), v->end(),
-                        [](const Match& a, const Match& b)
-                        { return a.query_region.start < b.query_region.start; });
+    constexpr size_t MIN_SIZE_FOR_PARALLEL = 100;  // 阈值：小于100个元素直接串行排序
+    constexpr size_t BATCH_SIZE = 50;              // 批处理大小
+    
+    std::vector<std::future<void>> futures;
+    std::vector<std::vector<MatchVec*>> batches;
+    std::vector<MatchVec*> current_batch;
+    
+    // 收集所有需要排序的向量，并按大小分类
+    for (auto& strand_layer : *anchors) {
+        for (auto& query_row : strand_layer) {
+            for (auto& vec : query_row) {
+                if (vec.empty()) continue;
+                
+                if (vec.size() >= MIN_SIZE_FOR_PARALLEL) {
+                    // 大向量：单独提交任务
+                    futures.emplace_back(pool.enqueue([v = &vec]() {
+                        std::sort(v->begin(), v->end(),
+                            [](const Match& a, const Match& b) {
+                                return a.query_region.start < b.query_region.start;
+                            });
+                    }));
+                } else {
+                    // 小向量：加入批处理
+                    current_batch.push_back(&vec);
+                    if (current_batch.size() >= BATCH_SIZE) {
+                        batches.push_back(std::move(current_batch));
+                        current_batch.clear();
+                    }
+                }
+            }
+        }
+    }
+    
+    // 处理剩余的小向量
+    if (!current_batch.empty()) {
+        batches.push_back(std::move(current_batch));
+    }
+    
+    // 批处理小向量
+    for (auto& batch : batches) {
+        futures.emplace_back(pool.enqueue([batch = std::move(batch)]() {
+            for (auto* vec : batch) {
+                std::sort(vec->begin(), vec->end(),
+                    [](const Match& a, const Match& b) {
+                        return a.query_region.start < b.query_region.start;
                     });
             }
-
+        }));
+    }
+    
+    // 等待所有任务完成
+    for (auto& future : futures) {
+        future.get();
+    }
 }
 
 //
@@ -181,6 +221,83 @@ void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool
 //    }
 //    return std::move(uniques);
 //}
+
+MatchClusterVecPtr
+groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
+    ThreadPool& pool, uint_t thread_num)
+{
+    auto result = std::make_shared<MatchClusterVec>();
+    
+    if (!src || src->empty()) {
+        return result;
+    }
+    
+    // 预计算总的簇数量，用于预分配空间
+    size_t total_clusters = 0;
+    for (const auto& strand_layer : *src) {
+        for (const auto& query_row : strand_layer) {
+            for (const auto& cluster_vec_ptr : query_row) {
+                if (cluster_vec_ptr && !cluster_vec_ptr->empty()) {
+                    total_clusters += cluster_vec_ptr->size();
+                }
+            }
+        }
+    }
+    
+    result->reserve(total_clusters);
+    
+    // 使用线程安全的方式收集所有簇
+    std::mutex result_mutex;
+    std::vector<std::future<std::vector<MatchCluster>>> futures;
+    
+    // 将收集任务分配给多个线程
+    size_t tasks_per_thread = std::max(size_t(1), total_clusters / thread_num);
+    size_t current_task_count = 0;
+    std::vector<MatchCluster> current_batch;
+    
+    for (const auto& strand_layer : *src) {
+        for (const auto& query_row : strand_layer) {
+            for (const auto& cluster_vec_ptr : query_row) {
+                if (!cluster_vec_ptr || cluster_vec_ptr->empty()) continue;
+                
+                for (const auto& cluster : *cluster_vec_ptr) {
+                    if (!cluster.empty()) {
+                        current_batch.push_back(cluster);
+                        current_task_count++;
+                        
+                        // 当批次足够大时，提交到线程池
+                        if (current_task_count >= tasks_per_thread) {
+                            auto batch_copy = current_batch;  // 复制用于线程安全
+                            futures.emplace_back(pool.enqueue([batch_copy]() -> std::vector<MatchCluster> {
+                                return batch_copy;
+                            }));
+                            
+                            current_batch.clear();
+                            current_task_count = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 处理剩余的批次
+    if (!current_batch.empty()) {
+        futures.emplace_back(pool.enqueue([current_batch]() -> std::vector<MatchCluster> {
+            return current_batch;
+        }));
+    }
+    
+    // 收集所有结果
+    for (auto& future : futures) {
+        auto batch_result = future.get();
+        for (auto& cluster : batch_result) {
+            result->emplace_back(std::move(cluster));
+        }
+    }
+    
+    return result;
+}
 
 
 
