@@ -82,6 +82,7 @@ namespace RaMesh {
                 // 仍在左边，前进
                 prev = curr;
                 curr = curr->primary_path.next.load(std::memory_order_acquire);
+
             }
             else if (seg_beg >= range_end) {
                 // 已越过区间右端
@@ -92,6 +93,8 @@ namespace RaMesh {
                 break;
             }
         }
+
+
         return { prev, curr };
     }
 

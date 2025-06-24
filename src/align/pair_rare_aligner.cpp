@@ -325,6 +325,9 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchCluste
 		}
 	}
 
+	pool.waitAllTasksDone();
+
+
 	/* ---------- 4. 输出过滤结果 ---------- */
 	// *cluster_vec_ptr = std::move(kept);      // 顺序无关
 }
