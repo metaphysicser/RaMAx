@@ -15,10 +15,10 @@ extern "C" {
 }
 
 #include "CaPS-SA/Suffix_Array.hpp" // 并行后缀数组构造器（CaPS）
-#include <sdsl/int_vector.hpp>
-#include <sdsl/suffix_arrays.hpp>
-#include <sdsl/util.hpp>
-#include <sdsl/wt_huff.hpp>
+#include "sdsl/int_vector.hpp"
+#include "sdsl/suffix_arrays.hpp"
+#include "sdsl/util.hpp"
+#include "sdsl/wt_huff.hpp"
 
 #include "SeqPro.h"
 #include "divsufsort.h"

@@ -7,6 +7,7 @@
 #include "index.h"
 #include "anchor.h"
 #include "rare_aligner.h"
+#include "sequence_utils.h"
 
 // ------------------------------------------------------------------
 // 通用命令行参数结构体（可序列化）
@@ -277,6 +278,7 @@ int main(int argc, char **argv) {
     // 声明interval文件映射和SeqPro managers变量
     std::map<SpeciesName, FilePath> interval_files_map;
     std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers;
+    SeqPro::Length reference_min_seq_length = std::numeric_limits<SeqPro::Length>::max();
 
     // 清洗 FASTA 文件（统一格式，替换非法字符）
     cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
@@ -299,7 +301,7 @@ int main(int argc, char **argv) {
         spdlog::info("Interval files generated successfully.");
         spdlog::info("Creating SeqPro managers with repeat masking support...");
 
-        for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
+       for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
             if (interval_files_map.contains(species_name)) {
                 try {
                     auto original_manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
@@ -307,10 +309,15 @@ int main(int argc, char **argv) {
                         std::move(original_manager),
                         interval_files_map[species_name]
                     );
-                    spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
+                                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
                                  species_name, cleaned_fasta_path.string());
+
+                    // 记录序列统计信息
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+
                     // 移动到seqpro_managers中
-                    seqpro_managers[species_name] = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+                    seqpro_managers[species_name] = std::move(shared_manager);
                 } catch (const std::exception &e) {
                     spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
                                   e.what());
@@ -319,9 +326,16 @@ int main(int argc, char **argv) {
             } else {
                 try {
                     auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
-                    seqpro_managers[species_name] = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+
                     spdlog::info("[{}] SeqPro Manager created without repeat masking: {}",
                                  species_name, cleaned_fasta_path.string());
+
+                    // 记录序列统计信息
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+
+                    auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+
+                     seqpro_managers[species_name] = std::move(shared_manager);
                 } catch (const std::exception &e) {
                     spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
                                   e.what());
@@ -339,12 +353,12 @@ int main(int argc, char **argv) {
                 auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
                 spdlog::info("[{}] SeqPro Manager created: {}", species_name,
                              cleaned_fasta_path.string());
+                // 记录序列统计信息
+                SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
-                // 基本验证
-                auto seq_count = manager->getSequenceCount();
-                spdlog::info("[{}] Loaded {} sequences", species_name, seq_count);
+                auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
 
-                seqpro_managers[species_name] = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+                seqpro_managers[species_name] = std::move(shared_manager);
             } catch (const std::exception &e) {
                 spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
                               e.what());
@@ -373,9 +387,16 @@ int main(int argc, char **argv) {
     // ------------------------------
     auto t_start_align = std::chrono::steady_clock::now();
 
+    sdsl::int_vector<0> ref_global_cache;
+    // 初始化ref_global_cache：采样策略避免二分搜索
+    auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
+
+    // 使用工具函数构建缓存
+    SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
+
     uint_t tree_root = 0;
 
-    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, false, false, common_args.enable_repeat_masking);
+    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, false, false, common_args.enable_repeat_masking, ref_global_cache, sampling_interval);
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;

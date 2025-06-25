@@ -1,8 +1,4 @@
-// ******************************************************
-//  RaMesh Graph – Segment-centric model  (v0.5-beta)
-//  ✧  高并发链表插入 (简化命名空间) ✧
-//  — 2025-06-24 —
-// ******************************************************
+
 #ifndef RAMESH_H
 #define RAMESH_H
 
@@ -16,11 +12,6 @@
 #include "config.hpp"
 #include "anchor.h"
 
-/*
- *  本版本去掉了内部嵌套 namespace（如 detail），
- *  仅保留最外层命名空间 RaMesh，避免 namespace 过多带来的
- *  可读性下降与符号膨胀。
- */
 
 namespace RaMesh {
 
@@ -40,6 +31,8 @@ namespace RaMesh {
     // ────────────────────────────────────────────────
     using SpeciesChrPair = std::pair<SpeciesName, ChrName>;
 
+
+    // TODO 可以换成更快的hash
     struct SpeciesChrPairHash {
         std::size_t operator()(const SpeciesChrPair& k) const noexcept {
             std::size_t h1 = std::hash<std::string>{}(k.first);
@@ -78,7 +71,7 @@ namespace RaMesh {
         SegmentRole seg_role{ SegmentRole::SEGMENT };
 
         RaMeshPath  primary_path;
-        //RaMeshPath  secondary_path;
+        // RaMeshPath  secondary_path; // 之后加入这个数据结构
 
         WeakBlock   parent_block;
         mutable std::shared_mutex rw; // 保护非链表字段
@@ -103,41 +96,41 @@ namespace RaMesh {
         static SegPtr create_tail();
     };
 
-    // ────────────────────────────────────────────────
-    // 无锁链表辅助函数 (已去除 detail 命名空间)
-    // ────────────────────────────────────────────────
-    inline void link_node(SegPtr new_node, SegPtr pred, SegPtr succ) noexcept {
-        new_node->primary_path.prev.store(pred, std::memory_order_relaxed);
-        new_node->primary_path.next.store(succ, std::memory_order_relaxed);
-    }
+    //// ────────────────────────────────────────────────
+    //// 无锁链表辅助函数 (已去除 detail 命名空间)
+    //// ────────────────────────────────────────────────
+    //inline void link_node(SegPtr new_node, SegPtr pred, SegPtr succ) noexcept {
+    //    new_node->primary_path.prev.store(pred, std::memory_order_relaxed);
+    //    new_node->primary_path.next.store(succ, std::memory_order_relaxed);
+    //}
 
-    inline bool cas_insert_after(SegPtr pred, SegPtr new_node) noexcept {
-        SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
-        link_node(new_node, pred, succ);
+    //inline bool cas_insert_after(SegPtr pred, SegPtr new_node) noexcept {
+    //    SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
+    //    link_node(new_node, pred, succ);
 
-        if (pred->primary_path.next.compare_exchange_strong(
-            succ, new_node,
-            std::memory_order_release,
-            std::memory_order_relaxed)) {
-            succ->primary_path.prev.store(new_node, std::memory_order_release);
-            return true;
-        }
-        return false;
-    }
+    //    if (pred->primary_path.next.compare_exchange_strong(
+    //        succ, new_node,
+    //        std::memory_order_release,
+    //        std::memory_order_relaxed)) {
+    //        succ->primary_path.prev.store(new_node, std::memory_order_release);
+    //        return true;
+    //    }
+    //    return false;
+    //}
 
-    // 根据 start 位置插入到以 head 为首的有序链表
-    inline void concurrent_insert_segment(SegPtr head, SegPtr new_node) {
-        while (true) {
-            SegPtr pred = head;
-            SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
-            while (!succ->is_tail() && succ->start < new_node->start) {
-                pred = succ;
-                succ = succ->primary_path.next.load(std::memory_order_acquire);
-            }
-            if (cas_insert_after(pred, new_node))
-                break;
-        }
-    }
+    //// 根据 start 位置插入到以 head 为首的有序链表
+    //inline void concurrent_insert_segment(SegPtr head, SegPtr new_node) {
+    //    while (true) {
+    //        SegPtr pred = head;
+    //        SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
+    //        while (!succ->is_tail() && succ->start < new_node->start) {
+    //            pred = succ;
+    //            succ = succ->primary_path.next.load(std::memory_order_acquire);
+    //        }
+    //        if (cas_insert_after(pred, new_node))
+    //            break;
+    //    }
+    //}
 
     // ────────────────────────────────────────────────
     // Block

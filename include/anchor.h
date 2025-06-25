@@ -370,4 +370,35 @@ private:
     int_t component_cnt_{ 0 };      // 当前集合数
 };
 
+// ------------------------------------------------------------------
+// Anchor 验证功能
+// ------------------------------------------------------------------
+
+/**
+ * @brief 验证 anchors 结果的序列匹配正确性
+ * 
+ * 通过从原始序列中提取匹配区域并比较序列内容来验证anchor的正确性。
+ * 支持反向互补序列的验证。
+ * 
+ * @param anchors 待验证的三维匹配向量
+ * @param ref_manager 参考序列管理器
+ * @param query_manager 查询序列管理器
+ * @return 包含验证统计信息的结构体
+ */
+struct ValidationResult {
+    uint64_t total_matches = 0;
+    uint64_t correct_matches = 0;
+    uint64_t incorrect_matches = 0;
+    
+    double accuracy() const {
+        return total_matches ? (100.0 * correct_matches / total_matches) : 0.0;
+    }
+};
+
+ValidationResult validateAnchorsCorrectness(
+    const MatchVec3DPtr& anchors,
+    const SeqPro::ManagerVariant& ref_manager,
+    const SeqPro::ManagerVariant& query_manager
+);
+
 #endif // ANCHOR_H

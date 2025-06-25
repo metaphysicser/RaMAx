@@ -8,6 +8,7 @@
 #include "index.h"
 #include "anchor.h"
 #include "rare_aligner.h"
+#include "sequence_utils.h"
 #include <limits>
 #include <algorithm>
 #include <variant>
@@ -48,34 +49,7 @@ struct CommonArgs {
     }
 };
 
-// ------------------------------------------------------------------
-// 辅助函数：计算并记录reference的序列统计信息
-// ------------------------------------------------------------------
-template<typename ManagerType>
-void recordReferenceSequenceStats(const std::string& species_name, 
-                                 const std::unique_ptr<ManagerType>& manager,
-                                 SeqPro::Length& reference_min_seq_length) {
-    auto seq_count = manager->getSequenceCount();
-    
-    if (species_name == "reference") {
-        // 只对reference计算序列长度统计
-        auto seq_names = manager->getSequenceNames();
-        SeqPro::Length min_seq_length = std::numeric_limits<SeqPro::Length>::max();
-        SeqPro::Length max_seq_length = 0;
-        
-        for (const auto& seq_name : seq_names) {
-            auto seq_length = manager->getSequenceLength(seq_name);
-            min_seq_length = std::min(min_seq_length, seq_length);
-            max_seq_length = std::max(max_seq_length, seq_length);
-        }
-        
-        spdlog::info("[{}] Loaded {} sequences, min length: {}, max length: {}", 
-                     species_name, seq_count, min_seq_length, max_seq_length);
-        reference_min_seq_length = min_seq_length;
-    } else {
-        spdlog::info("[{}] Loaded {} sequences", species_name, seq_count);
-    }
-}
+
 
 // ------------------------------------------------------------------
 // CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
@@ -361,11 +335,11 @@ int main(int argc, char **argv) {
                         std::move(original_manager),
                         interval_files_map[species_name]
                     );
-                    spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
+                                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
-
+                    
                     // 记录序列统计信息
-                    recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
                     
                     // 移动到seqpro_managers中
                     seqpro_managers[species_name] = std::move(manager);
@@ -382,7 +356,7 @@ int main(int argc, char **argv) {
                                  species_name, cleaned_fasta_path.string());
                     
                     // 记录序列统计信息
-                    recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
                      seqpro_managers[species_name] = std::move(manager);
                 } catch (const std::exception &e) {
@@ -404,7 +378,7 @@ int main(int argc, char **argv) {
                              cleaned_fasta_path.string());
 
                 // 记录序列统计信息
-                recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
                 seqpro_managers[species_name] = std::move(manager);
             } catch (const std::exception &e) {
@@ -438,7 +412,7 @@ int main(int argc, char **argv) {
     // ------------------------------
     auto t_start_build = std::chrono::steady_clock::now();
 
-    pra.buildIndex("reference", seqpro_managers["reference"], false); // 可切换 CaPS / divsufsort
+    pra.buildIndex("reference", seqpro_managers["reference"], true); // 可切换 CaPS / divsufsort
     auto t_end_build = std::chrono::steady_clock::now();
     std::chrono::duration<double> build_time = t_end_build - t_start_build;
     spdlog::info("Index built in {:.3f} seconds.", build_time.count());
@@ -450,79 +424,9 @@ int main(int argc, char **argv) {
     sdsl::int_vector<0> ref_global_cache;
     // 初始化ref_global_cache：采样策略避免二分搜索
     auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
-    auto total_length = std::visit([](auto&& manager_ptr) {
-        return manager_ptr->getTotalLength();
-    }, seqpro_managers["reference"]);
-    auto cache_size = (total_length / sampling_interval) + 1;
-    ref_global_cache.resize(cache_size);
-
-    // Fill ref_global_cache: pre-calculate sequence IDs for each sampling point
-    spdlog::info("Filling ref_global_cache, sampling_interval={}, cache_size={}", sampling_interval, cache_size);
-    auto t_start_cache = std::chrono::steady_clock::now();
     
-    std::visit([&](auto&& manager_ptr) {
-        // 获取所有序列信息，按 global_start_pos 排序
-        auto seq_names = manager_ptr->getSequenceNames();
-        std::vector<const SeqPro::SequenceInfo*> seq_infos;
-        seq_infos.reserve(seq_names.size());
-        
-        for (const auto& name : seq_names) {
-            if constexpr (std::is_same_v<std::decay_t<decltype(manager_ptr)>, std::unique_ptr<SeqPro::SequenceManager>>) {
-                const auto* info = manager_ptr->getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
-            } else if constexpr (std::is_same_v<std::decay_t<decltype(manager_ptr)>, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                const auto* info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
-            }
-        }
-        
-        // 按全局起始位置排序
-        std::sort(seq_infos.begin(), seq_infos.end(), 
-                  [](const SeqPro::SequenceInfo* a, const SeqPro::SequenceInfo* b) {
-                      return a->global_start_pos < b->global_start_pos;
-                  });
-        
-        // 顺序填充
-        size_t current_seq_idx = 0;
-        for (SeqPro::Position i = 0; i < cache_size; ++i) {
-            SeqPro::Position sample_global_pos = i * sampling_interval;
-            
-            if (sample_global_pos >= total_length) {
-                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                continue;
-            }
-            
-            // 向前查找包含当前位置的序列
-            while (current_seq_idx < seq_infos.size()) {
-                const auto* current_seq = seq_infos[current_seq_idx];
-                SeqPro::Position seq_end = current_seq->global_start_pos + current_seq->length;
-                
-                if (sample_global_pos >= current_seq->global_start_pos && sample_global_pos < seq_end) {
-                    // 找到了包含该位置的序列
-                    ref_global_cache[i] = current_seq->id;
-                    break;
-                } else if (sample_global_pos >= seq_end) {
-                    // 当前序列已经过了，移动到下一个序列
-                    current_seq_idx++;
-                } else {
-                    // sample_global_pos < current_seq->global_start_pos, shouldn't happen
-                    spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}", 
-                                sample_global_pos, current_seq->global_start_pos);
-                    ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                    break;
-                }
-            }
-            
-            // 如果遍历完所有序列都没找到，标记为无效
-            if (current_seq_idx >= seq_infos.size()) {
-                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-            }
-        }
-    }, seqpro_managers["reference"]);
-    sdsl::util::bit_compress(ref_global_cache);
-    auto t_end_cache = std::chrono::steady_clock::now();
-    std::chrono::duration<double> cache_time = t_end_cache - t_start_cache;
-    spdlog::info("ref_global_cache filling completed in {:.3f} seconds", cache_time.count());
+    // 使用工具函数构建缓存
+    SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
 
     MatchVec3DPtr anchors = pra.alignPairGenome(
         "query", seqpro_managers["query"], FAST_SEARCH, false, ref_global_cache,sampling_interval);
@@ -531,149 +435,14 @@ int main(int argc, char **argv) {
     spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
 
 
-    //// ------------------------------
-    //// 临时验证：检查anchors的序列匹配正确性
-    //// ------------------------------
-    //spdlog::info("开始验证 anchors 结果的正确性…");
-
-    //auto reverseComplement = [](const std::string &seq) -> std::string {
-    //    std::string result;
-    //    result.reserve(seq.length());
-    //    for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
-    //        result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
-    //    }
-    //    return result;
-    //};
-
-    //uint64_t total_matches = 0;
-    //uint64_t correct_matches = 0;
-    //uint64_t incorrect_matches = 0;
-
-    //uint64_t total_work_items = 0;
-    //for (const auto &level1: *anchors) {
-    //    for (const auto &level2: level1) {
-    //        total_work_items += level2.size();
-    //    }
-    //}
-
-    //if (total_work_items == 0) {
-    //    spdlog::info("没有需要验证的匹配项。");
-    //    return 0;
-    //}
-
-    //spdlog::info("总计需要验证 {} 个匹配项。", total_work_items);
-
-//    // --- 新增代码：用于进度的原子计数器 ---
-//    std::atomic<uint64_t> processed_items = 0;
-//    // 动态计算报告间隔，目标是报告大约100次，避免过于频繁或稀疏
-//    const uint64_t report_interval = std::max(1ULL, total_work_items / 100ULL);
-//    std::atomic<bool> diagnostic_dump_done = false;
-//
-//
-//#pragma omp parallel reduction(+: total_matches, correct_matches, incorrect_matches)
-//    {
-//#pragma omp for schedule(dynamic) nowait
-//        for (size_t i = 0; i < anchors->size(); ++i) {
-//            for (size_t j = 0; j < (*anchors)[i].size(); ++j) {
-//                for (size_t k = 0; k < (*anchors)[i][j].size(); ++k) {
-//                    uint64_t current_processed = processed_items.fetch_add(1, std::memory_order_relaxed) + 1;
-//
-//                    if (current_processed % report_interval == 0) {
-//                        spdlog::info("验证进度: {} / {} ({:.2f}%)",
-//                                     current_processed,
-//                                     total_work_items,
-//                                     (100.0 * current_processed / total_work_items));
-//                    }
-//
-//                    const Match &match = (*anchors)[i][j][k];
-//                    ++total_matches;
-//
-//                    try {
-//                        // 现在anchor返回的坐标是正确的局部坐标，可以直接使用
-//                        std::string ref_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
-//                            using PtrType = std::decay_t<decltype(manager_ptr)>;
-//                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-//                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
-//                                                                   match.ref_region.length);
-//                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-//                                SeqPro::MaskedSequenceManager> >) {
-//                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
-//                                                                   match.ref_region.length);
-//                            } else {
-//                                throw std::runtime_error("Unhandled manager type in variant.");
-//                            }
-//                        }, seqpro_managers["reference"]);
-//                        std::string query_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
-//                            using PtrType = std::decay_t<decltype(manager_ptr)>;
-//                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-//                                return manager_ptr->getSubSequence(match.query_region.chr_name,
-//                                                                   match.query_region.start, match.query_region.length);
-//                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-//                                SeqPro::MaskedSequenceManager> >) {
-//                                return manager_ptr->getSubSequence(match.query_region.chr_name,
-//                                                                   match.query_region.start, match.query_region.length);
-//                            } else {
-//                                throw std::runtime_error("Unhandled manager type in variant.");
-//                            }
-//                        }, seqpro_managers["query"]);
-//
-//                        if (match.strand == REVERSE) {
-//                            query_seq = reverseComplement(query_seq);
-//                        }
-//
-//                        if (ref_seq == query_seq) {
-//                            ++correct_matches;
-//                        } else {
-//                            ++incorrect_matches;
-//
-//                            // 仅当这是第一个被捕获的错误时，才打印详细信息并退出
-//                            bool expected = false;
-//                            if (!diagnostic_dump_done.load(std::memory_order_relaxed) &&
-//                                diagnostic_dump_done.compare_exchange_strong(expected, true)) {
-//                                spdlog::warn(
-//                                    "序列不匹配: ref_chr={}, ref_start={}, query_chr={}, "
-//                                    "query_start={}, length={}, strand={}\n"
-//                                    "  Ref Seq:    {}\n"
-//                                    "  Query Seq{}: {}",
-//                                    match.ref_region.chr_name, match.ref_region.start, match.query_region.chr_name,
-//                                    match.query_region.start, match.ref_region.length,
-//                                    (match.strand == FORWARD ? "FORWARD" : "REVERSE"), ref_seq,
-//                                    (match.strand == REVERSE ? " (RC)" : ""), query_seq
-//                                );
-//                                spdlog::error("--- [CAPTURED FIRST MISMATCH] INITIATING DIAGNOSTIC DUMP ---");
-//
-//                                // 打印错误匹配的详细信息
-//                                spdlog::error("Failing Match Details:");
-//                                spdlog::error("  - Reference: {}:{} (len:{})", match.ref_region.chr_name,
-//                                              match.ref_region.start, match.ref_region.length);
-//                                spdlog::error("  - Query:     {}:{} (len:{})", match.query_region.chr_name,
-//                                              match.query_region.start, match.query_region.length);
-//                                spdlog::error("  - Strand:    {}", (match.strand == FORWARD ? "FORWARD" : "REVERSE"));
-//
-//                                // // 安全退出
-//                                // std::exit(1);
-//                            }
-//                            // --- END: 线程安全的"首错捕获"逻辑 ---
-//                        }
-//                    } catch (const std::exception &e) {
-//                        ++incorrect_matches;
-//                        // --- 修改：异常也直接报告 ---
-//                        spdlog::warn("处理匹配项时发生异常: {}", e.what());
-//                    }
-//                }
-//            }
-//        } // omp for
-//    }
-//
-//    // 确保最终进度是100%
-//    spdlog::info("验证进度: {} / {} (100.00%)", total_work_items, total_work_items);
-//
-//    spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
-//                 total_matches,
-//                 correct_matches,
-//                 incorrect_matches,
-//                 total_matches ? (100.0 * correct_matches / total_matches) : 0.0);
-
+    // ------------------------------
+    // 验证anchors的序列匹配正确性
+    // ------------------------------
+    ValidationResult validation_result = validateAnchorsCorrectness(
+        anchors, 
+        seqpro_managers["reference"], 
+        seqpro_managers["query"]
+    );
     
     RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
     // ------------------------------
