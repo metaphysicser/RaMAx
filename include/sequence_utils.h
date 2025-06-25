@@ -3,7 +3,7 @@
 
 #include "SeqPro.h"
 #include "config.hpp"
-#include <sdsl/int_vector.hpp>
+#include "sdsl/int_vector.hpp"
 #include <memory>
 #include <chrono>
 
