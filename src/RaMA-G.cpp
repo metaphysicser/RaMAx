@@ -466,8 +466,11 @@ int main(int argc, char **argv) {
 	std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
     spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
     
+#ifdef _DEBUG_
+    graph.debugPrint(false);
+#endif // _DEBUG_
 
-	graph.debug_print();
+	
 
     // ------------------------------
     // 退出

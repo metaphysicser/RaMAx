@@ -38,34 +38,9 @@ add_subdirectory("${SUBMODULE_DIR}/spdlog")
 # add_subdirectory("${SUBMODULE_DIR}/CLI11")
 # add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
 add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
+# 已经 add_subdirectory(...) 产生了目标 "divsufsort"
 
-# ================= libdivsufsort 子模块 =================
-# 设置 libdivsufsort 编译选项
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "Don't build libdivsufsort examples" FORCE)
-set(BUILD_DIVSUFSORT64 ON CACHE BOOL "Build libdivsufsort64" FORCE)
-set(USE_OPENMP OFF CACHE BOOL "Don't use OpenMP in libdivsufsort" FORCE)
-
-# 添加 libdivsufsort 子目录
 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort")
-
-# ============ 旧的 libdivsufsort 安装脚本（已通过子模块替代） ============
-# 以下部分已被上面的 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort") 替代
-# if (NOT EXISTS "${SUBMODULE_DIR}/sdsl-lite/include/divsufsort.h")
-#     message(STATUS "divsufsort.h not found, running install.sh")
-
-#     add_custom_target(sdsl-install ALL
-#         # ① 先确保 sdsl-lite/build 目录存在
-#         # COMMAND ${CMAKE_COMMAND} -E make_directory build
-#         # ② 再执行 install.sh
-#         COMMAND bash install.sh ${SUBMODULE_DIR}/sdsl-lite/
-#         WORKING_DIRECTORY ${SUBMODULE_DIR}/sdsl-lite/
-#         COMMENT "Running install.sh from inside sdsl-lite directory"
-#         VERBATIM
-#     )
-# else()
-#     message(STATUS "divsufsort.h found, skipping install.sh")
-# endif()
 
 # ================= 外部库依赖 =================
 find_package(CURL REQUIRED)
