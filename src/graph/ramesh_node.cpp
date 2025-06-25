@@ -1,139 +1,149 @@
-﻿#include "ramesh.h"
+﻿// ******************************************************
+//  ramesh.cpp – 适配 ramesh.h (v0.5-beta)
+//  ✧  无锁并行插入 + Sentinel + Block 工厂实现  ✧
+//  2025-06-24
+// ******************************************************
+#include "ramesh.h"
+#include <iomanip>
+#include <shared_mutex>
 
 namespace RaMesh {
-    SegPtr Segment::create(uint_t          start,
-        uint_t          length,
-        const Cigar_t& cigar,
-        Strand          strand,
-        AlignRole       role,
-        const BlockPtr& parent)
+
+    /* ======================================================
+     * 0.  Segment 工厂实现
+     * ====================================================*/
+    SegPtr Segment::create(uint_t start, uint_t len, Strand sd,
+        Cigar_t cg, AlignRole rl, SegmentRole sl,
+        const BlockPtr& bp)
     {
-        auto* seg = new Segment();          // 1️⃣ 分配对象
+        auto* s = new Segment();
+        s->start = start;
+        s->length = len;
+        s->strand = sd;
+        s->cigar = std::move(cg);
+        s->align_role = rl;
+        s->seg_role = sl;
+        if (bp) s->parent_block = bp;
 
-        seg->start = start;
-        seg->length = length;
-        seg->cigar = cigar;                // 2️⃣ 填充字段
-        seg->strand = strand;
-        seg->role = role;
-
-        seg->parent_block = parent;         // 3️⃣ 传入则转弱引用
-
-        // 4️⃣ 清空链表指针（用 relaxed 免栅栏）
-        seg->primary_path.next.store(nullptr, std::memory_order_relaxed);
-        seg->primary_path.prev.store(nullptr, std::memory_order_relaxed);
-        seg->secondary_path.next.store(nullptr, std::memory_order_relaxed);
-        seg->secondary_path.prev.store(nullptr, std::memory_order_relaxed);
-
-        return seg;
-    }
-
-    SegPtr Segment::create(const Region& region,
-        Strand strand,
-        AlignRole role,
-        const BlockPtr& parent)
-    {
-        // 在堆上 new 一个 Segment
-        Segment* s = new Segment;
-        // 初始化字段
-        s->start = region.start;
-        s->length = region.length;
-        // 如果想存储 chr_name，需要在 Segment 定义中添加成员：
-        //    ChrName chr_name;
-        // 并在此设置：
-        //    s->chr_name = region.chr_name;
-        s->strand = strand;
-        s->role = role;
-        // cigar 初始留空，调用者可自行修改：
-        s->cigar.clear();
-
-        // parent_block 只设置弱引用，不自动插入
-        if (parent) {
-            s->parent_block = parent;
-        }
-        // RaMeshPath next/prev 默认 nullptr，无需额外操作
+        /* 指针初始化为空 */
+        s->primary_path.next.store(nullptr, std::memory_order_relaxed);
+        s->primary_path.prev.store(nullptr, std::memory_order_relaxed);
         return s;
     }
 
-    // 头哨兵
-    std::shared_ptr<HeadSegment> HeadSegment::create()
+    SegPtr Segment::create_from_region(Region& region, Strand sd,
+        Cigar_t cg, AlignRole rl, SegmentRole sl,
+        const BlockPtr& bp)
     {
-        // 用 make_shared 一步完成分配与构造
-        return std::shared_ptr<HeadSegment>(new HeadSegment());
+        return create(region.start, region.length, sd, std::move(cg), rl, sl, bp);
     }
 
-    // 尾哨兵
-    std::shared_ptr<TailSegment> TailSegment::create()
+    SegPtr Segment::create_head()
     {
-        return std::shared_ptr<TailSegment>(new TailSegment());
+        auto* h = new Segment();
+        h->seg_role = SegmentRole::HEAD;
+        h->align_role = AlignRole::PRIMARY;
+        h->primary_path.next.store(nullptr, std::memory_order_relaxed);
+        h->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+        return h;
     }
 
-    /* 已有：Block::make 实现 */
-    BlockPtr Block::make(std::size_t genome_hint) {
-        auto bp = BlockPtr(new Block);
-        bp->anchors.reserve(genome_hint);
-        return bp;
+    SegPtr Segment::create_tail()
+    {
+        auto* t = new Segment();
+        t->seg_role = SegmentRole::TAIL;
+        t->align_role = AlignRole::PRIMARY;
+        t->primary_path.next.store(nullptr, std::memory_order_relaxed);
+        t->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+        return t;
     }
 
-    /* -------------- create_empty -------------- */
-    BlockPtr Block::create_empty(const ChrName& ref_chr,
-        std::size_t    genome_hint)
+    /* ======================================================
+     * 1. GenomeEnd helper – find_surrounding
+     * ====================================================*/
+    std::pair<SegPtr, SegPtr> GenomeEnd::find_surrounding(uint_t range_start,
+        uint_t range_end)
     {
-        auto bp = Block::make(genome_hint);
+        SegPtr headPtr = head;
+        SegPtr tailPtr = tail;
+
+        SegPtr curr = headPtr->primary_path.next.load(std::memory_order_acquire);
+        SegPtr prev = headPtr;
+
+        /* 空链表：head 直接指向 tail */
+        if (curr == tailPtr) return { headPtr, tailPtr };
+
+        while (curr && curr != tailPtr)
         {
-            std::unique_lock lk(bp->rw);
-            bp->ref_chr = ref_chr;
-            // anchors 不插任何 Segment，仅预留
+            uint_t seg_beg = curr->start;
+            uint_t seg_end = curr->start + curr->length;
+
+            if (seg_end <= range_start) {
+                // 仍在左边，前进
+                prev = curr;
+                curr = curr->primary_path.next.load(std::memory_order_acquire);
+
+            }
+            else if (seg_beg >= range_end) {
+                // 已越过区间右端
+                break;
+            }
+            else {
+                // overlap
+                break;
+            }
         }
+
+
+        return { prev, curr };
+    }
+
+    /* ======================================================
+     * 2. Block 工厂
+     * ====================================================*/
+    BlockPtr Block::make(std::size_t hint)
+    {
+        auto bp = std::make_shared<Block>();
+        bp->anchors.reserve(hint);
         return bp;
     }
 
-    /* -------------- create_from_region -------------- */
+    BlockPtr Block::create_empty(const ChrName& chr, std::size_t hint)
+    {
+        auto bp = Block::make(hint);
+        bp->ref_chr = chr;
+        return bp;
+    }
+
     BlockPtr Block::create_from_region(const Region& region,
-        Strand         strand,
-        AlignRole      role)
+        Strand sd, AlignRole rl)
     {
         auto bp = Block::make(1);
-        {
-            std::unique_lock lk(bp->rw);
-            bp->ref_chr = region.chr_name;
-            // 1) 在堆上 new Segment
-            Segment* s = Segment::create(region, strand, role, bp);
-            // 2) 插入 anchors
-            auto& vec = bp->anchors[region.chr_name];
-            // 注意: anchors 存储 SegAtom (atomic<Segment*>)
-            vec.push_back(SegAtom(s));
-        }
+        SegPtr s = Segment::create_from_region(const_cast<Region&>(region), sd,
+            Cigar_t{}, rl, SegmentRole::SEGMENT, bp);
+        bp->anchors[{"", region.chr_name}] = s;
+        bp->ref_chr = region.chr_name;
         return bp;
     }
 
-    /* -------------- create_from_match -------------- */
     BlockPtr Block::create_from_match(const Match& match)
     {
-        // 基于 ref_region 初始化。若需处理 query_region，请在此函数外或自行扩展
         auto bp = Block::make(2);
-        {
-            std::unique_lock lk(bp->rw);
-            bp->ref_chr = match.ref_region.chr_name;
-            // 新 Segment
-            Segment* ref = Segment::create(match.ref_region,
-                match.strand == Strand::FORWARD ? Strand::FORWARD : Strand::REVERSE,
-                AlignRole::PRIMARY,
-                bp);
-            auto& vec = bp->anchors[match.ref_region.chr_name];
-            vec.push_back(SegAtom(ref));
 
-			Segment* query = Segment::create(match.query_region,
-				match.strand == Strand::FORWARD ? Strand::FORWARD : Strand::REVERSE,
-				AlignRole::PRIMARY,
-				bp);
-			// 如果需要处理 query_region，可以在这里插入
-			auto& qvec = bp->anchors[match.query_region.chr_name];
-			qvec.push_back(SegAtom(query));
-        }
+        SegPtr ref = Segment::create_from_region(const_cast<Region&>(match.ref_region),
+            match.strand, Cigar_t{}, AlignRole::PRIMARY,
+            SegmentRole::SEGMENT, bp);
+
+        SegPtr qry = Segment::create_from_region(const_cast<Region&>(match.query_region),
+            match.strand, Cigar_t{}, AlignRole::PRIMARY,
+            SegmentRole::SEGMENT, bp);
+
+        bp->anchors[{"", match.ref_region.chr_name }] = ref;
+        bp->anchors[{"", match.query_region.chr_name}] = qry;
+        bp->ref_chr = match.ref_region.chr_name;
         return bp;
     }
 
+    
 
-
-
-}
+} // namespace RaMesh

@@ -1,247 +1,214 @@
-/*******************************************************
-*  RaMesh Graph – Segment-centric model  (v0.4)        *
-*  — 2025-06-20 —                                      *
-*  1) Segment/Head/Tail 全部是 RaMeshNode 派生类。     *
-*  2) Block 退化为“Segment 池”容器，仅管理内存 & 索引。 *
-*  3) 主(Primary)/次(Secondary) 比对仍保留双链。        *
-*******************************************************/
 
 #ifndef RAMESH_H
 #define RAMESH_H
-#include <memory>
+
 #include <atomic>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <map>
-#include <memory_resource>
 #include <shared_mutex>
+#include <iostream>
 #include "config.hpp"
 #include "anchor.h"
 
+
 namespace RaMesh {
 
-    /* ---------- 别名 ---------- */
+    // ────────────────────────────────────────────────
+    // 前向声明
+    // ────────────────────────────────────────────────
     class  RaMeshNode;
-    class  Block;                    // 前置声明
+    class  Block;
     struct Segment;
 
     using BlockPtr = std::shared_ptr<Block>;
     using WeakBlock = std::weak_ptr<Block>;
-
     using SegPtr = Segment*;
 
-    struct SegAtom {
-        std::atomic<SegPtr> p{ nullptr };
+    // ────────────────────────────────────────────────
+    // 辅助类型 / 哈希
+    // ────────────────────────────────────────────────
+    using SpeciesChrPair = std::pair<SpeciesName, ChrName>;
 
-        SegAtom() = default;
-        explicit SegAtom(SegPtr s) noexcept : p(s) {}
 
-        /* 不可拷贝 */
-        SegAtom(const SegAtom&) = delete;
-        SegAtom& operator=(const SegAtom&) = delete;
-
-        /* 允许移动 */
-        SegAtom(SegAtom&& other) noexcept {
-            p.store(other.p.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
+    // TODO 可以换成更快的hash
+    struct SpeciesChrPairHash {
+        std::size_t operator()(const SpeciesChrPair& k) const noexcept {
+            std::size_t h1 = std::hash<std::string>{}(k.first);
+            std::size_t h2 = std::hash<std::string>{}(k.second);
+            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
         }
-        SegAtom& operator=(SegAtom&& other) noexcept {
-            p.store(other.p.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
-            return *this;
-        }
-
-        /* --------- 转发接口（保持与 std::atomic 指针一致） --------- */
-        inline void store(SegPtr v,
-            std::memory_order mo = std::memory_order_seq_cst) noexcept
-        {
-            p.store(v, mo);
-        }
-
-        inline SegPtr load(std::memory_order mo = std::memory_order_seq_cst) const noexcept
-        {
-            return p.load(mo);
-        }
-
-        inline SegPtr exchange(SegPtr v,
-            std::memory_order mo = std::memory_order_seq_cst) noexcept
-        {
-            return p.exchange(v, mo);
-        }
-
-        inline bool compare_exchange_weak(SegPtr& expected, SegPtr desired,
-            std::memory_order mo = std::memory_order_seq_cst) noexcept
-        {
-            return p.compare_exchange_weak(expected, desired, mo);
-        }
-
-        inline bool compare_exchange_strong(SegPtr& expected, SegPtr desired,
-            std::memory_order mo = std::memory_order_seq_cst) noexcept
-        {
-            return p.compare_exchange_strong(expected, desired, mo);
-        }
-
-        /* 方便读取：允许隐式转成裸指针 */
-        operator SegPtr() const noexcept { return p.load(std::memory_order_relaxed); }
     };
 
 
-    // 方便使用的别名保持不变
-    using SegAtomVec = std::vector<SegAtom>;
+    using ChrHeadMap = std::unordered_map<SpeciesChrPair, SegPtr, SpeciesChrPairHash>;
 
-    using ChrSegMap = std::unordered_map<ChrName, SegAtomVec>;
-
-
-    /* ---------- 链表节点 ---------- */
+    // ────────────────────────────────────────────────
+    // 并发链表结构
+    // ────────────────────────────────────────────────
     struct RaMeshPath {
-        SegAtom next{ nullptr };
-        SegAtom prev{ nullptr };
+        std::atomic<SegPtr> next{ nullptr };
+        std::atomic<SegPtr> prev{ nullptr };
     };
 
-    /* ---------- 主/次 比对标记 ---------- */
+    // ────────────────────────────────────────────────
+    // 业务枚举
+    // ────────────────────────────────────────────────
     enum class AlignRole : uint8_t { PRIMARY = 0, SECONDARY = 1 };
+    enum class SegmentRole : uint8_t { SEGMENT = 0, HEAD = 1, TAIL = 2 };
 
-    /* ---------- 抽象节点基类 ---------- */
-    class RaMeshNode : public std::enable_shared_from_this<RaMeshNode> {
+    // ────────────────────────────────────────────────
+    // Segment / Sentinel
+    // ────────────────────────────────────────────────
+    class Segment {
     public:
-        [[nodiscard]] virtual bool is_head()  const noexcept = 0;
-        [[nodiscard]] virtual bool is_tail()  const noexcept = 0;
-        [[nodiscard]] virtual bool is_segment() const noexcept = 0;
-        virtual ~RaMeshNode() = default;
+        uint_t      start{ 0 };
+        uint_t      length{ 0 };
+        Cigar_t     cigar;
+        Strand      strand{ Strand::FORWARD };
+        AlignRole   align_role{ AlignRole::PRIMARY };
+        SegmentRole seg_role{ SegmentRole::SEGMENT };
 
-    protected:                      // 禁意外复制
-        RaMeshNode() = default;
-        RaMeshNode(const RaMeshNode&) = delete;
-        RaMeshNode& operator=(const RaMeshNode&) = delete;
+        RaMeshPath  primary_path;
+        // RaMeshPath  secondary_path; // 之后加入这个数据结构
+
+        WeakBlock   parent_block;
+        mutable std::shared_mutex rw; // 保护非链表字段
+
+        bool is_head()    const noexcept { return seg_role == SegmentRole::HEAD; }
+        bool is_tail()    const noexcept { return seg_role == SegmentRole::TAIL; }
+        bool is_segment() const noexcept { return seg_role == SegmentRole::SEGMENT; }
+        bool is_primary() const noexcept { return align_role == AlignRole::PRIMARY; }
+        bool is_secondary() const noexcept { return align_role == AlignRole::SECONDARY; }
+
+        // ——— 工厂 ———
+        static SegPtr create(uint_t start, uint_t len, Strand sd,
+            Cigar_t cg, AlignRole rl, SegmentRole sl,
+            const BlockPtr& bp);
+
+        static SegPtr create_from_region(Region& region, Strand sd,
+            Cigar_t cg, AlignRole rl, SegmentRole sl,
+            const BlockPtr& bp);
+
+        // Sentinel 生成
+        static SegPtr create_head();
+        static SegPtr create_tail();
     };
 
-    /* ---------- Segment (普通节点) ---------- */
-    class Segment final : public RaMeshNode {
-    public:
-        uint_t start{ 0 };
-        uint_t length{ 0 };
-        Cigar_t  cigar;
-        Strand   strand{ Strand::FORWARD };
-        AlignRole role{ AlignRole::PRIMARY };
+    //// ────────────────────────────────────────────────
+    //// 无锁链表辅助函数 (已去除 detail 命名空间)
+    //// ────────────────────────────────────────────────
+    //inline void link_node(SegPtr new_node, SegPtr pred, SegPtr succ) noexcept {
+    //    new_node->primary_path.prev.store(pred, std::memory_order_relaxed);
+    //    new_node->primary_path.next.store(succ, std::memory_order_relaxed);
+    //}
 
-        RaMeshPath primary_path;
-        RaMeshPath secondary_path;
+    //inline bool cas_insert_after(SegPtr pred, SegPtr new_node) noexcept {
+    //    SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
+    //    link_node(new_node, pred, succ);
 
-        WeakBlock parent_block;                 // ← 由裸指针改为弱引用
-        mutable std::shared_mutex rw;
+    //    if (pred->primary_path.next.compare_exchange_strong(
+    //        succ, new_node,
+    //        std::memory_order_release,
+    //        std::memory_order_relaxed)) {
+    //        succ->primary_path.prev.store(new_node, std::memory_order_release);
+    //        return true;
+    //    }
+    //    return false;
+    //}
 
-        [[nodiscard]] bool is_head()    const noexcept override { return false; }
-        [[nodiscard]] bool is_tail()    const noexcept override { return false; }
-        [[nodiscard]] bool is_segment() const noexcept override { return true; }
+    //// 根据 start 位置插入到以 head 为首的有序链表
+    //inline void concurrent_insert_segment(SegPtr head, SegPtr new_node) {
+    //    while (true) {
+    //        SegPtr pred = head;
+    //        SegPtr succ = pred->primary_path.next.load(std::memory_order_acquire);
+    //        while (!succ->is_tail() && succ->start < new_node->start) {
+    //            pred = succ;
+    //            succ = succ->primary_path.next.load(std::memory_order_acquire);
+    //        }
+    //        if (cas_insert_after(pred, new_node))
+    //            break;
+    //    }
+    //}
 
-        static SegPtr create(uint_t           start,
-            uint_t           length,
-            const Cigar_t& cigar,
-            Strand           strand = Strand::FORWARD,
-            AlignRole        role = AlignRole::PRIMARY,
-            const BlockPtr& parent = nullptr);
-
-        static SegPtr create(const Region& region,
-            Strand strand = Strand::FORWARD,
-            AlignRole role = AlignRole::PRIMARY,
-            const BlockPtr& parent = nullptr);
-    };
-
-
-    /* ---------- Sentinel 节点 ---------- */
-    class HeadSegment final : public RaMeshNode {
-    public:
-        HeadSegment() {}               // 任意默认
-        static std::shared_ptr<HeadSegment> create();
-
-        [[nodiscard]] bool is_head()    const noexcept override { return true; }
-        [[nodiscard]] bool is_tail()    const noexcept override { return false; }
-        [[nodiscard]] bool is_segment() const noexcept override { return false; }
-    };
-
-    class TailSegment final : public RaMeshNode {
-    public:
-        TailSegment() {}
-        static std::shared_ptr<TailSegment> create();
-		[[nodiscard]] bool is_tail()    const noexcept override { return true; }
-		[[nodiscard]] bool is_head()    const noexcept override { return false; }
-        [[nodiscard]] bool is_segment() const noexcept override { return false; }
-    };
-
-    /* ---------- Block : Segment 容器 ---------- */
+    // ────────────────────────────────────────────────
+    // Block
+    // ────────────────────────────────────────────────
     class Block : public std::enable_shared_from_this<Block> {
     public:
-        ChrName ref_chr;
-
-        ChrSegMap anchors;
-
+        ChrName   ref_chr;          // guard: rw
+        ChrHeadMap anchors;         // guard: rw (每条 chr 的 head)
         mutable std::shared_mutex rw;
 
-        /* 工厂：返回 BlockPtr，便于统一持有 */
+        static BlockPtr make(std::size_t hint = 1);
+        static BlockPtr create_empty(const ChrName& chr, std::size_t hint = 1);
+        static BlockPtr create_from_region(const Region& region,
+            Strand sd = Strand::FORWARD,
+            AlignRole rl = AlignRole::PRIMARY);
+        static BlockPtr create_from_match(const Match& match);
 
         Block() = default;
         ~Block() = default;
-    private:
-
-
     };
 
-    /* ---------- 染色体端点索引 ---------- */
+    // ────────────────────────────────────────────────
+    // GenomeEnd
+    // ────────────────────────────────────────────────
     struct GenomeEnd {
-        std::shared_ptr<HeadSegment> head;
-        std::shared_ptr<TailSegment> tail;
+        std::unique_ptr<Segment> head_holder;
+        std::unique_ptr<Segment> tail_holder;
 
-        /* ctor ①：空端点 */
-        GenomeEnd();
+        SegPtr head;
+        SegPtr tail;
 
-        /* ctor ②：直接传入 head / tail */
-        GenomeEnd(const std::shared_ptr<HeadSegment>& h,
-            const std::shared_ptr<TailSegment>& t);
+        mutable std::shared_mutex rw;
+
+        GenomeEnd() {
+            head_holder.reset(Segment::create_head());
+            tail_holder.reset(Segment::create_tail());
+            head = head_holder.get();
+            tail = tail_holder.get();
+            head->primary_path.next.store(tail, std::memory_order_relaxed);
+            tail->primary_path.prev.store(head, std::memory_order_relaxed);
+        }
+
+        GenomeEnd(GenomeEnd&&)            noexcept = default;
+        GenomeEnd& operator=(GenomeEnd&&) noexcept = default;
+        GenomeEnd(const GenomeEnd&) = delete;
+        GenomeEnd& operator=(const GenomeEnd&) = delete;
+
+        std::pair<SegPtr, SegPtr> find_surrounding(uint_t beg, uint_t end);
     };
-    /* ---------- 物种级图 ---------- */
+
+    // ────────────────────────────────────────────────
+    // RaMeshGenomeGraph / RaMeshMultiGenomeGraph
+    // ────────────────────────────────────────────────
     class RaMeshGenomeGraph {
     public:
-        /* Constructors */
-        RaMeshGenomeGraph() = default;                                                  // ① 空
-        explicit RaMeshGenomeGraph(const SpeciesName& sp);                      // ② 物种名
-        RaMeshGenomeGraph(const SpeciesName& sp,                                // ③ 物种 + 染色体表
-            const std::vector<ChrName>& chromosomes);
+        RaMeshGenomeGraph() = default;
+        explicit RaMeshGenomeGraph(const SpeciesName& sp);
+        RaMeshGenomeGraph(const SpeciesName& sp, const std::vector<ChrName>& chrs);
 
-        /* data */
         SpeciesName                             species_name;
-        std::unordered_map<ChrName, GenomeEnd>  chr2end;
-        mutable std::shared_mutex               rw;
+        std::unordered_map<ChrName, GenomeEnd>  chr2end;   // guard: rw
+        mutable std::shared_mutex               rw;        // 多读单写
+
+        size_t debug_print(std::ostream& os = std::cout, bool show_secondary = false) const;
     };
 
-    /* ---------- 跨物种多基因组图 ---------- */
     class RaMeshMultiGenomeGraph {
     public:
-        /* 物种 → 基因组图 */
-        std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs;
-
-        /* 所有 Block 的弱引用（用于跨物种共享） */
-        std::vector<WeakBlock> blocks;
-        mutable std::mutex     rw;
+        std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs; // guard: rw
+        std::vector<WeakBlock> blocks;                                     // guard: rw
+        mutable std::shared_mutex rw;            // 多读单写
 
         RaMeshMultiGenomeGraph() = default;
-        RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map);
+        explicit RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_map);
 
-        void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName query_name, const MatchCluster& cluster);
+        void insertClusterIntoGraph(SpeciesName ref, SpeciesName qry, const MatchCluster& cluster);
+        void debug_print(std::ostream& os = std::cout, bool show_secondary = false) const;
     };
 
-
-    /* ---------- 辅助函数 ---------- */
-/* 判断主 / 次比对 */
-    [[nodiscard]] inline bool is_primary(const Segment& s) noexcept
-    {
-        return s.role == AlignRole::PRIMARY;
-    }
-
-    [[nodiscard]] inline bool is_secondary(const Segment& s) noexcept
-    {
-        return s.role == AlignRole::SECONDARY;
-    }
-
-}
-
-#endif
+} // namespace RaMesh
+#endif /* RAMESH_H */
