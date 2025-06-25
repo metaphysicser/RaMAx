@@ -43,7 +43,9 @@ void MultipleRareAligner::starAlignment(
     SearchMode                 search_mode,
     bool                       fast_build,
     bool                       allow_MEM,
-    bool                       mask_mode)
+    bool                       mask_mode,
+    sdsl::int_vector<0>& ref_global_cache,
+    SeqPro::Length sampling_interval)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
 	uint_t leaf_num = leaf_vec.size();
@@ -63,7 +65,7 @@ void MultipleRareAligner::starAlignment(
 
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            ACCURATE_SEARCH, fast_build, allow_MEM
+            ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
 
 		filterMultipeSpeciesAnchors(
@@ -79,7 +81,9 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
     std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map,
     SearchMode                 search_mode,
     bool                       fast_build,
-    bool                       allow_MEM)
+    bool                       allow_MEM,
+    sdsl::int_vector<0>& ref_global_cache,
+    SeqPro::Length sampling_interval)
 {
     /* ---------- 0. 合法性检查 ---------- */
     if (!species_fasta_manager_map.count(ref_name))
@@ -132,11 +136,9 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
         fut_map.emplace(
             sp,
             std::async(std::launch::async,
-                [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool]() -> MatchVec3DPtr {
+                [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool, &ref_global_cache, sampling_interval]() -> MatchVec3DPtr {
                     // 在多基因组对齐中，每个查询物种使用独立的空缓存（暂时禁用缓存功能）
-                    sdsl::int_vector<0> empty_cache;
-                    SeqPro::Length null;
-                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, empty_cache,null);
+                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval);
                 })
         );
     }
