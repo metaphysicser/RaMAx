@@ -665,7 +665,7 @@ bool FM_Index::saveToFile(const std::string &filename) const {
         return false; // 打开失败
 
     cereal::BinaryOutputArchive oar(ofs); // 也可换 PortableBinary
-    oar(*this); // 调用上面 save()
+    // oar(*this); // 调用上面 save()
     return static_cast<bool>(ofs); // 检查流状态
 }
 
@@ -675,7 +675,6 @@ bool FM_Index::loadFromFile(const std::string &filename) {
         return false;
 
     cereal::BinaryInputArchive iar(ifs);
-    iar(*this); // 调用上面 load()
     return static_cast<bool>(ifs);
 }
 

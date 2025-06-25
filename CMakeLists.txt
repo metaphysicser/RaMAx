@@ -35,26 +35,37 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 
 # ================= 子模块依赖 =================
 add_subdirectory("${SUBMODULE_DIR}/spdlog")
-add_subdirectory("${SUBMODULE_DIR}/CLI11")
-add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
+# add_subdirectory("${SUBMODULE_DIR}/CLI11")
+# add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
 add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
 
-# ============ 安装 libdivsufsort（使用 install.sh） ============
-if (NOT EXISTS "${SUBMODULE_DIR}/sdsl-lite/include/divsufsort.h")
-    message(STATUS "divsufsort.h not found, running install.sh")
+# ================= libdivsufsort 子模块 =================
+# 设置 libdivsufsort 编译选项
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "Don't build libdivsufsort examples" FORCE)
+set(BUILD_DIVSUFSORT64 ON CACHE BOOL "Build libdivsufsort64" FORCE)
+set(USE_OPENMP OFF CACHE BOOL "Don't use OpenMP in libdivsufsort" FORCE)
 
-    add_custom_target(sdsl-install ALL
-        # ① 先确保 sdsl-lite/build 目录存在
-        # COMMAND ${CMAKE_COMMAND} -E make_directory build
-        # ② 再执行 install.sh
-        COMMAND bash install.sh ${SUBMODULE_DIR}/sdsl-lite/
-        WORKING_DIRECTORY ${SUBMODULE_DIR}/sdsl-lite/
-        COMMENT "Running install.sh from inside sdsl-lite directory"
-        VERBATIM
-    )
-else()
-    message(STATUS "divsufsort.h found, skipping install.sh")
-endif()
+# 添加 libdivsufsort 子目录
+add_subdirectory("${SUBMODULE_DIR}/libdivsufsort")
+
+# ============ 旧的 libdivsufsort 安装脚本（已通过子模块替代） ============
+# 以下部分已被上面的 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort") 替代
+# if (NOT EXISTS "${SUBMODULE_DIR}/sdsl-lite/include/divsufsort.h")
+#     message(STATUS "divsufsort.h not found, running install.sh")
+
+#     add_custom_target(sdsl-install ALL
+#         # ① 先确保 sdsl-lite/build 目录存在
+#         # COMMAND ${CMAKE_COMMAND} -E make_directory build
+#         # ② 再执行 install.sh
+#         COMMAND bash install.sh ${SUBMODULE_DIR}/sdsl-lite/
+#         WORKING_DIRECTORY ${SUBMODULE_DIR}/sdsl-lite/
+#         COMMENT "Running install.sh from inside sdsl-lite directory"
+#         VERBATIM
+#     )
+# else()
+#     message(STATUS "divsufsort.h found, skipping install.sh")
+# endif()
 
 # ================= 外部库依赖 =================
 find_package(CURL REQUIRED)
@@ -96,12 +107,13 @@ set(MAIN_X "${SOURCE_DIR}/RaMAx.cpp")
 set(RAMA_INCLUDE_DIRS
     "${INCLUDE_DIR}"
     "${SUBMODULE_DIR}/spdlog/include"
-    "${SUBMODULE_DIR}/CLI11/include"
-    "${SUBMODULE_DIR}/cereal/include"
+    # "${SUBMODULE_DIR}/CLI11/include"
+#   "${SUBMODULE_DIR}/cereal/include"
     "${BIGBWT_INCLUDE_DIR}"
     "${SUFFIX_ARRAY_INCLUDE_DIR}"
-    "${SUBMODULE_DIR}/sdsl-lite/include"
-    "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
+    # "${SUBMODULE_DIR}/sdsl-lite/include"
+    # "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
+    "${CMAKE_BINARY_DIR}/submodule/libdivsufsort/include"
     "${SUBMODULE_DIR}/WFA2-lib"
     "${SUBMODULE_DIR}/parlaylib/include"
 )
@@ -112,10 +124,10 @@ function(configure_rama_target target)
 
     target_link_libraries(${target} PRIVATE
         spdlog::spdlog
-        CLI11::CLI11
+        # CLI11::CLI11
         ZLIB::ZLIB
         CURL::libcurl
-        sdsl
+        # sdsl
         divsufsort
         divsufsort64
         Threads::Threads
@@ -123,6 +135,9 @@ function(configure_rama_target target)
         TBB::tbb
         OpenMP::OpenMP_CXX
     )
+
+    # 确保在构建目标前先构建libdivsufsort（生成头文件）
+    add_dependencies(${target} divsufsort divsufsort64)
 
     target_compile_definitions(${target} PRIVATE M64)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

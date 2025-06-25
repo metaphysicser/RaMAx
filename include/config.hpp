@@ -5,9 +5,7 @@
 // 引入头文件：功能模块包括线程池、命令行解析、日志系统、序列化库等
 // ------------------------------------------------------------------
 #include "threadpool.h"                          // 自定义线程池（可能用于并行加速）
-#include "CLI/CLI.hpp"                           // CLI11 命令行解析库
-#include "CLI/Formatter.hpp"
-#include "CLI/Config.hpp"
+#include "CLI11.hpp"                             // CLI11 命令行解析库（本地版本）
 
 #include "spdlog/spdlog.h"                       // spdlog 主头文件
 #include "spdlog/sinks/stdout_color_sinks.h"     // 控制台彩色输出 sink
@@ -21,10 +19,10 @@
 #include <cereal/archives/binary.hpp>            // 二进制格式支持
 #include <cereal/types/array.hpp>
 
-#include <sdsl/int_vector.hpp>                   // SDSL 索引支持
-#include <sdsl/wt_huff.hpp>
-#include <sdsl/util.hpp>
-#include <sdsl/suffix_arrays.hpp>
+#include "sdsl/int_vector.hpp"              // SDSL 索引支持（本地版本）
+#include "sdsl/wt_huff.hpp"
+#include "sdsl/util.hpp"
+#include "sdsl/suffix_arrays.hpp"
 
 #include <fstream>
 #include <iostream>

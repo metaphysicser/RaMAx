@@ -6,37 +6,13 @@
 	path = src/utils/spdlog
 	url = https://github.com/gabime/spdlog.git
 	ignore = all
-[submodule "src/utils/CLI11"]
-	path = src/utils/CLI11
-	url = https://github.com/CLIUtils/CLI11.git
-	ignore = all
-[submodule "src/utils/cereal"]
-	path = src/utils/cereal
-	url = git@github.com:USCiLab/cereal.git
-	ignore = all
-[submodule "src/utils/sdsl-lite"]
-	path = src/utils/sdsl-lite
-	url = https://github.com/simongog/sdsl-lite.git
-	ignore = all
 [submodule "src/align/WFA2-lib"]
 	path = src/align/WFA2-lib
 	url = https://github.com/smarco/WFA2-lib
 	ignore = all
-[submodule "submodule/cereal"]
-	path = submodule/cereal
-	url = https://github.com/USCiLab/cereal.git
-	ignore = all
 [submodule "submodule/WFA2-lib"]
 	path = submodule/WFA2-lib
 	url = https://github.com/smarco/WFA2-lib.git
-	ignore = all
-[submodule "submodule/sdsl-lite"]
-	path = submodule/sdsl-lite
-	url = https://github.com/simongog/sdsl-lite.git
-	ignore = all
-[submodule "submodule/CLI11"]
-	path = submodule/CLI11
-	url = https://github.com/CLIUtils/CLI11.git
 	ignore = all
 [submodule "submodule/spdlog"]
 	path = submodule/spdlog
@@ -65,3 +41,6 @@
 [submodule "submodule/kseqpp"]
 	path = submodule/kseqpp
 	url = https://github.com/cartoonist/kseqpp.git
+[submodule "submodule/libdivsufsort"]
+	path = submodule/libdivsufsort
+	url = https://github.com/simongog/libdivsufsort.git
