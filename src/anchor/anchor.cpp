@@ -299,6 +299,165 @@ groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
     return result;
 }
 
+//--------------------------------------------------------------------
+// Anchor 验证功能实现
+//--------------------------------------------------------------------
+
+ValidationResult validateAnchorsCorrectness(
+    const MatchVec3DPtr& anchors,
+    const SeqPro::ManagerVariant& ref_manager,
+    const SeqPro::ManagerVariant& query_manager
+) {
+    spdlog::info("开始验证 anchors 结果的正确性…");
+    
+    ValidationResult result;
+    
+    // 反向互补函数
+    auto reverseComplement = [](const std::string &seq) -> std::string {
+        std::string result;
+        result.reserve(seq.length());
+        for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+            result.push_back(BASE_COMPLEMENT[static_cast<unsigned char>(*it)]);
+        }
+        return result;
+    };
+
+    // 计算总工作项数
+    uint64_t total_work_items = 0;
+    for (const auto &level1: *anchors) {
+        for (const auto &level2: level1) {
+            total_work_items += level2.size();
+        }
+    }
+
+    if (total_work_items == 0) {
+        spdlog::info("没有需要验证的匹配项。");
+        return result;
+    }
+
+    spdlog::info("总计需要验证 {} 个匹配项。", total_work_items);
+
+    // 进度报告相关变量
+    std::atomic<uint64_t> processed_items = 0;
+    const uint64_t report_interval = std::max(1ULL, total_work_items / 100ULL);
+    std::atomic<bool> diagnostic_dump_done = false;
+
+    // 用于OpenMP reduction的临时变量
+    uint64_t total_matches = 0;
+    uint64_t correct_matches = 0;
+    uint64_t incorrect_matches = 0;
+
+#pragma omp parallel reduction(+: total_matches, correct_matches, incorrect_matches)
+    {
+#pragma omp for schedule(dynamic) nowait
+        for (size_t i = 0; i < anchors->size(); ++i) {
+            for (size_t j = 0; j < (*anchors)[i].size(); ++j) {
+                for (size_t k = 0; k < (*anchors)[i][j].size(); ++k) {
+                    uint64_t current_processed = processed_items.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                    if (current_processed % report_interval == 0) {
+                        spdlog::info("验证进度: {} / {} ({:.2f}%)",
+                                     current_processed,
+                                     total_work_items,
+                                     (100.0 * current_processed / total_work_items));
+                    }
+
+                    const Match &match = (*anchors)[i][j][k];
+                    ++total_matches;
+
+                    try {
+                        // 提取参考序列
+                        std::string ref_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
+                            using PtrType = std::decay_t<decltype(manager_ptr)>;
+                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
+                                                                   match.ref_region.length);
+                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                SeqPro::MaskedSequenceManager> >) {
+                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
+                                                                   match.ref_region.length);
+                            } else {
+                                throw std::runtime_error("Unhandled manager type in variant.");
+                            }
+                        }, ref_manager);
+                        
+                        // 提取查询序列
+                        std::string query_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
+                            using PtrType = std::decay_t<decltype(manager_ptr)>;
+                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                return manager_ptr->getSubSequence(match.query_region.chr_name,
+                                                                   match.query_region.start, match.query_region.length);
+                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                SeqPro::MaskedSequenceManager> >) {
+                                return manager_ptr->getSubSequence(match.query_region.chr_name,
+                                                                   match.query_region.start, match.query_region.length);
+                            } else {
+                                throw std::runtime_error("Unhandled manager type in variant.");
+                            }
+                        }, query_manager);
+
+                        // 如果是反向链，进行反向互补
+                        if (match.strand == REVERSE) {
+                            query_seq = reverseComplement(query_seq);
+                        }
+
+                        // 比较序列
+                        if (ref_seq == query_seq) {
+                            ++correct_matches;
+                        } else {
+                            ++incorrect_matches;
+
+                            // 线程安全的首错捕获逻辑
+                            bool expected = false;
+                            if (!diagnostic_dump_done.load(std::memory_order_relaxed) &&
+                                diagnostic_dump_done.compare_exchange_strong(expected, true)) {
+                                spdlog::warn(
+                                    "序列不匹配: ref_chr={}, ref_start={}, query_chr={}, "
+                                    "query_start={}, length={}, strand={}\n"
+                                    "  Ref Seq:    {}\n"
+                                    "  Query Seq{}: {}",
+                                    match.ref_region.chr_name, match.ref_region.start, match.query_region.chr_name,
+                                    match.query_region.start, match.ref_region.length,
+                                    (match.strand == FORWARD ? "FORWARD" : "REVERSE"), ref_seq,
+                                    (match.strand == REVERSE ? " (RC)" : ""), query_seq
+                                );
+                                spdlog::error("--- [CAPTURED FIRST MISMATCH] INITIATING DIAGNOSTIC DUMP ---");
+
+                                // 打印错误匹配的详细信息
+                                spdlog::error("Failing Match Details:");
+                                spdlog::error("  - Reference: {}:{} (len:{})", match.ref_region.chr_name,
+                                              match.ref_region.start, match.ref_region.length);
+                                spdlog::error("  - Query:     {}:{} (len:{})", match.query_region.chr_name,
+                                              match.query_region.start, match.query_region.length);
+                                spdlog::error("  - Strand:    {}", (match.strand == FORWARD ? "FORWARD" : "REVERSE"));
+                            }
+                        }
+                    } catch (const std::exception &e) {
+                        ++incorrect_matches;
+                        spdlog::warn("处理匹配项时发生异常: {}", e.what());
+                    }
+                }
+            }
+        } // omp for
+    } // omp parallel
+
+    // 将OpenMP reduction结果赋值给结果结构体
+    result.total_matches = total_matches;
+    result.correct_matches = correct_matches;
+    result.incorrect_matches = incorrect_matches;
+
+    // 确保最终进度是100%
+    spdlog::info("验证进度: {} / {} (100.00%)", total_work_items, total_work_items);
+
+    spdlog::info("验证完成: 总匹配数={}, 正确匹配数={}, 错误匹配数={}, 正确率={:.2f}%",
+                 result.total_matches,
+                 result.correct_matches,
+                 result.incorrect_matches,
+                 result.accuracy());
+
+    return result;
+}
+
 
 
 
