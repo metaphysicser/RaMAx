@@ -109,10 +109,6 @@ namespace RaMesh {
 
         static BlockPtr make(std::size_t hint = 1);
         static BlockPtr createEmpty(const ChrName& chr, std::size_t hint = 1);
-        static BlockPtr createFromRegion(const Region& region,
-            Strand sd = Strand::FORWARD,
-            AlignRole rl = AlignRole::PRIMARY);
-        static BlockPtr createFromMatch(const Match& match);
 
         // Convenience helper – create both ref&qry segments, register anchors
         static std::pair<SegPtr, SegPtr> createSegmentPair(const Match& match,
@@ -131,6 +127,7 @@ namespace RaMesh {
     // ────────────────────────────────────────────────
     class GenomeEnd {
     public:
+        static constexpr uint_t kSampleStep = 10000;
         GenomeEnd();
         GenomeEnd(GenomeEnd&&)            noexcept = default;
         GenomeEnd& operator=(GenomeEnd&&) noexcept = default;
@@ -150,10 +147,15 @@ namespace RaMesh {
         std::unique_ptr<Segment> head_holder;
         std::unique_ptr<Segment> tail_holder;
 
+        std::vector<SegPtr> sample_vec;
+
         mutable std::shared_mutex rw;
 
         static bool spliceRange(SegPtr prev, SegPtr next,
             SegPtr first, SegPtr last);
+
+        void ensureSampleSize(uint_t pos);          // 自动扩容
+        void updateSampling(const std::vector<SegPtr>& segs); // 插入后修补
     };
 
     // ────────────────────────────────────────────────
