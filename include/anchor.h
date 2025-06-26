@@ -165,6 +165,14 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     SeqPro::ManagerVariant& query_fasta_manager,
     ThreadPool& pool);
 
+// 重载版本：支持 SharedManagerVariant
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByStrandByQueryRefPtr unique_anchors,
+    MatchByStrandByQueryRefPtr repeat_anchors,
+    SeqPro::SharedManagerVariant& ref_fasta_manager,
+    SeqPro::SharedManagerVariant& query_fasta_manager,
+    ThreadPool& pool);
+
 MatchClusterVecPtr
 groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
     ThreadPool& pool, uint_t thread_num);
@@ -399,6 +407,13 @@ ValidationResult validateAnchorsCorrectness(
     const MatchVec3DPtr& anchors,
     const SeqPro::ManagerVariant& ref_manager,
     const SeqPro::ManagerVariant& query_manager
+);
+
+// 重载版本：支持 SharedManagerVariant
+ValidationResult validateAnchorsCorrectness(
+    const MatchVec3DPtr& anchors,
+    const SeqPro::SharedManagerVariant& ref_manager,
+    const SeqPro::SharedManagerVariant& query_manager
 );
 
 #endif // ANCHOR_H

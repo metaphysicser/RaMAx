@@ -34,7 +34,7 @@ void recordReferenceSequenceStats(const std::string& species_name,
 double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                           SeqPro::Length sampling_interval,
                           sdsl::int_vector<0>& ref_global_cache) {
-    
+    // 目前没有清空，原理上应该是不用清空的
     auto t_start_cache = std::chrono::steady_clock::now();
     
     // Get total length and calculate cache size

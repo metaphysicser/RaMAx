@@ -24,6 +24,7 @@ extern "C" {
 #include "divsufsort.h"
 #include "divsufsort64.h"
 #include <cstdlib>
+#include <sstream>
 
 // -------------------------
 // 常量定义
@@ -232,18 +233,7 @@ public:
     return result;
   }
 
-  template <class Archive> void save(Archive &ar) const {
-    ar(sample_rate, total_size, alpha_set, alpha_set_without_N, count_array,
-       char2idx,
-       sampled_sa, // SDSL 的 int_vector 序列化
-       wt_bwt      // SDSL 的 wavelet tree 序列化
-    );
-  }
-
-  template <class Archive> void load(Archive &ar) {
-    ar(sample_rate, total_size, alpha_set, alpha_set_without_N, count_array,
-       char2idx, sampled_sa, wt_bwt);
-  }
+  // 完全使用SDSL原生序列化，避免与cereal混合使用
 
   SpeciesName species_name;
   SeqPro::ManagerVariant& fasta_manager;
