@@ -1,4 +1,5 @@
 ﻿#include "index.h"
+#include <sdsl/io.hpp>
 
 // 构造函数：接收物种名、FastaManager 指针、采样率
 FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manager,
@@ -661,20 +662,53 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
 
 bool FM_Index::saveToFile(const std::string &filename) const {
     std::ofstream ofs(filename, std::ios::binary);
-    if (!ofs)
-        return false; // 打开失败
+    if (!ofs) return false;
 
-    cereal::BinaryOutputArchive oar(ofs); // 也可换 PortableBinary
-    // oar(*this); // 调用上面 save()
-    return static_cast<bool>(ofs); // 检查流状态
+    // 保存基本信息
+    ofs.write(reinterpret_cast<const char*>(&sample_rate), sizeof(sample_rate));
+    ofs.write(reinterpret_cast<const char*>(&total_size), sizeof(total_size));
+    ofs.write(reinterpret_cast<const char*>(&alpha_set), sizeof(alpha_set));
+    ofs.write(reinterpret_cast<const char*>(&alpha_set_without_N), sizeof(alpha_set_without_N));
+    ofs.write(reinterpret_cast<const char*>(&count_array), sizeof(count_array));
+    ofs.write(reinterpret_cast<const char*>(&char2idx), sizeof(char2idx));
+    
+    // 使用SDSL的store_to_file函数
+    std::string sa_file = filename + ".sa";
+    std::string wt_file = filename + ".wt";
+    
+    if (!sdsl::store_to_file(sampled_sa, sa_file)) {
+        return false;
+    }
+    if (!sdsl::store_to_file(wt_bwt, wt_file)) {
+        return false;
+    }
+    
+    return static_cast<bool>(ofs);
 }
 
 bool FM_Index::loadFromFile(const std::string &filename) {
     std::ifstream ifs(filename, std::ios::binary);
-    if (!ifs)
-        return false;
+    if (!ifs) return false;
 
-    cereal::BinaryInputArchive iar(ifs);
+    // 加载基本信息
+    ifs.read(reinterpret_cast<char*>(&sample_rate), sizeof(sample_rate));
+    ifs.read(reinterpret_cast<char*>(&total_size), sizeof(total_size));
+    ifs.read(reinterpret_cast<char*>(&alpha_set), sizeof(alpha_set));
+    ifs.read(reinterpret_cast<char*>(&alpha_set_without_N), sizeof(alpha_set_without_N));
+    ifs.read(reinterpret_cast<char*>(&count_array), sizeof(count_array));
+    ifs.read(reinterpret_cast<char*>(&char2idx), sizeof(char2idx));
+    
+    // 使用SDSL的load_from_file函数
+    std::string sa_file = filename + ".sa";
+    std::string wt_file = filename + ".wt";
+    
+    if (!sdsl::load_from_file(sampled_sa, sa_file)) {
+        return false;
+    }
+    if (!sdsl::load_from_file(wt_bwt, wt_file)) {
+        return false;
+    }
+    
     return static_cast<bool>(ifs);
 }
 
