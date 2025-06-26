@@ -1,3 +1,5 @@
+#include <sequence_utils.h>
+
 #include "rare_aligner.h"
 
 MultipleRareAligner::MultipleRareAligner(
@@ -44,15 +46,18 @@ void MultipleRareAligner::starAlignment(
     bool                       fast_build,
     bool                       allow_MEM,
     bool                       mask_mode,
-    sdsl::int_vector<0>& ref_global_cache,
     SeqPro::Length sampling_interval)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
 	uint_t leaf_num = leaf_vec.size();
-
+    // 初始化Ref缓存
+    sdsl::int_vector<0> ref_global_cache;
     // TODO 完成迭代的星比对
     for (uint_t i = 0; i < 1; i++) {
     /*for (uint_t i = 0; i < leaf_num; i++) {*/
+        // 使用工具函数构建缓存
+        SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
+
 		uint_t ref_id = leaf_vec[i];
 		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
         std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
@@ -67,10 +72,11 @@ void MultipleRareAligner::starAlignment(
             ref_name, species_fasta_manager_map,
             ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
-
+        // todo 修改为共用一个线程池，过滤比对结果
 		filterMultipeSpeciesAnchors(
 			ref_name, species_fasta_manager_map, match_ptr
 		);
+        // todo 写一个多基因组比对类的成员函数，能够并行构建多个比对结果图，共用一个线程池
 
     }
     return;
@@ -137,7 +143,6 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
             sp,
             std::async(std::launch::async,
                 [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool, &ref_global_cache, sampling_interval]() -> MatchVec3DPtr {
-                    // 在多基因组对齐中，每个查询物种使用独立的空缓存（暂时禁用缓存功能）
                     return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval);
                 })
         );

@@ -387,16 +387,11 @@ int main(int argc, char **argv) {
     // ------------------------------
     auto t_start_align = std::chrono::steady_clock::now();
 
-    sdsl::int_vector<0> ref_global_cache;
     // 初始化ref_global_cache：采样策略避免二分搜索
     auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
-
-    // 使用工具函数构建缓存
-    SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
-
     uint_t tree_root = 0;
 
-    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, false, false, common_args.enable_repeat_masking, ref_global_cache, sampling_interval);
+    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, false, false, common_args.enable_repeat_masking, sampling_interval);
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;

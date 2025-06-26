@@ -133,10 +133,11 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     ThreadPool& pool)
 {
     // ---------- 0. 判空 ----------
-    if (!unique_anchors || !repeat_anchors) {
+    if (unique_anchors->empty() || repeat_anchors->empty()) {
         spdlog::warn("[clusterAllChrAnchors] empty anchor ptr");
         return std::make_shared<ClusterVecPtrByStrandByQueryRef>();   // 返回空指针容器
     }
+
 
     // ---------- 1. 构建结果桶 ----------
     auto cluster_ptr = std::make_shared<ClusterVecPtrByStrandByQueryRef>();

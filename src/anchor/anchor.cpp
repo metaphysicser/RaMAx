@@ -119,6 +119,18 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
     // **不再在这里 wait；由调用者在外部 pool.waitAllTasksDone() 同步**
 }
 
+// 重载版本：支持 SharedManagerVariant，通过解引用调用原始版本
+void groupMatchByQueryRef(MatchVec3DPtr& anchors,
+    MatchByStrandByQueryRefPtr unique_anchors,
+    MatchByStrandByQueryRefPtr repeat_anchors,
+    SeqPro::SharedManagerVariant& ref_fasta_manager,
+    SeqPro::SharedManagerVariant& query_fasta_manager,
+    ThreadPool& pool)
+{
+    // 解引用 SharedManagerVariant 并调用原始函数
+    groupMatchByQueryRef(anchors, unique_anchors, repeat_anchors,
+                        *ref_fasta_manager, *query_fasta_manager, pool);
+}
 
 //void sortMatchByRefStart(MatchByQueryRefPtr& anchors, ThreadPool& pool) {
 //
@@ -456,6 +468,16 @@ ValidationResult validateAnchorsCorrectness(
                  result.accuracy());
 
     return result;
+}
+
+// 重载版本：支持 SharedManagerVariant
+ValidationResult validateAnchorsCorrectness(
+    const MatchVec3DPtr& anchors,
+    const SeqPro::SharedManagerVariant& ref_manager,
+    const SeqPro::SharedManagerVariant& query_manager
+) {
+    // 解引用 SharedManagerVariant 并调用原始函数
+    return validateAnchorsCorrectness(anchors, *ref_manager, *query_manager);
 }
 
 
