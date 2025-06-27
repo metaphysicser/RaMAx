@@ -68,13 +68,17 @@ void MultipleRareAligner::starAlignment(
             species_fasta_manager_map.emplace(query_name, query_fasta_manager);
         }
 
+        // 创建共享线程池，供比对和过滤过程共同使用
+        ThreadPool shared_pool(thread_num);
+        
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
             ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
-        // todo 修改为共用一个线程池，过滤比对结果
+        
+        // 使用同一个线程池进行过滤比对结果
 		filterMultipeSpeciesAnchors(
-			ref_name, species_fasta_manager_map, match_ptr
+			ref_name, species_fasta_manager_map, match_ptr, shared_pool
 		);
         // todo 写一个多基因组比对类的成员函数，能够并行构建多个比对结果图，共用一个线程池
 
@@ -176,12 +180,10 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 void MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesName                       ref_name,
     std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map,
-    SpeciesMatchVec3DPtrMapPtr        species_match_map)
+    SpeciesMatchVec3DPtrMapPtr        species_match_map,
+    ThreadPool&                       shared_pool)
 {
     if (!species_match_map || species_match_map->empty()) return;
-
-
-    ThreadPool pool(thread_num);                      // 全局线程池
 
     /*-------------- 预分配表 ----------------------------------------*/
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> unique_map;
@@ -205,23 +207,23 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
         repeat_map[species] = r_ptr;
 
         // 把所有需要的变量显式捕获
-        pool.enqueue(
+        shared_pool.enqueue(
             [&mv3_ptr,
             &u_ptr,
             &r_ptr,
             &qfm,
             &rfm,
-            &pool]()
+            &shared_pool]()
             {
                 groupMatchByQueryRef(mv3_ptr,
                     u_ptr,
                     r_ptr,
                     *rfm,
                     *qfm,
-                    pool);          // 仍用同一池
+                    shared_pool);          // 仍用同一池
             });
     }
-    pool.waitAllTasksDone();                          // —— Phase-1 完
+    shared_pool.waitAllTasksDone();                          // —— Phase-1 完
 
     // 一步到位，最快释放
     for (auto it = species_match_map->begin();
@@ -235,17 +237,17 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
     /*========================= Phase-2  : sort ======================*/
     for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
         MatchByStrandByQueryRefPtr u_ptr = it->second;
-        pool.enqueue([&u_ptr, &pool]() {
-            sortMatchByQueryStart(u_ptr, pool);
+        shared_pool.enqueue([&u_ptr, &shared_pool]() {
+            sortMatchByQueryStart(u_ptr, shared_pool);
             });
     }
     for (auto it = repeat_map.begin(); it != repeat_map.end(); ++it) {
         MatchByStrandByQueryRefPtr r_ptr = it->second;
-        pool.enqueue([&r_ptr, &pool]() {
-            sortMatchByQueryStart(r_ptr, pool);
+        shared_pool.enqueue([&r_ptr, &shared_pool]() {
+            sortMatchByQueryStart(r_ptr, shared_pool);
             });
     }
-    pool.waitAllTasksDone();                          // —— Phase-2 完
+    shared_pool.waitAllTasksDone();                          // —— Phase-2 完
 
     /*========================= Phase-3  : cluster ===================*/
     using Fut = std::future<ClusterVecPtrByStrandByQueryRefPtr>;
@@ -258,21 +260,21 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
 
         fut_map.emplace(
             species,
-            pool.enqueue(
-                [&u_ptr, &r_ptr, &pool]() -> ClusterVecPtrByStrandByQueryRefPtr {
-                    return clusterAllChrMatch(u_ptr, r_ptr, pool);
+            shared_pool.enqueue(
+                [&u_ptr, &r_ptr, &shared_pool]() -> ClusterVecPtrByStrandByQueryRefPtr {
+                    return clusterAllChrMatch(u_ptr, r_ptr, shared_pool);
                 })
         );
     }
 
-    // pool.waitAllTasksDone();
+    // shared_pool.waitAllTasksDone();
     // 收集 future
     for (auto it = fut_map.begin(); it != fut_map.end(); ++it) {
         const SpeciesName& species = it->first;
         ClusterVecPtrByStrandByQueryRefPtr clus_ptr = it->second.get();
         cluster_map.emplace(species, std::move(clus_ptr));
     }
-    pool.waitAllTasksDone();                          // —— Phase-3 完
+    shared_pool.waitAllTasksDone();                          // —— Phase-3 完
 
     return;
 
