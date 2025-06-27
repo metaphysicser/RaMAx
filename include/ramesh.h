@@ -107,7 +107,7 @@ namespace RaMesh {
         ChrHeadMap anchors;     // guard: rw (head sentinel of every chr)
         mutable std::shared_mutex rw;
 
-        static BlockPtr make(std::size_t hint = 1);
+        static BlockPtr create(std::size_t hint = 1);
         static BlockPtr createEmpty(const ChrName& chr, std::size_t hint = 1);
 
         // Convenience helper – create both ref&qry segments, register anchors

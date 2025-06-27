@@ -110,7 +110,7 @@ namespace RaMesh {
         std::vector<SegPtr> qry_segs; qry_segs.reserve(cluster.size());
 
         for (const auto& m : cluster) {
-            BlockPtr blk = Block::make(2);
+            BlockPtr blk = Block::create(2);
             blk->ref_chr = ref_chr;
 
             auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);

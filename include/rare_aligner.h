@@ -47,10 +47,16 @@ public:
 
     SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
-    void filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map, ThreadPool& shared_pool);
+    SpeciesClusterMapPtr filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map, ThreadPool& shared_pool);
 
-
-
+    // 新增：并行构建多个比对结果图的成员函数，共用一个线程池
+    void constructMultipleGraphsByGreedy(
+        SpeciesName ref_name,
+        const SpeciesClusterMap& species_cluster_map,
+        RaMesh::RaMeshMultiGenomeGraph& graph,
+        ThreadPool& shared_pool,
+        uint_t min_span = 50
+    );
 
 };
 

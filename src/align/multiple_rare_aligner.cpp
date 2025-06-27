@@ -76,11 +76,20 @@ void MultipleRareAligner::starAlignment(
             ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
         
-        // 使用同一个线程池进行过滤比对结果
-		filterMultipeSpeciesAnchors(
+        // 使用同一个线程池进行过滤比对结果，获取cluster数据
+		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
 			ref_name, species_fasta_manager_map, match_ptr, shared_pool
 		);
-        // todo 写一个多基因组比对类的成员函数，能够并行构建多个比对结果图，共用一个线程池
+        
+        // 创建多基因组图
+        RaMesh::RaMeshMultiGenomeGraph multi_graph;
+        
+        // 并行构建多个比对结果图，共用线程池
+        constructMultipleGraphsByGreedy(
+            ref_name, *cluster_map, multi_graph, shared_pool
+        );
+        
+        spdlog::info("Multiple genome graphs constructed for reference: {}", ref_name);
 
     }
     return;
@@ -177,13 +186,15 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 }
 
 
-void MultipleRareAligner::filterMultipeSpeciesAnchors(
+SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesName                       ref_name,
     std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map,
     SpeciesMatchVec3DPtrMapPtr        species_match_map,
     ThreadPool&                       shared_pool)
 {
-    if (!species_match_map || species_match_map->empty()) return;
+    if (!species_match_map || species_match_map->empty()) {
+        return std::make_shared<SpeciesClusterMap>();
+    }
 
     /*-------------- 预分配表 ----------------------------------------*/
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> unique_map;
@@ -276,6 +287,112 @@ void MultipleRareAligner::filterMultipeSpeciesAnchors(
     }
     shared_pool.waitAllTasksDone();                          // —— Phase-3 完
 
-    return;
+    // 返回cluster数据用于后续处理
+    auto cluster_map_ptr = std::make_shared<SpeciesClusterMap>(std::move(cluster_map));
+    return cluster_map_ptr;
 
+}
+
+/* ============================================================= *
+ *  多基因组比对类的成员函数：并行构建多个比对结果图，共用一个线程池
+ * ============================================================= */
+/**
+ * @brief  并行构建多个比对结果图，基于贪婪算法处理多个物种的cluster数据
+ * 
+ * @param ref_name             参考物种名称
+ * @param species_cluster_map  所有物种的cluster数据映射
+ * @param graph                多基因组图对象
+ * @param shared_pool          共享线程池
+ * @param min_span             最小跨度阈值
+ */
+void MultipleRareAligner::constructMultipleGraphsByGreedy(
+    SpeciesName ref_name,
+    const SpeciesClusterMap& species_cluster_map,
+    RaMesh::RaMeshMultiGenomeGraph& graph,
+    ThreadPool& shared_pool,
+    uint_t min_span)
+{
+    if (species_cluster_map.empty()) {
+        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
+        return;
+    }
+
+    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters", 
+                species_cluster_map.size());
+
+    /* ---------- 1. 为每个物种并行处理cluster数据 ---------- */
+    std::vector<std::future<void>> species_futures;
+    species_futures.reserve(species_cluster_map.size());
+
+    for (const auto& [species_name, cluster_ptr] : species_cluster_map) {
+        if (species_name == ref_name) continue;  // 跳过参考物种
+
+        // 为每个物种启动异步任务
+        auto species_future = std::async(std::launch::async, 
+            [this, ref_name, species_name, cluster_ptr, &graph, &shared_pool, min_span]() {
+                try {
+                    if (!cluster_ptr || cluster_ptr->empty()) {
+                        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster data for species: {}", 
+                                   species_name);
+                        return;
+                    }
+
+                    // 使用PairRareAligner的贪婪算法构建图
+                    PairRareAligner pra(*this);
+                    pra.ref_name = ref_name;
+
+                    // 为每个chromosome的cluster数据并行处理
+                    std::vector<std::future<void>> chr_futures;
+                    for (const auto& strand_data : *cluster_ptr) {
+                        for (const auto& query_ref_data : strand_data) {
+                            for (const auto& cluster_vec : query_ref_data) {
+                                if (cluster_vec && !cluster_vec->empty()) {
+                                    // 将集合转换为向量以便处理
+                                    auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
+                                        cluster_vec->begin(), cluster_vec->end());
+                                    
+                                    chr_futures.emplace_back(
+                                        std::async(std::launch::async, 
+                                            [&pra, species_name, cluster_vec_ptr, &graph, min_span]() {
+                                                pra.constructGraphByGreedy(species_name, cluster_vec_ptr, 
+                                                                         graph, min_span);
+                                            })
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // 等待所有chromosome处理完成
+                    for (auto& chr_future : chr_futures) {
+                        chr_future.wait();
+                    }
+
+                    spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully", 
+                               species_name);
+                }
+                catch (const std::exception& e) {
+                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}", 
+                                species_name, e.what());
+                }
+            });
+
+        species_futures.emplace_back(std::move(species_future));
+    }
+
+    /* ---------- 2. 等待所有物种处理完成 ---------- */
+    for (auto& future : species_futures) {
+        try {
+            future.wait();
+        }
+        catch (const std::exception& e) {
+            spdlog::error("[constructMultipleGraphsByGreedy] Error waiting for species processing: {}", 
+                        e.what());
+        }
+    }
+
+    // 确保共享线程池中的所有任务都完成
+    shared_pool.waitAllTasksDone();
+
+    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
 }

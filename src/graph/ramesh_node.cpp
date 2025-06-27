@@ -157,7 +157,7 @@ namespace RaMesh {
     /* =============================================================
      * 2. Block factories
      * ===========================================================*/
-    BlockPtr Block::make(std::size_t hint)
+    BlockPtr Block::create(std::size_t hint)
     {
         auto bp = std::make_shared<Block>();
         bp->anchors.reserve(hint);
@@ -166,7 +166,7 @@ namespace RaMesh {
 
     BlockPtr Block::createEmpty(const ChrName& chr, std::size_t hint)
     {
-        auto bp = Block::make(hint);
+        auto bp = Block::create(hint);
         bp->ref_chr = chr;
         return bp;
     }
