@@ -469,6 +469,12 @@ int main(int argc, char **argv) {
 #ifdef _DEBUG_
     graph.debugPrint(false);
 #endif // _DEBUG_
+    try {
+        graph.exportToMaf(common_args.output_path, true);
+    }
+    catch (std::exception& e) {
+        spdlog::error("export to result failed: ", e.what());
+    }
 
 	
 
