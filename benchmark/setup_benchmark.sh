@@ -28,7 +28,7 @@ echo "[6/6] 收集所有可执行文件到 bin/"
 mkdir -p bin
 cp delta2maf filter_maf_by_species bin/
 cp mafTools/bin/* bin/
-cp mwgAlignAnalysis/evaluations/src/comparatorWrapper/comparatorSumarizer.py bin/
+cp ./mwgAlignAnalysis/evaluations/src/comparatorWrapper/comparatorSummarizer.py bin/
 
 
 echo "✅ 所有步骤完成，可执行文件已放入 ./bin"

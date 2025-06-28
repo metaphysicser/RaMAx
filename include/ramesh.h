@@ -71,7 +71,7 @@ namespace RaMesh {
         SegmentRole seg_role{ SegmentRole::SEGMENT };
 
         RaMeshPath  primary_path;
-        WeakBlock   parent_block;
+        BlockPtr   parent_block;
 
         mutable std::shared_mutex rw;        // guards non‑list fields
 
@@ -187,6 +187,9 @@ namespace RaMesh {
         std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs; // guard: rw
         std::vector<WeakBlock>                             blocks;         // guard: rw
         mutable std::shared_mutex                          rw;             // multi‑reader / single‑writer
+
+        void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
+
     };
 
 } // namespace RaMesh

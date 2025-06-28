@@ -72,6 +72,7 @@ set(RAMA_COMMON_SOURCES
     "${ALIGN_DIR}/multiple_rare_aligner.cpp"
     "${GRAPH_DIR}/ramesh_node.cpp"
     "${GRAPH_DIR}/ramesh_graph.cpp"
+    "${GRAPH_DIR}/ramesh_export.cpp"
 )
 
 # ================= 主程序入口文件 =================

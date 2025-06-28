@@ -438,12 +438,14 @@ int main(int argc, char **argv) {
     // ------------------------------
     // 验证anchors的序列匹配正确性
     // ------------------------------
+#ifdef _DEBUG_
     ValidationResult validation_result = validateAnchorsCorrectness(
         anchors, 
         seqpro_managers["reference"], 
         seqpro_managers["query"]
     );
-    
+#endif 
+
     RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
     // ------------------------------
     // 步骤 3：过滤锚点
@@ -469,6 +471,12 @@ int main(int argc, char **argv) {
 #ifdef _DEBUG_
     graph.debugPrint(false);
 #endif // _DEBUG_
+    try {
+        graph.exportToMaf(common_args.output_path, seqpro_managers, true, true);
+    }
+    catch (std::exception& e) {
+        spdlog::error("export to result failed: ", e.what());
+    }
 
 	
 
