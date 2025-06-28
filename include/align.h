@@ -59,6 +59,25 @@ static const auto ScoreChar2Idx = makeCharToIndex();
 inline int subsScore(char a, char b) {
     return HOXD70[ScoreChar2Idx[a]][ScoreChar2Idx[b]];
 }
+// ------------------------------------------------------------------
+// 常量：碱基互补表（大写、小写都支持）
+// 使用 C++17 constexpr lambda 构建 256 字节映射表
+// ------------------------------------------------------------------
+inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
+    std::array<char, 256> m{};
+    for (auto& c : m) c = 'N'; // 默认所有字符都映射为 'N'
+    m['A'] = 'T';  m['T'] = 'A';
+    m['C'] = 'G';  m['G'] = 'C';
+    m['a'] = 't';  m['t'] = 'a';
+    m['c'] = 'g';  m['g'] = 'c';
+    return m;
+    }();
+
+inline void reverseComplement(std::string& seq) {
+    for (char& c : seq)
+        c = BASE_COMPLEMENT[static_cast<unsigned char>(c)];
+    std::reverse(seq.begin(), seq.end());
+}
 
 // ------------------------------------------------------------------
 // CIGAR 表示与转换

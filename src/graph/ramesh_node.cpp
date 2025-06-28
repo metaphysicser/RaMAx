@@ -180,7 +180,7 @@ namespace RaMesh {
     {
         // Create ref segment
         SegPtr ref_seg = Segment::createFromRegion(const_cast<Region&>(match.ref_region),
-            match.strand, Cigar_t{ cigarToInt('M', match.ref_region.length) }, AlignRole::PRIMARY,
+            Strand::FORWARD, Cigar_t{ cigarToInt('M', match.ref_region.length) }, AlignRole::PRIMARY,
             SegmentRole::SEGMENT, blk);
 
         // Create qry segment

@@ -470,7 +470,7 @@ int main(int argc, char **argv) {
     graph.debugPrint(false);
 #endif // _DEBUG_
     try {
-        graph.exportToMaf(common_args.output_path, true);
+        graph.exportToMaf(common_args.output_path, seqpro_managers, true, true);
     }
     catch (std::exception& e) {
         spdlog::error("export to result failed: ", e.what());

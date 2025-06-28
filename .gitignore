@@ -384,3 +384,4 @@ FodyWeavers.xsd
 /benchmark/filter_maf_by_species
 /submodule/sdsl-lite/include/divsufsort.h
 /submodule/sdsl-lite/include/divsufsort64.h
+/benchmark/bin
