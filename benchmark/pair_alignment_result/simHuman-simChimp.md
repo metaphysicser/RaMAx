@@ -37,7 +37,7 @@ nucmer \
 # 2) 过滤 Delta（取最佳链）
 delta-filter -1 simHuman-simChimp.delta > simHuman-simChimp.filter.delta
 
-# 3) 转换为 MAF（调用你自己的 delta2maf.cpp 编译产物）
+# 3) 转换为 MAF
 ./delta2maf \
   --ref simHuman.fa \
   --query simChimp.fa \
@@ -55,14 +55,34 @@ wfmash \
   simChimp.fa \                       # 查询基因组 FASTA
   > simHuman-simChimp.wfmash.paf
 
-# 2) 转换为 MAF（调用你自己的 paf2maf.cpp 编译产物）
+# 2) 转换为 MAF
 ./paf2maf \
   --ref simHuman.fa \
   --query simChimp.fa \
   --input simHuman-simChimp.wfmash.paf \
   --output simHuman-simChimp.wfmash.maf
 ```
+### 3. lastz
+```bash
+lastz  "/simHuman.fa[multiple]" 
+	"simChimp.fa[multiple]" 
+	--format=maf --notransition 
+	--step=20   --chain --gapped 
+	--progress=1 > lastz.maf
+```
 
+### 4. minimap2 (`minimap2` + `sam2maf`)
+```bash
+minimap2 -t 20 -ax asm5 --eqx 
+simHuman.fa simChimp.fa > simHuman-simChimp.minimap2.sam
+
+# 转换为 MAF
+./sam2maf \
+  --ref simHuman.fa \
+  --query simChimp.fa \
+  --input simHuman-simChimp.minimap2.sam \
+  --output simHuman-simChimp.minimap2.maf
+```
 
 
 ## 评估指标对比
@@ -70,15 +90,24 @@ wfmash \
 ### MUMmer 结果（参考：Human，查询：Chimp）
 
 | 比较方式               | Precision | Recall  | F-score | TP (A) | TP (B) | FP (B) | FN (A) |
-| ---------------------- | --------- | ------- | ------- | ------ | ------ | ------ | ------ |
-| Overall (w/o self)     | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
-| Overall (w/ self)      | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
-| simChimp-simHuman      | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
+| ------------------ | --------- | ------- | ------- | ------ | ------ | ------ | ------ |
+| Overall (w/o self) | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
+| Overall (w/ self)  | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
+| simChimp-simHuman  | 0.59915   | 0.99941 | 0.74916 | 999347 | 598999 | 400757 | 594    |
 
 ### wfmash 结果（参考：Human，查询：Chimp）
 
 | 比较方式               | Precision | Recall  | F-score | TP (A) | TP (B) | FP (B) | FN (A) |
-| ---------------------- | --------- | ------- | ------- | ------ | ------ | ------ | ------ |
-| Overall (w/o self)     | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1559   |
-| Overall (w/ self)      | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1562   |
-| simChimp-simHuman      | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1559   |
+| ------------------ | --------- | ------- | ------- | ------ | ------ | ------ | ------ |
+| Overall (w/o self) | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1559   |
+| Overall (w/ self)  | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1562   |
+| simChimp-simHuman  | 0.59775   | 0.99844 | 0.74780 | 998156 | 598270 | 402608 | 1559   |
+
+### minimap2 结果（参考：Human，查询：Chimp）
+
+| 比较方式               | Precision | Recall  | F-score | TP (A) | TP (B) | FP (B) | FN (A) |
+| ------------------ | --------- | ------- | ------- | ------ | ------ | ------ | ------ |
+| Overall (w/o self) | 0.01431   | 0.02371 | 0.01785 | 23692  | 14311  | 986005 | 975421 |
+| Overall (w/ self)  | 0.01431   | 0.02371 | 0.01785 | 23692  | 14311  | 986005 | 975425 |
+| simChimp-simHuman  | 0.01431   | 0.02371 | 0.01785 | 23692  | 14311  | 986005 | 975421 |
+

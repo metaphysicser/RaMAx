@@ -386,3 +386,4 @@ FodyWeavers.xsd
 /submodule/sdsl-lite/include/divsufsort64.h
 /benchmark/bin
 /benchmark/paf2maf
+/benchmark/sam2maf
