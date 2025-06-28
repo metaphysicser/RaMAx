@@ -438,12 +438,14 @@ int main(int argc, char **argv) {
     // ------------------------------
     // 验证anchors的序列匹配正确性
     // ------------------------------
+#ifdef _DEBUG_
     ValidationResult validation_result = validateAnchorsCorrectness(
         anchors, 
         seqpro_managers["reference"], 
         seqpro_managers["query"]
     );
-    
+#endif 
+
     RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
     // ------------------------------
     // 步骤 3：过滤锚点
