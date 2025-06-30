@@ -510,7 +510,7 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     Coord_t aln_len = 0;
 
     auto pushEq = [&](uint32_t len) {
-        appendCigarOp(cigar, '=', len);
+        appendCigarOp(cigar, 'M', len);
         aln_len += len;  ref_end += len;  qry_end += len;
         };
     auto flush = [&] {

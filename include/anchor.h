@@ -227,6 +227,11 @@ struct Anchor {
 
 using AnchorVec = std::vector<Anchor>;
 
+AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& query_mgr,
+    const KSW2AlignConfig& cfg);
+
 // ------------------------------------------------------------------
 // 智能序列分块函数
 // ------------------------------------------------------------------
@@ -299,8 +304,7 @@ namespace cereal {
     void serialize(Archive& ar, Anchor& a) {
         ar(a.match,
             a.alignment_length,
-            a.cigar,
-            a.alignment_score);
+            a.cigar);
     }
 
 } // namespace cereal

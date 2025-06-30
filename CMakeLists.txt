@@ -125,6 +125,9 @@ function(configure_rama_target target)
     target_compile_options(${target} PRIVATE -Wall -g)
 endfunction()
 
+# add_compile_definitions(KSW_CPU_DISPATCH)
+
+
 # ================= 创建两个可执行文件 =================
 add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
 configure_rama_target(RaMA-G)

@@ -19,8 +19,8 @@ using Score_t = int_t;
 #define MATCH_SCORE_CG  100        // C/G 匹配得分
 #define MATCH_SCORE_N  -100        // 任意与 N 比对惩罚分
 
-#define GAP_OPEN_PENALTY  -400     // gap 打开惩罚（较大）
-#define GAP_EXTEND_PENALTY  -30    // gap 延伸惩罚（较小）
+#define GAP_OPEN_PENALTY  400     // gap 打开惩罚（较大）
+#define GAP_EXTEND_PENALTY  30    // gap 延伸惩罚（较小）
 
 // ------------------------------------------------------------------
 // HOXD70 替换矩阵（用于精确比对得分）
@@ -124,6 +124,11 @@ void appendCigar(Cigar_t& dst, const Cigar_t& src);
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/
 void appendCigarOp(Cigar_t& dst, char op, uint32_t len);
+
+std::pair<std::string, std::string>
+buildAlignment(const std::string& ref_seq,
+    const std::string& qry_seq,
+    const Cigar_t& cigar);
 
 
 

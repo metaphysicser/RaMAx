@@ -125,3 +125,40 @@ void appendCigarOp(Cigar_t& dst, char op, uint32_t len)
 	}
 	dst.push_back(cigarToInt(op, len));
 }
+
+/* ----------------------------------------------------------
+ *  根据 CIGAR 重建 (ref_aln, qry_aln) 两条同宽序列
+ *  --------------------------------------------------------*/
+std::pair<std::string, std::string>
+buildAlignment(const std::string& ref_seq,
+	const std::string& qry_seq,
+	const Cigar_t& cigar)
+{
+	std::string ref_aln;  ref_aln.reserve(ref_seq.size() * 1.2);
+	std::string qry_aln;  qry_aln.reserve(qry_seq.size() * 1.2);
+
+	size_t i = 0, j = 0;
+	for (CigarUnit u : cigar)
+	{
+		uint32_t len = u >> 4;
+		uint8_t  op = u & 0xF;        // 0=M,1=I,2=D,7='=',8='X'
+
+		if (op == 0 || op == 7 || op == 8) {          // match / mismatch
+			ref_aln.append(ref_seq.data() + i, len);
+			qry_aln.append(qry_seq.data() + j, len);
+			i += len;  j += len;
+		}
+		else if (op == 1) {                       // insertion in query
+			ref_aln.append(len, '-');
+			qry_aln.append(qry_seq.data() + j, len);
+			j += len;
+		}
+		else if (op == 2) {                       // deletion in query
+			ref_aln.append(ref_seq.data() + i, len);
+			qry_aln.append(len, '-');
+			i += len;
+		}
+		// 其余 CIGAR 码如 N/H/S 忽略，本例不出现
+	}
+	return { ref_aln, qry_aln };
+}
