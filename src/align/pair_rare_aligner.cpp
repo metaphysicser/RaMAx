@@ -245,9 +245,11 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
   * @param min_span         最小跨度阈值
   */
-void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
+void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
 	ThreadPool pool(thread_num);
+
+	KSW2AlignConfig align_config = makeDefaultKSW2Config();
 
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
@@ -302,9 +304,14 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, MatchCluste
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
+			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager, align_config);
 			// graph.insertClusterIntoGraph(ref_name, query_name, part);
-			pool.enqueue([this, &graph, query_name, task_cl] {
-				graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+			//pool.enqueue([this, &graph, query_name, task_cl] {
+			//	graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+			//	});
+			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager, &align_config] {
+				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager, align_config);
+				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
 				});
 			// graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);
 			kept.emplace_back(cur.cl);

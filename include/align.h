@@ -1,6 +1,7 @@
 #ifndef ALIGN_H
 #define ALIGN_H
 
+#include "ksw2.h"
 #include "config.hpp"              // 包含基本类型定义，如 int_t、uint_t 等
 #include "alignment/cigar.h"       // wfa的cigar头文件引用
 
@@ -18,8 +19,8 @@ using Score_t = int_t;
 #define MATCH_SCORE_CG  100        // C/G 匹配得分
 #define MATCH_SCORE_N  -100        // 任意与 N 比对惩罚分
 
-#define GAP_OPEN_PENALTY  -400     // gap 打开惩罚（较大）
-#define GAP_EXTEND_PENALTY  -30    // gap 延伸惩罚（较小）
+#define GAP_OPEN_PENALTY  400     // gap 打开惩罚（较大）
+#define GAP_EXTEND_PENALTY  30    // gap 延伸惩罚（较小）
 
 // ------------------------------------------------------------------
 // HOXD70 替换矩阵（用于精确比对得分）
@@ -111,6 +112,40 @@ void intToCigar(CigarUnit cigar, char& operation, uint32_t& len);
 // 注：本函数未使用 HOXD70 矩阵
 // ------------------------------------------------------------------
 Score_t caculateMatchScore(const char* match, uint_t length);
+
+/* ------------------------------------------------------------------
+ *  追加/拼接 CIGAR：若两端操作码相同则自动合并
+ *  ------------------------------------------------------------------
+ *  @param dst  目标 CIGAR（被追加）
+ *  @param src  待追加的 CIGAR 片段
+ * ------------------------------------------------------------------*/
+void appendCigar(Cigar_t& dst, const Cigar_t& src);
+/* ------------------------------------------------------------------
+ *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
+ * ------------------------------------------------------------------*/
+void appendCigarOp(Cigar_t& dst, char op, uint32_t len);
+
+std::pair<std::string, std::string>
+buildAlignment(const std::string& ref_seq,
+    const std::string& qry_seq,
+    const Cigar_t& cigar);
+
+
+
+struct KSW2AlignConfig {
+    const int8_t* mat;                  // 一维替换矩阵 (flattened 5x5)
+    int alphabet_size;                 // 通常为 5
+    int gap_open;                      // gap open penalty (positive)
+    int gap_extend;                    // gap extend penalty (positive)
+    int end_bonus;                     // 末端奖励分
+    int zdrop = 100;                   // Z-drop 剪枝参数
+    int band_width = -1;               // -1 表示全矩阵
+    int flag = KSW_EZ_GENERIC_SC;      // 默认使用全替换矩阵
+};
+
+KSW2AlignConfig makeDefaultKSW2Config();
+
+Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query, const KSW2AlignConfig& config);
 
 #endif
 

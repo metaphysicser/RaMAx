@@ -139,6 +139,55 @@ namespace RaMesh {
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
     }
 
+    /* =============================================================
+ * 3.  Anchor insertion (public API)
+ * ===========================================================*/
+    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+        const AnchorVec& anchor_vec)
+    {
+        if (anchor_vec.empty()) return;
+
+        // 1. Locate ends for reference & query chromosomes
+        const ChrName& ref_chr = anchor_vec.front().match.ref_region.chr_name;
+        const ChrName& qry_chr = anchor_vec.front().match.query_region.chr_name;
+
+        auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
+        auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];
+
+        // 2. Build blocks & segments once (no shared‑state yet)
+        std::vector<SegPtr> ref_segs; ref_segs.reserve(anchor_vec.size());
+        std::vector<SegPtr> qry_segs; qry_segs.reserve(anchor_vec.size());
+
+        for (const Anchor& m : anchor_vec) {
+            BlockPtr blk = Block::make(2);
+            blk->ref_chr = ref_chr;
+
+            auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);
+
+            ref_segs.emplace_back(r_seg);
+            qry_segs.emplace_back(q_seg);
+
+            // register to global pool
+            {
+                std::unique_lock pool_lock(rw);
+                blocks.emplace_back(WeakBlock(blk));
+            }
+        }
+
+        // 3. Link internal chains locally (single‑threaded)
+        Segment::linkChain(ref_segs);
+        Segment::linkChain(qry_segs);
+
+        // 4. Atomically splice into genome graph
+        uint_t ref_beg = anchor_vec.front().match.ref_region.start;
+        uint_t ref_end_pos = anchor_vec.back().match.ref_region.start + anchor_vec.back().match.ref_region.length;
+        uint_t qry_beg = anchor_vec.front().match.query_region.start;
+        uint_t qry_end_pos = anchor_vec.back().match.query_region.start + anchor_vec.back().match.query_region.length;
+
+        ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
+        qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
+    }
+
     /* ==============================================================
  * 4.  debugPrint (multi-genome)  -- 新版，参数改为 show_detail
  * ==============================================================*/

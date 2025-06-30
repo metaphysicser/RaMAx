@@ -78,3 +78,87 @@ Score_t caculateMatchScore(const char* match, uint_t length)
 	}
 	return score;
 }
+
+/* ------------------------------------------------------------------
+ *  追加/拼接 CIGAR：若两端操作码相同则自动合并
+ *  ------------------------------------------------------------------
+ *  @param dst  目标 CIGAR（被追加）
+ *  @param src  待追加的 CIGAR 片段
+ * ------------------------------------------------------------------*/
+void appendCigar(Cigar_t& dst, const Cigar_t& src)
+{
+	if (src.empty()) return;                  // nothing to do
+	size_t idx = 0;
+
+	// 1) 检查“拼接点”——dst 的最后一个元素 vs. src 的首元素
+	if (!dst.empty()) {
+		char op_dst; uint32_t len_dst;
+		intToCigar(dst.back(), op_dst, len_dst);
+
+		char op_src; uint32_t len_src;
+		intToCigar(src.front(), op_src, len_src);
+
+		// 若操作码相同，则二者合并成一个
+		if (op_dst == op_src) {
+			dst.back() = cigarToInt(op_dst, len_dst + len_src);
+			idx = 1;                         // src 第 0 元素已被合并，后续从 1 开始
+		}
+	}
+	// 2) 将 src 剩余元素逐个 push
+	for (; idx < src.size(); ++idx)
+		dst.push_back(src[idx]);
+}
+
+/* ------------------------------------------------------------------
+ *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
+ * ------------------------------------------------------------------*/
+void appendCigarOp(Cigar_t& dst, char op, uint32_t len)
+{
+	if (len == 0) return;
+	if (!dst.empty()) {
+		char op_last; uint32_t len_last;
+		intToCigar(dst.back(), op_last, len_last);
+		if (op_last == op) {                        // 合并
+			dst.back() = cigarToInt(op, len_last + len);
+			return;
+		}
+	}
+	dst.push_back(cigarToInt(op, len));
+}
+
+/* ----------------------------------------------------------
+ *  根据 CIGAR 重建 (ref_aln, qry_aln) 两条同宽序列
+ *  --------------------------------------------------------*/
+std::pair<std::string, std::string>
+buildAlignment(const std::string& ref_seq,
+	const std::string& qry_seq,
+	const Cigar_t& cigar)
+{
+	std::string ref_aln;  ref_aln.reserve(ref_seq.size() * 1.2);
+	std::string qry_aln;  qry_aln.reserve(qry_seq.size() * 1.2);
+
+	size_t i = 0, j = 0;
+	for (CigarUnit u : cigar)
+	{
+		uint32_t len = u >> 4;
+		uint8_t  op = u & 0xF;        // 0=M,1=I,2=D,7='=',8='X'
+
+		if (op == 0 || op == 7 || op == 8) {          // match / mismatch
+			ref_aln.append(ref_seq.data() + i, len);
+			qry_aln.append(qry_seq.data() + j, len);
+			i += len;  j += len;
+		}
+		else if (op == 1) {                       // insertion in query
+			ref_aln.append(len, '-');
+			qry_aln.append(qry_seq.data() + j, len);
+			j += len;
+		}
+		else if (op == 2) {                       // deletion in query
+			ref_aln.append(ref_seq.data() + i, len);
+			qry_aln.append(len, '-');
+			i += len;
+		}
+		// 其余 CIGAR 码如 N/H/S 忽略，本例不出现
+	}
+	return { ref_aln, qry_aln };
+}

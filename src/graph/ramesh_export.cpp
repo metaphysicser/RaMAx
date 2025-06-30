@@ -4,115 +4,123 @@
 
 namespace RaMesh {
 
-    // TODO 目前还不支持cigar比对结果
     void RaMeshMultiGenomeGraph::exportToMaf(
         const FilePath& maf_path,
-        const std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_managers,
-        bool                                                         only_primary,
-        bool                                                         is_pairwise) const
+        const std::map<SpeciesName, SeqPro::ManagerVariant>& seq_mgrs,
+        bool  only_primary,
+        bool  pairwise_mode) const
     {
         namespace fs = std::filesystem;
+
+        /* -------- 0. 打开文件、写头 -------- */
         if (!maf_path.parent_path().empty())
             fs::create_directories(maf_path.parent_path());
 
-        std::ofstream ofs(maf_path.string(),
-            std::ios::out | std::ios::trunc | std::ios::binary);
-        if (!ofs.is_open())
-            throw std::runtime_error("Cannot open MAF file: " + maf_path.string());
-
+        std::ofstream ofs(maf_path, std::ios::binary | std::ios::trunc);
+        if (!ofs) throw std::runtime_error("Cannot open: " + maf_path.string());
         ofs << "##maf version=1 scoring=none\n";
 
-        const auto revComp = [](std::string s) {
-            auto comp = [](char c) -> char {
-                switch (std::toupper(c)) {
-                case 'A': return 'T'; case 'T': return 'A';
-                case 'C': return 'G'; case 'G': return 'C';
-                default: return 'N';
-                }
-                };
-            for (char& c : s) c = comp(c);
-            std::reverse(s.begin(), s.end());
-            return s;
+        /* -------- 小工具 -------- */
+        auto fetchSeq = [&](const SeqPro::ManagerVariant& mv,
+            const ChrName& chr, uint64_t b, uint64_t l)->std::string {
+                return std::visit([&](auto& p) { return p->getSubSequence(chr, b, l);}, mv);
+            };
+        auto fetchLen = [&](const SeqPro::ManagerVariant& mv,
+            const ChrName& chr)->uint64_t {
+                return std::visit([&](auto& p) { return p->getSequenceLength(chr);}, mv);
             };
 
-        std::shared_lock gLock(rw);
-        for (const auto& weak_blk : blocks)
+        /* ====================================================== */
+        for (auto const& wblk : blocks)
         {
-            BlockPtr blk = weak_blk.lock();
+            BlockPtr blk = wblk.lock();
             if (!blk) continue;
 
-            std::shared_lock bLock(blk->rw);
-
-            /* ---------- 收集全部（物种, 染色体, Segment） ---------- */
+            /* 1. 收集 Rec 列表 */
             struct Rec { SpeciesName sp; ChrName chr; SegPtr seg; };
             std::vector<Rec> recs;
             recs.reserve(blk->anchors.size());
-
-            for (const auto& [sp_chr, seg] : blk->anchors) {
+            for (auto const& [sp_chr, seg] : blk->anchors) {
                 if (only_primary && !seg->isPrimary()) continue;
                 recs.push_back({ sp_chr.first, sp_chr.second, seg });
             }
-            if (recs.size() < 2) continue;     // 至少要有两条才能成块
+            if (recs.size() < 2) continue;
 
-            /* ---------- 让参考染色体行位于 recs[0] ---------- */
+            /* 2. 把参考行放 recs[0] */
             auto it_ref = std::find_if(recs.begin(), recs.end(),
                 [&](const Rec& r) { return r.chr == blk->ref_chr; });
-            if (it_ref != recs.end() && it_ref != recs.begin())
-                std::swap(*recs.begin(), *it_ref);           // 参考行放最前
+            if (it_ref != recs.end()) std::swap(*recs.begin(), *it_ref);
 
+            const Rec& refRec = recs.front();
+            const SegPtr refSeg = refRec.seg;
+
+            /* 3. 拿参考序列 & 长度 */
+            auto itMgr = seq_mgrs.find(refRec.sp);
+            if (itMgr == seq_mgrs.end()) continue;
+            std::string ref_raw = fetchSeq(itMgr->second, refRec.chr, refSeg->start, refSeg->length);
+            uint64_t    ref_chr_len = fetchLen(itMgr->second, refRec.chr);
+            if (refSeg->strand == Strand::REVERSE) reverseComplement(ref_raw);
+
+            /* 4. 写块头 */
             ofs << "a score=0\n";
 
-            /* ---------- 写出所有 s-record ---------- */
-            for (const auto& r : recs)
+            /* ===== 遍历 recs，先写参考行，再写每条 query 行 ===== */
+            bool ref_written = false;
+            for (const Rec& r : recs)
             {
+                /* 4-a. Manager */
+                auto mgrIt = seq_mgrs.find(r.sp);
+                if (mgrIt == seq_mgrs.end()) continue;
                 const SegPtr seg = r.seg;
 
-                /* 1) 拿到对应序列管理器 */
-                const auto mit = seqpro_managers.find(r.sp);
-                if (mit == seqpro_managers.end())
-                    continue;                                // 缺 manager：跳过当前记录
+                /* 4-b. 拿 query 序列 & 长度 */
+                std::string qry_raw = fetchSeq(mgrIt->second, r.chr, seg->start, seg->length);
+                uint64_t    qry_chr_len = fetchLen(mgrIt->second, r.chr);
+                if (seg->strand == Strand::REVERSE) reverseComplement(qry_raw);
 
-                uint64_t chr_len = 0;
-                std::string subseq;
+                /* 4-c. 生成对齐串 */
+                auto [ref_aln, qry_aln] = buildAlignment(ref_raw, qry_raw, seg->cigar);
+                if (ref_aln.empty() || qry_aln.empty()) continue;        // 保护
 
-                std::visit([&](auto const& up) {
-                    if (!up) return;
-                    using PtrT = std::decay_t<decltype(up)>;
-                    if constexpr (std::is_same_v<typename PtrT::element_type,
-                        SeqPro::SequenceManager>)
-                    {
-                        chr_len = up->getSequenceLength(r.chr);
-                        subseq = up->getSubSequence(r.chr, seg->start, seg->length);
-                    }
-                    else /* MaskedSequenceManager */
-                    {
-                        const auto& ori = up->getOriginalManager();
-                        chr_len = ori.getSequenceLength(r.chr);
-                        subseq = ori.getSubSequence(r.chr, seg->start, seg->length);
-                    }
-                    }, mit->second);
+                /* 4-d. 如未写过参考行 → 写一次带 gap 的参考行 */
+                if (!ref_written)
+                {
+                    uint64_t ref_maf_start = (refSeg->strand == Strand::FORWARD)
+                        ? refSeg->start
+                        : ref_chr_len - (refSeg->start + refSeg->length);
 
-                if (subseq.empty()) continue;                // 无序列：跳过
+                    ofs << "s "
+                        << std::left << std::setw(20)
+                        << (pairwise_mode ? refRec.chr : refRec.sp + "." + refRec.chr)
+                        << std::right << std::setw(12) << ref_maf_start
+                        << std::setw(12) << refSeg->length
+                        << ' ' << (refSeg->strand == Strand::FORWARD ? '+' : '-')
+                        << std::setw(12) << ref_chr_len
+                        << ' ' << ref_aln << '\n';
 
-                uint64_t maf_start = seg->start;
-                if (seg->strand == Strand::REVERSE) {
-                    maf_start = chr_len - (seg->start + seg->length);
-                    reverseComplement(subseq);
+                    ref_written = true;
                 }
 
+                /* 4-e. 若当前就是参考记录 → 跳过写 query 行 */
+                if (&r == &refRec) continue;
+
+                /* 4-f. 写 query 行（带 gap） */
+                uint64_t qry_maf_start = (seg->strand == Strand::FORWARD)
+                    ? seg->start
+                    : qry_chr_len - (seg->start + seg->length);
+
                 ofs << "s "
-                    << std::left << std::setw(20) << (is_pairwise ? r.chr : r.sp + "." + r.chr)
-                    << std::right << std::setw(12) << maf_start
+                    << std::left << std::setw(20)
+                    << (pairwise_mode ? r.chr : r.sp + "." + r.chr)
+                    << std::right << std::setw(12) << qry_maf_start
                     << std::setw(12) << seg->length
                     << ' ' << (seg->strand == Strand::FORWARD ? '+' : '-')
-                    << std::setw(12) << chr_len
-                    << ' ' << subseq
-                    << '\n';
+                    << std::setw(12) << qry_chr_len
+                    << ' ' << qry_aln << '\n';
             }
-            ofs << '\n';
+            ofs << '\n';     // block 分隔
         }
     }
-
 
     
 

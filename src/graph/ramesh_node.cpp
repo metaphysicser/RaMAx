@@ -197,4 +197,30 @@ namespace RaMesh {
         return { ref_seg, qry_seg };
     }
 
+    std::pair<SegPtr, SegPtr> Block::createSegmentPair(const Anchor& anchor,
+        const SpeciesName& ref_name,
+        const SpeciesName& qry_name,
+        const ChrName& ref_chr,
+        const ChrName& qry_chr,
+        const BlockPtr& blk)
+    {
+        // Create ref segment
+        SegPtr ref_seg = Segment::createFromRegion(const_cast<Region&>(anchor.match.ref_region),
+            Strand::FORWARD, Cigar_t{}, AlignRole::PRIMARY,
+            SegmentRole::SEGMENT, blk);
+
+        // Create qry segment
+        SegPtr qry_seg = Segment::createFromRegion(const_cast<Region&>(anchor.match.query_region),
+            anchor.match.strand, anchor.cigar, AlignRole::PRIMARY,
+            SegmentRole::SEGMENT, blk);
+
+        // Register anchors
+        {
+            std::unique_lock lk(blk->rw);
+            blk->anchors[{ ref_name, ref_chr }] = ref_seg;
+            blk->anchors[{ qry_name, qry_chr }] = qry_seg;
+        }
+        return { ref_seg, qry_seg };
+    }
+
 } // namespace RaMesh

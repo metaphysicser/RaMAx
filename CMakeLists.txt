@@ -55,6 +55,7 @@ set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${PREPROCESS_DIR}/newick_tree.cpp"
     "${PREPROCESS_DIR}/sequence_utils.cpp"
+    "${PREPROCESS_DIR}/SeqPro.cpp"
     "${INDEX_DIR}/fm_index.cpp"
     "${INDEX_DIR}/bigBWT_build.cpp"
     "${INDEX_DIR}/bigBWT/newscan.cpp"
@@ -66,8 +67,9 @@ set(RAMA_COMMON_SOURCES
     "${ANCHOR_DIR}/anchor_io.cpp"
     "${ANCHOR_DIR}/anchor_chunk.cpp"
     "${ANCHOR_DIR}/cluster.cpp"
+    "${ALIGN_DIR}/align.cpp"
     "${ALIGN_DIR}/cigar.cpp"
-    "${PREPROCESS_DIR}/SeqPro.cpp"
+    "${ALIGN_DIR}/ksw2_extz2_sse.c"
     "${ALIGN_DIR}/pair_rare_aligner.cpp"
     "${ALIGN_DIR}/multiple_rare_aligner.cpp"
     "${GRAPH_DIR}/ramesh_node.cpp"
@@ -122,6 +124,9 @@ function(configure_rama_target target)
 
     target_compile_options(${target} PRIVATE -Wall -g)
 endfunction()
+
+# add_compile_definitions(KSW_CPU_DISPATCH)
+
 
 # ================= 创建两个可执行文件 =================
 add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})

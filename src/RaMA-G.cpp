@@ -462,7 +462,7 @@ int main(int argc, char **argv) {
 	auto t_start_construct = std::chrono::steady_clock::now();
 	// 使用贪心算法构建图
 
-    pra.constructGraphByGreedy("query", cluster_vec_ptr, graph, 50);
+    pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, 50);
 
 	auto t_end_construct = std::chrono::steady_clock::now();
 	std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
@@ -477,8 +477,6 @@ int main(int argc, char **argv) {
     catch (std::exception& e) {
         spdlog::error("export to result failed: ", e.what());
     }
-
-	
 
     // ------------------------------
     // 退出

@@ -118,6 +118,13 @@ namespace RaMesh {
             const ChrName& qry_chr,
             const BlockPtr& blk);
 
+        static std::pair<SegPtr, SegPtr> createSegmentPair(const Anchor& anchor,
+            const SpeciesName& ref_name,
+            const SpeciesName& qry_name,
+            const ChrName& ref_chr,
+            const ChrName& qry_chr,
+            const BlockPtr& blk);
+
         Block() = default;
         ~Block() = default;
     };
@@ -181,6 +188,9 @@ namespace RaMesh {
 
         void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
             const MatchCluster& cluster);
+
+        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+			const AnchorVec& anchor_vec);
 
         void debugPrint(bool show_detail) const;
 

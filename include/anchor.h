@@ -215,30 +215,22 @@ struct Anchor {
     Match match;                    // 匹配信息
     Coord_t alignment_length{ 0 }; // 对齐长度
     Cigar_t cigar;                 // 对齐的 CIGAR 字符串
-    Score_t alignment_score{ 0 };  // 对齐得分
 
     Anchor() = default;
 
     Anchor(const Match m, Coord_t aln_len,
-        const Cigar_t c, Score_t score)
+        const Cigar_t c)
         : match(m), alignment_length(aln_len),
-        cigar(c), alignment_score(score) {
+        cigar(c) {
     }
 };
 
-using AnchorVec = std::vector<Anchor>;           // 一组 Anchor
-using AnchorPtr = std::shared_ptr<Anchor>;       // Anchor 的智能指针
-using AnchorPtrVec = std::vector<AnchorPtr>;    // Anchor 智能指针的集合
-using AnchorPtrList = std::list<AnchorPtr>;      // Anchor 指针链表
-using AnchorPtrListVec = std::vector<AnchorPtrList>; // Anchor 指针链表的集合（如按染色体分组）
-using AnchorVec2D = std::vector<AnchorVec>;
-using AnchorVec2DPtr = std::shared_ptr<AnchorVec2D>;
-using AnchorVec3D = std::vector<std::vector<AnchorVec>>;
-using AnchorVec3DPtr = std::shared_ptr<AnchorVec3D>;
+using AnchorVec = std::vector<Anchor>;
 
-using AnchorsByRef = std::vector<AnchorVec>;
-using AnchorsByQueryRef = std::vector<AnchorsByRef>;
-
+AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& query_mgr,
+    const KSW2AlignConfig& cfg);
 
 // ------------------------------------------------------------------
 // 智能序列分块函数
@@ -312,8 +304,7 @@ namespace cereal {
     void serialize(Archive& ar, Anchor& a) {
         ar(a.match,
             a.alignment_length,
-            a.cigar,
-            a.alignment_score);
+            a.cigar);
     }
 
 } // namespace cereal
@@ -321,23 +312,6 @@ namespace cereal {
 // ------------------------------------------------------------------
 // Anchor 文件的读写接口
 // ------------------------------------------------------------------
-
-// 保存 anchors 到文件中（返回 true 表示成功）
-bool saveAnchors(const std::string& filename, const AnchorPtrListVec& anchors);
-
-// 从文件中读取 anchors（返回 true 表示成功）
-bool loadAnchors(const std::string& filename, AnchorPtrListVec& anchors);
-
-// 保存：all_sets -> filename
-bool saveAnchorsSets(const std::string& filename,
-    const std::vector<AnchorPtrListVec>& all_sets);
-
-// 读取：filename -> all_sets
-bool loadAnchorsSets(const std::string& filename,
-    std::vector<AnchorPtrListVec>& all_sets);
-
-bool loadAnchorVec3D(const std::string& filename, AnchorVec3DPtr& data);
-bool saveAnchorVec3D(const std::string& filename, const AnchorVec3DPtr& data);
 
 bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
 bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
