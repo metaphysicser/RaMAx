@@ -219,12 +219,12 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
 
         // 把所有需要的变量显式捕获
         shared_pool.enqueue(
-            [&mv3_ptr,
-            &u_ptr,
-            &r_ptr,
-            &qfm,
-            &rfm,
-            &shared_pool]()
+            [mv3_ptr,
+            u_ptr,
+            r_ptr,
+            qfm,
+            rfm,
+            &shared_pool]() mutable
             {
                 groupMatchByQueryRef(mv3_ptr,
                     u_ptr,
@@ -248,13 +248,13 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     /*========================= Phase-2  : sort ======================*/
     for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
         MatchByStrandByQueryRefPtr u_ptr = it->second;
-        shared_pool.enqueue([&u_ptr, &shared_pool]() {
+        shared_pool.enqueue([u_ptr, &shared_pool]() mutable {
             sortMatchByQueryStart(u_ptr, shared_pool);
             });
     }
     for (auto it = repeat_map.begin(); it != repeat_map.end(); ++it) {
         MatchByStrandByQueryRefPtr r_ptr = it->second;
-        shared_pool.enqueue([&r_ptr, &shared_pool]() {
+        shared_pool.enqueue([r_ptr, &shared_pool]() mutable {
             sortMatchByQueryStart(r_ptr, shared_pool);
             });
     }
@@ -272,7 +272,7 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
         fut_map.emplace(
             species,
             shared_pool.enqueue(
-                [&u_ptr, &r_ptr, &shared_pool]() -> ClusterVecPtrByStrandByQueryRefPtr {
+                [u_ptr, r_ptr, &shared_pool]() mutable -> ClusterVecPtrByStrandByQueryRefPtr {
                     return clusterAllChrMatch(u_ptr, r_ptr, shared_pool);
                 })
         );
