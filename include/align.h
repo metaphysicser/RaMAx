@@ -3,8 +3,11 @@
 
 #include "ksw2.h"
 #include "config.hpp"              // 包含基本类型定义，如 int_t、uint_t 等
-#include "alignment/cigar.h"       // wfa的cigar头文件引用
-
+#include "bindings/cpp/WFAligner.hpp"
+extern "C" {
+#include "alignment/cigar.h" 
+#include "wavefront/wavefront_align.h"
+}
 // ------------------------------------------------------------------
 // 类型定义
 // ------------------------------------------------------------------
@@ -21,6 +24,7 @@ using Score_t = int_t;
 
 #define GAP_OPEN_PENALTY  400     // gap 打开惩罚（较大）
 #define GAP_EXTEND_PENALTY  30    // gap 延伸惩罚（较小）
+
 
 // ------------------------------------------------------------------
 // HOXD70 替换矩阵（用于精确比对得分）
@@ -143,10 +147,52 @@ struct KSW2AlignConfig {
     int flag = KSW_EZ_GENERIC_SC;      // 默认使用全替换矩阵
 };
 
+static int8_t dna5_simd_mat[25];
+static void init_simd_mat() {
+    static bool done = false;
+    if (done) return;
+    const int8_t MATCH = 2, MISMATCH = -3, AMBIG = 0;   // N 给 0 分
+    for (int i = 0; i < 5; ++i)
+        for (int j = 0; j < 5; ++j)
+            dna5_simd_mat[i * 5 + j] =
+            (i == 4 || j == 4) ? AMBIG : (i == j ? MATCH : MISMATCH);
+    done = true;
+}
+
+//------------------------------------------- 带宽估计
+inline int auto_band(int qlen, int tlen,
+    double indel_rate = 0.05,
+    int    margin = 16)           // 多一点保险
+{
+    int diff = std::abs(qlen - tlen);
+    int extra = static_cast<int>(indel_rate * std::min(qlen, tlen));
+    int w = diff + extra + margin;
+    return (w + 15) / 16 * 16;                         // 向上取 16 的倍数
+}
+
+inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
+    bool rev_cigar = false,
+    double indel_rate = 0.05)
+{
+    init_simd_mat();                // 确保矩阵已填
+    int flags = KSW_EZ_APPROX_MAX | KSW_EZ_APPROX_DROP | KSW_EZ_RIGHT;
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR;          // 需要时再加
+    return {
+        .mat = dna5_simd_mat,
+        .alphabet_size = 5,
+        .gap_open = 8,
+        .gap_extend = 1,
+        .end_bonus = 0,
+        .zdrop = 100,
+        .band_width = auto_band(qlen, tlen, indel_rate),
+        .flag = flags
+    };
+}
+
 KSW2AlignConfig makeDefaultKSW2Config();
 
-Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query, const KSW2AlignConfig& config);
-
+Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
+Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
 #endif
 
 
