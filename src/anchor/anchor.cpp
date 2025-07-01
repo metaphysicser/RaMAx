@@ -521,6 +521,20 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
         aln_len = 0;
         };
 
+
+    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+    attributes.distance_metric = gap_affine;
+    attributes.affine_penalties.mismatch = 2;      // X > 0
+    attributes.affine_penalties.gap_opening = 3;   // O >= 0
+    attributes.affine_penalties.gap_extension = 1; // E > 0
+    attributes.memory_mode = wavefront_memory_ultralow;
+    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
+    attributes.heuristic.min_wavefront_length = 10;
+    attributes.heuristic.max_distance_threshold = 50;
+    attributes.heuristic.steps_between_cutoffs = 1;
+
+    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
+
     /* ==================== 遍历 cluster ==================== */
     for (size_t i = 0;i < cluster.size();++i) {
         const Match& m = cluster[i];
@@ -540,8 +554,22 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
         std::string qry_gap = subSeq(query_mgr, qry_chr, qgBeg, qgEnd - qgBeg);
         if (strand == REVERSE) reverseComplement(qry_gap);
 
-        Cigar_t gap = globalAlignKSW2(ref_gap, qry_gap, cfg);   // 调一次 KSW2
+        uint_t Lt = ref_gap.size();
+        uint_t Lq = qry_gap.size();
+        int64_t d = std::abs(static_cast<int64_t>(Lt) - static_cast<int64_t>(Lq));
 
+        double rho = double(d) / std::min(Lt, Lq);
+
+        Cigar_t gap = {};
+        if (rho <= 0.3 && Lt > 10 && Lq > 10) {
+            wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
+			for (uint_t j = 0; j < wf_aligner->cigar->cigar_length; ++j)
+				gap.push_back(wf_aligner->cigar->cigar_buffer[j]);
+        }
+        else {
+            gap = globalAlignKSW2(ref_gap, qry_gap);
+        }
+        
         /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
         Cigar_t buf; buf.reserve(gap.size());
         for (auto unit : gap) {
@@ -569,6 +597,7 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
         }
         if (!buf.empty()) appendCigar(cigar, buf);
     }
-    flush();                // 收尾
+    flush();   
+    wavefront_aligner_delete(wf_aligner);// 收尾
     return anchors;
 }

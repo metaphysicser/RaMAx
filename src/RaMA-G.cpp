@@ -406,72 +406,72 @@ int main(int argc, char **argv) {
         common_args.max_anchor_frequency
     );
 
-
+    try {
     // ------------------------------
     // 步骤 1：构建索引
     // ------------------------------
-    auto t_start_build = std::chrono::steady_clock::now();
+        auto t_start_build = std::chrono::steady_clock::now();
 
-    pra.buildIndex("reference", seqpro_managers["reference"], true); // 可切换 CaPS / divsufsort
-    auto t_end_build = std::chrono::steady_clock::now();
-    std::chrono::duration<double> build_time = t_end_build - t_start_build;
-    spdlog::info("Index built in {:.3f} seconds.", build_time.count());
+        pra.buildIndex("reference", seqpro_managers["reference"], true); // 可切换 CaPS / divsufsort
+        auto t_end_build = std::chrono::steady_clock::now();
+        std::chrono::duration<double> build_time = t_end_build - t_start_build;
+        spdlog::info("Index built in {:.3f} seconds.", build_time.count());
 
-    // ------------------------------
-    // 步骤 2：查询序列比对
-    // ------------------------------
-    auto t_start_align = std::chrono::steady_clock::now();
-    sdsl::int_vector<0> ref_global_cache;
-    // 初始化ref_global_cache：采样策略避免二分搜索
-    auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
+        // ------------------------------
+        // 步骤 2：查询序列比对
+        // ------------------------------
+        auto t_start_align = std::chrono::steady_clock::now();
+        sdsl::int_vector<0> ref_global_cache;
+        // 初始化ref_global_cache：采样策略避免二分搜索
+        auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
     
-    // 使用工具函数构建缓存
-    SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
+        // 使用工具函数构建缓存
+        SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
 
-    MatchVec3DPtr anchors = pra.alignPairGenome(
-        "query", seqpro_managers["query"], FAST_SEARCH, false, ref_global_cache,sampling_interval);
-    auto t_end_align = std::chrono::steady_clock::now();
-    std::chrono::duration<double> align_time = t_end_align - t_start_align;
-    spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
+        MatchVec3DPtr anchors = pra.alignPairGenome(
+            "query", seqpro_managers["query"], FAST_SEARCH, false, ref_global_cache,sampling_interval);
+        auto t_end_align = std::chrono::steady_clock::now();
+        std::chrono::duration<double> align_time = t_end_align - t_start_align;
+        spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
 
 
-    // ------------------------------
-    // 验证anchors的序列匹配正确性
-    // ------------------------------
+        // ------------------------------
+        // 验证anchors的序列匹配正确性
+        // ------------------------------
 #ifdef _DEBUG_
-    ValidationResult validation_result = validateAnchorsCorrectness(
-        anchors, 
-        seqpro_managers["reference"], 
-        seqpro_managers["query"]
-    );
+        ValidationResult validation_result = validateAnchorsCorrectness(
+            anchors, 
+            seqpro_managers["reference"], 
+            seqpro_managers["query"]
+        );
 #endif 
 
-    RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
-    // ------------------------------
-    // 步骤 3：过滤锚点
-    // ------------------------------
-    spdlog::info("Filtering anchors...");
-    auto t_start_filer = std::chrono::steady_clock::now();
-    MatchClusterVecPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
-    auto t_end_filer = std::chrono::steady_clock::now();
-    std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
-    spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
+        RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
+        // ------------------------------
+        // 步骤 3：过滤锚点
+        // ------------------------------
+        spdlog::info("Filtering anchors...");
+        auto t_start_filer = std::chrono::steady_clock::now();
+        MatchClusterVecPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
+        auto t_end_filer = std::chrono::steady_clock::now();
+        std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
+        spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
 
-    // 记录构图时间
-	spdlog::info("Constructing graph by greedy algorithm...");
-	auto t_start_construct = std::chrono::steady_clock::now();
-	// 使用贪心算法构建图
+        // 记录构图时间
+	    spdlog::info("Constructing graph by greedy algorithm...");
+	    auto t_start_construct = std::chrono::steady_clock::now();
+	    // 使用贪心算法构建图
 
-    pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, 50);
+        pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, 50);
 
-	auto t_end_construct = std::chrono::steady_clock::now();
-	std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
-    spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
+	    auto t_end_construct = std::chrono::steady_clock::now();
+	    std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
+        spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
     
-#ifdef _DEBUG_
-    graph.debugPrint(false);
-#endif // _DEBUG_
-    try {
+    #ifdef _DEBUG_
+        graph.debugPrint(false);
+    #endif // _DEBUG_
+    
         graph.exportToMaf(common_args.output_path, seqpro_managers, true, true);
     }
     catch (std::exception& e) {
