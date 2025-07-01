@@ -429,7 +429,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
   *
   * \return 0 段：整簇都冲突；1 段：完全无冲突；2 段：被矩形切成前/后两段
   */
-inline MatchClusterVec
+MatchClusterVec
 splitCluster(const MatchCluster& cl,
     bool  ref_hit,
     int_t bad_r_beg, int_t bad_r_end,

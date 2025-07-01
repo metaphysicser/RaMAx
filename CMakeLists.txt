@@ -39,7 +39,7 @@ add_subdirectory("${SUBMODULE_DIR}/spdlog")
 # add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
 add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
 # 已经 add_subdirectory(...) 产生了目标 "divsufsort"
-
+set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort")
 
 # ================= 外部库依赖 =================
