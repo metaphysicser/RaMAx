@@ -304,13 +304,13 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
-			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager, align_config);
+			// AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			// graph.insertClusterIntoGraph(ref_name, query_name, part);
 			//pool.enqueue([this, &graph, query_name, task_cl] {
 			//	graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 			//	});
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager, &align_config] {
-				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager, align_config);
+				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
 				});
 			// graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);

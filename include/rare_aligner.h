@@ -51,11 +51,22 @@ public:
 
     // 新增：并行构建多个比对结果图的成员函数，共用一个线程池
     void constructMultipleGraphsByGreedy(
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
         SpeciesName ref_name,
         const SpeciesClusterMap& species_cluster_map,
         RaMesh::RaMeshMultiGenomeGraph& graph,
         ThreadPool& shared_pool,
         uint_t min_span = 50
+    );
+
+    void mergeMultipleGraphs(const SpeciesName& ref_name, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& shared_pool);
+
+private:
+    // 辅助函数：处理基本区间
+    static RaMesh::BlockPtr processElementaryInterval(
+        uint_t interval_start, uint_t interval_end,
+        const std::vector<RaMesh::BlockPtr>& valid_blocks,
+        const SpeciesName& ref_name
     );
 
 };
@@ -110,5 +121,8 @@ public:
 
 
 #endif
+
+
+
 
 
