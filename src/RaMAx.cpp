@@ -391,7 +391,7 @@ int main(int argc, char **argv) {
     auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
     uint_t tree_root = 0;
 
-    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, false, false, common_args.enable_repeat_masking, sampling_interval);
+    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, true, false, common_args.enable_repeat_masking, sampling_interval);
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;
