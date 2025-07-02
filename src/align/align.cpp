@@ -55,7 +55,6 @@ Cigar_t globalAlignKSW2(const std::string& ref,
     // KSW2AlignConfig cfg = cfg_in;                   // 本地副本可调整
     KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
 
-
     /* ---------- 3. 调用 KSW2 ---------- */
     ksw_extz_t ez{};
 
