@@ -247,6 +247,15 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   */
 void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
+#ifdef _DEBUG_
+	/* ---------- 本函数私有统计 ---------- */
+	using Clock = std::chrono::steady_clock;
+	using nsec_t = uint64_t;
+	static std::atomic<nsec_t> ns_producer{ 0 }, ns_extend{ 0 }, ns_insert{ 0 };
+	static std::atomic<uint64_t> cnt_submit{ 0 }, cnt_extend{ 0 },
+		cnt_insert{ 0 }, cnt_finish{ 0 };
+	auto ns2ms = [](nsec_t ns) { return static_cast<double>(ns) / 1'000'000.0; };
+#endif
 	ThreadPool pool(thread_num);
 
 	KSW2AlignConfig align_config = makeDefaultKSW2Config();
@@ -281,6 +290,9 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	/* ---------- 3. 贪婪循环 ---------- */
 	while (!heap.empty())
 	{
+#ifdef _DEBUG_
+		auto t0 = Clock::now();
+#endif
 		std::pop_heap(heap.begin(), heap.end(), cmp);
 		Node cur = std::move(heap.back());
 		heap.pop_back();
@@ -303,6 +315,9 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 			/* 完全无冲突 —— 记录并接纳 */
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
+#ifdef _DEBUG_
+			cnt_submit.fetch_add(1, std::memory_order_relaxed);
+#endif
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			// AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			// graph.insertClusterIntoGraph(ref_name, query_name, part);
@@ -310,11 +325,28 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 			//	graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 			//	});
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager, &align_config] {
+#ifdef _DEBUG_
+				auto t1 = Clock::now();
+#endif
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+#ifdef _DEBUG_
+				auto t2 = Clock::now();
+				ns_extend += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+				cnt_extend.fetch_add(1, std::memory_order_relaxed);
+#endif
 				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+#ifdef _DEBUG_
+				auto t3 = Clock::now();
+				ns_insert += std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
+				cnt_insert.fetch_add(1, std::memory_order_relaxed);
+				cnt_finish.fetch_add(1, std::memory_order_relaxed);
+#endif
 				});
 			// graph.insertClusterIntoGraph(ref_name, query_name, cur.cl);
 			kept.emplace_back(cur.cl);
+#ifdef _DEBUG_
+			ns_producer += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
+#endif
 
 			count++;
 			continue;
@@ -332,6 +364,19 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	}
 
 	pool.waitAllTasksDone();
+#ifdef _DEBUG_
+	std::cerr << "\n==========  DEBUG: constructGraphByGreedy  ==========\n"
+		<< "Producer (split/enqueue) : " << ns2ms(ns_producer.load()) << " ms\n"
+		<< "extendClusterToAnchor    : " << ns2ms(ns_extend.load()) << " ms  ("
+		<< cnt_extend << " calls, avg "
+		<< ns2ms(ns_extend.load()) / std::max<uint64_t>(1, cnt_extend) << " ms)\n"
+		<< "insertAnchorIntoGraph    : " << ns2ms(ns_insert.load()) << " ms  ("
+		<< cnt_insert << " calls, avg "
+		<< ns2ms(ns_insert.load()) / std::max<uint64_t>(1, cnt_insert) << " ms)\n"
+		<< "Tasks submitted / finished : "
+		<< cnt_submit << " / " << cnt_finish << '\n'
+		<< "=====================================================\n";
+#endif
 
 
 	/* ---------- 4. 输出过滤结果 ---------- */
