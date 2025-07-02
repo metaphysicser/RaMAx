@@ -107,7 +107,7 @@ namespace RaMesh {
         ChrHeadMap anchors;     // guard: rw (head sentinel of every chr)
         mutable std::shared_mutex rw;
 
-        static BlockPtr make(std::size_t hint = 1);
+        static BlockPtr create(std::size_t hint = 1);
         static BlockPtr createEmpty(const ChrName& chr, std::size_t hint = 1);
 
         // Convenience helper – create both ref&qry segments, register anchors
@@ -193,6 +193,9 @@ namespace RaMesh {
 			const AnchorVec& anchor_vec);
 
         void debugPrint(bool show_detail) const;
+        
+        // 图正确性验证函数
+        bool verifyGraphCorrectness(bool verbose = false) const;
 
         std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs; // guard: rw
         std::vector<WeakBlock>                             blocks;         // guard: rw

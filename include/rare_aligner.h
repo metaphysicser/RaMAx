@@ -47,10 +47,27 @@ public:
 
     SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
-    void filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
+    SpeciesClusterMapPtr filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SpeciesMatchVec3DPtrMapPtr species_match_map, ThreadPool& shared_pool);
 
+    // 新增：并行构建多个比对结果图的成员函数，共用一个线程池
+    void constructMultipleGraphsByGreedy(
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
+        SpeciesName ref_name,
+        const SpeciesClusterMap& species_cluster_map,
+        RaMesh::RaMeshMultiGenomeGraph& graph,
+        ThreadPool& shared_pool,
+        uint_t min_span = 50
+    );
 
+    void mergeMultipleGraphs(const SpeciesName& ref_name, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& shared_pool);
 
+private:
+    // 辅助函数：处理基本区间
+    static RaMesh::BlockPtr processElementaryInterval(
+        uint_t interval_start, uint_t interval_end,
+        const std::vector<RaMesh::BlockPtr>& valid_blocks,
+        const SpeciesName& ref_name
+    );
 
 };
 
@@ -104,5 +121,8 @@ public:
 
 
 #endif
+
+
+
 
 

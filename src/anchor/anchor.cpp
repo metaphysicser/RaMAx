@@ -483,8 +483,7 @@ ValidationResult validateAnchorsCorrectness(
 
 AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
-    const SeqPro::ManagerVariant& query_mgr,
-    const KSW2AlignConfig& cfg)
+    const SeqPro::ManagerVariant& query_mgr)
 {
     AnchorVec anchors;
     if (cluster.empty()) return anchors;
