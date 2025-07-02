@@ -560,16 +560,19 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
         double rho = double(d) / std::min(Lt, Lq);
 
         Cigar_t gap = {};
-        //if (rho <= 0.3 && Lt > 10 && Lq > 10) {
-        //wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
-        //for (uint_t j = 0; j < wf_aligner->cigar->cigar_length; ++j) {
-        //    gap.push_back(wf_aligner->cigar->cigar_buffer[j]);
-        //}
-				
-       // }
-        //else {
-        gap = globalAlignKSW2(ref_gap, qry_gap);
-        //}
+        if (rho <= 0.3 && Lt > 10 && Lq > 10) {
+            int cigar_len;
+            uint32_t* cigar_tmp;
+            wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
+            cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
+            for (uint_t j = 0; j < cigar_len; ++j) {
+                gap.push_back(cigar_tmp[j]);
+            }
+        
+        }
+        else {
+         gap = globalAlignKSW2(ref_gap, qry_gap);
+        }
         
         /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
         Cigar_t buf; buf.reserve(gap.size());
