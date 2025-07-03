@@ -387,3 +387,7 @@ FodyWeavers.xsd
 /benchmark/bin
 /benchmark/paf2maf
 /benchmark/sam2maf
+/test/
+/temp_contig/
+/ramax_temp/
+/.vscode/

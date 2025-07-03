@@ -230,7 +230,7 @@ namespace RaMesh {
         std::shared_lock gLock(rw);
         
         if (verbose) {
-            std::cout << "\n=== 开始图正确性验证 ===\n";
+            spdlog::info("=== 开始图正确性验证 ===");
         }
         
         bool is_valid = true;
@@ -241,18 +241,18 @@ namespace RaMesh {
             std::shared_lock species_lock(genome_graph.rw);
             
             if (verbose) {
-                std::cout << "\n检查物种: " << species_name << "\n";
+                spdlog::info("检查物种: {}", species_name);
             }
             
             for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
                 if (verbose) {
-                    std::cout << "  检查染色体: " << chr_name << "\n";
+                    spdlog::info("  检查染色体: {}", chr_name);
                 }
                 
                 // 检查头尾指针有效性
                 if (!genome_end.head || !genome_end.tail) {
                     if (verbose) {
-                        std::cout << "    ❌ 错误: 头或尾指针为空\n";
+                        spdlog::error("    ❌ 错误: 头或尾指针为空");
                     }
                     is_valid = false;
                     total_errors++;
@@ -262,7 +262,7 @@ namespace RaMesh {
                 // 检查头尾标记正确性
                 if (!genome_end.head->isHead() || !genome_end.tail->isTail()) {
                     if (verbose) {
-                        std::cout << "    ❌ 错误: 头尾segment角色标记不正确\n";
+                        spdlog::error("    ❌ 错误: 头尾segment角色标记不正确");
                     }
                     is_valid = false;
                     total_errors++;
@@ -283,7 +283,7 @@ namespace RaMesh {
                     
                     if (prev_ptr != prev) {
                         if (verbose) {
-                            std::cout << "    ❌ 错误: 双向链表prev指针不一致, segment_count=" << segment_count << "\n";
+                            spdlog::error("    ❌ 错误: 双向链表prev指针不一致, segment_count={}", segment_count);
                         }
                         is_valid = false;
                         total_errors++;
@@ -293,7 +293,7 @@ namespace RaMesh {
                     if (current->isSegment()) {
                         if (current->length == 0) {
                             if (verbose) {
-                                std::cout << "    ❌ 错误: segment长度为0, start=" << current->start << "\n";
+                                spdlog::error("    ❌ 错误: segment长度为0, start={}", current->start);
                             }
                             is_valid = false;
                             total_errors++;
@@ -304,8 +304,8 @@ namespace RaMesh {
                             uint_t prev_end = prev->start + prev->length;
                             if (current->start < prev_end) {
                                 if (verbose) {
-                                    std::cout << "    ❌ 错误: segment坐标重叠或无序, prev_end=" 
-                                             << prev_end << ", current_start=" << current->start << "\n";
+                                    spdlog::error("    ❌ 错误: segment坐标重叠或无序, prev_end={}, current_start={}", 
+                                                 prev_end, current->start);
                                 }
                                 is_valid = false;
                                 total_errors++;
@@ -324,7 +324,7 @@ namespace RaMesh {
                         auto anchor_it = current->parent_block->anchors.find(key);
                         if (anchor_it == current->parent_block->anchors.end()) {
                             if (verbose) {
-                                std::cout << "    ❌ 错误: segment的parent_block中找不到对应的anchor\n";
+                                spdlog::error("    ❌ 错误: segment的parent_block中找不到对应的anchor");
                             }
                             is_valid = false;
                             total_errors++;
@@ -337,7 +337,7 @@ namespace RaMesh {
                     // 防止死循环
                     if (segment_count > 100000) {
                         if (verbose) {
-                            std::cout << "    ❌ 错误: 链表可能存在循环，遍历超过10万个节点\n";
+                            spdlog::error("    ❌ 错误: 链表可能存在循环，遍历超过10万个节点");
                         }
                         is_valid = false;
                         total_errors++;
@@ -346,7 +346,7 @@ namespace RaMesh {
                 }
                 
                 if (verbose) {
-                    std::cout << "    ✓ 染色体 " << chr_name << " 包含 " << segment_count << " 个segments\n";
+                    spdlog::info("    ✓ 染色体 {} 包含 {} 个segments", chr_name, segment_count);
                 }
             }
         }
@@ -365,7 +365,7 @@ namespace RaMesh {
                 for (const auto& [species_chr_pair, head_ptr] : block_ptr->anchors) {
                     if (!head_ptr) {
                         if (verbose) {
-                            std::cout << "    ❌ 错误: Block中存在空的anchor指针\n";
+                            spdlog::error("    ❌ 错误: Block中存在空的anchor指针");
                         }
                         is_valid = false;
                         total_errors++;
@@ -377,22 +377,21 @@ namespace RaMesh {
         }
         
         if (verbose) {
-            std::cout << "\nBlock池统计: " << valid_blocks << " 个有效block, " 
-                      << expired_blocks << " 个已过期block\n";
+            spdlog::info("Block池统计: {} 个有效block, {} 个已过期block", valid_blocks, expired_blocks);
         }
         
         // 3. 验证线程安全性（基本检查）
         // 注意：这里只能做静态检查，动态竞争条件需要专门的工具
         if (verbose) {
-            std::cout << "\n✓ 线程安全检查: 所有访问都在适当的锁保护下\n";
+            spdlog::info("✓ 线程安全检查: 所有访问都在适当的锁保护下");
         }
         
         // 输出总结
         if (verbose) {
-            std::cout << "\n=== 验证结果总结 ===\n";
-            std::cout << "总错误数: " << total_errors << "\n";
-            std::cout << "图状态: " << (is_valid ? "✓ 正确" : "❌ 存在问题") << "\n";
-            std::cout << "==================\n";
+            spdlog::info("=== 验证结果总结 ===");
+            spdlog::info("总错误数: {}", total_errors);
+            spdlog::info("图状态: {}", (is_valid ? "✓ 正确" : "❌ 存在问题"));
+            spdlog::info("==================");
         }
         
         return is_valid;

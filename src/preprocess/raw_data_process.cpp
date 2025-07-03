@@ -2,6 +2,42 @@
 #include "data_process.h"
 
 // -----------------------------
+// 查找 windowmasker 可执行文件路径
+// -----------------------------
+std::string findWindowmaskerPath() {
+  // 1. 首先尝试在系统 PATH 中查找
+  if (std::system("which windowmasker > /dev/null 2>&1") == 0) {
+    spdlog::info("Found windowmasker in system PATH");
+    return "windowmasker";
+  }
+  
+  // 2. 尝试相对于当前可执行文件的路径（安装后的情况）
+  try {
+    std::filesystem::path exe_path = std::filesystem::canonical("/proc/self/exe");
+    std::filesystem::path exe_dir = exe_path.parent_path();
+    std::filesystem::path windowmasker_path = exe_dir / "windowmasker";
+    
+    if (std::filesystem::exists(windowmasker_path) && 
+        std::filesystem::is_regular_file(windowmasker_path)) {
+      spdlog::info("Found windowmasker relative to executable: {}", windowmasker_path.string());
+      return windowmasker_path.string();
+    }
+  } catch (const std::exception& e) {
+    spdlog::warn("Failed to determine executable path: {}", e.what());
+  }
+  
+  // 3. 尝试项目开发目录的 bin 路径
+  if (std::filesystem::exists("bin/windowmasker") && 
+      std::filesystem::is_regular_file("bin/windowmasker")) {
+    spdlog::info("Found windowmasker in development bin directory");
+    return "bin/windowmasker";
+  }
+  
+  // 4. 如果都找不到，抛出异常
+  throw std::runtime_error("windowmasker executable not found. Please ensure it is installed or available in PATH.");
+}
+
+// -----------------------------
 // 工具函数：判断字符串是否为 URL
 // -----------------------------
 bool isUrl(const std::string &path_str) {
@@ -268,6 +304,15 @@ repeatSeqMasking(const FilePath workdir_path,
                    masked_data_dir.string());
     }
 
+    // 获取 windowmasker 路径
+    std::string windowmasker_path;
+    try {
+      windowmasker_path = findWindowmaskerPath();
+    } catch (const std::exception& e) {
+      spdlog::error("Failed to locate windowmasker: {}", e.what());
+      throw std::runtime_error("Cannot proceed with repeat masking: " + std::string(e.what()));
+    }
+
     ThreadPool pool(thread_num);
 
     for (auto it = species_path_map.begin(); it != species_path_map.end();
@@ -276,7 +321,7 @@ repeatSeqMasking(const FilePath workdir_path,
       FilePath input_fasta_path = it->second; // 待处理的FASTA文件
 
       pool.enqueue([species_key, input_fasta_path, masked_data_dir,
-                    &species_path_map, &interval_files_map]() {
+                    &species_path_map, &interval_files_map, windowmasker_path]() {
         FilePath counts_file = masked_data_dir / (species_key + ".counts");
         FilePath interval_file = masked_data_dir / (species_key + ".interval");
 
@@ -291,8 +336,7 @@ repeatSeqMasking(const FilePath workdir_path,
         }
 
         // 命令1: windowmasker -mk_counts
-        // 确保windowmasker在PATH中，或从bin文件夹调整为完整路径
-        std::string cmd1_str = "bin/windowmasker -mk_counts -in \"" +
+        std::string cmd1_str = "\"" + windowmasker_path + "\" -mk_counts -in \"" +
                                input_fasta_path.string() + "\" -out \"" +
                                counts_file.string() + "\" -sformat obinary";
         spdlog::info("[{}] Executing: {}", species_key, cmd1_str);
@@ -311,7 +355,7 @@ repeatSeqMasking(const FilePath workdir_path,
 
         // 命令2: windowmasker -ustat
         std::string cmd2_str =
-            "bin/windowmasker -ustat \"" + counts_file.string() + "\" -in \"" +
+            "\"" + windowmasker_path + "\" -ustat \"" + counts_file.string() + "\" -in \"" +
             input_fasta_path.string() + "\" -out \"" + interval_file.string() +
             "\" -outfmt interval -dust true";
         spdlog::info("[{}] Executing: {}", species_key, cmd2_str);
