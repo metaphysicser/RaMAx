@@ -137,3 +137,14 @@ configure_rama_target(RaMAx)
 
 # ================= 安装规则（可选） =================
 # install(TARGETS RaMAG RaMAx DESTINATION bin)
+
+# ================= 安装规则 =================
+# 安装主程序
+install(TARGETS RaMA-G RaMAx DESTINATION bin)
+
+# 安装 windowmasker 工具
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/bin/windowmasker" 
+        DESTINATION bin 
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE 
+                   GROUP_READ GROUP_EXECUTE 
+                   WORLD_READ WORLD_EXECUTE)
