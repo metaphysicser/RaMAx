@@ -597,26 +597,28 @@ std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
                     // 【修复】：设置ref_seqpro_manager，避免空指针
                     pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
 
-                    // 【修复】：避免过度并行化，改为串行处理chromosome数据
-                    // 每个物种内部串行处理，避免graph的深度并发访问
-                    for (const auto& strand_data : *cluster_ptr) {
-                        for (const auto& query_ref_data : strand_data) {
-                            for (const auto& cluster_vec : query_ref_data) {
-                                if (cluster_vec && !cluster_vec->empty()) {
-                                    // 将集合转换为向量以便处理
-                                    auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
-                                        cluster_vec->begin(), cluster_vec->end());
+                    //// 【修复】：避免过度并行化，改为串行处理chromosome数据
+                    //// 每个物种内部串行处理，避免graph的深度并发访问
+                    //for (const auto& strand_data : *cluster_ptr) {
+                    //    for (const auto& query_ref_data : strand_data) {
+                    //        for (const auto& cluster_vec : query_ref_data) {
+                    //            if (cluster_vec && !cluster_vec->empty()) {
+                    //                // 将集合转换为向量以便处理
+                    //                auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
+                    //                    cluster_vec->begin(), cluster_vec->end());
 
-                                    // 【修复】：使用互斥锁保护graph访问
-                                    {
-                                        std::lock_guard<std::mutex> lock(graph_mutex);
-                                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
-                                                                 graph, min_span);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    //                // 【修复】：使用互斥锁保护graph访问
+                    //                {
+                    //                    std::lock_guard<std::mutex> lock(graph_mutex);
+                    //                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
+                    //                                             graph, min_span);
+                    //                }
+                    //            }
+                    //        }
+                    //    }
+                    //}
+                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
+                                                                  graph, min_span);
 
                     spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
                                species_name);

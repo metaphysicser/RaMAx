@@ -152,6 +152,10 @@ int main(int argc, char **argv) {
     // 初始化异步日志线程池（spdlog）
     spdlog::init_thread_pool(8192, 1); // 日志缓冲区容量 8192，单线程日志写入
     // setupLogger();  // 控制台输出日志（不带文件）
+#ifdef _DEBUG_
+    spdlog::set_level(spdlog::level::debug);  // 让 debug 级别可见
+#endif
+
 
     // 初始化 CLI 命令行应用
     CLI::App app{"RaMA-G: A High-performance Genome Alignment Tool"};
@@ -452,7 +456,7 @@ int main(int argc, char **argv) {
         // ------------------------------
         spdlog::info("Filtering anchors...");
         auto t_start_filer = std::chrono::steady_clock::now();
-        MatchClusterVecPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
+        ClusterVecPtrByStrandByQueryRefPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
         auto t_end_filer = std::chrono::steady_clock::now();
         std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
         spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
