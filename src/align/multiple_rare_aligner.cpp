@@ -34,7 +34,7 @@ namespace {
             }
         }
 
-        spdlog::warn("[getRefMappedInterval] 无法找到对应的ref segment");
+        spdlog::warn("[getRefMappedInterval] Cannot find corresponding ref segment");
         return {0, 0};
     }
 
@@ -137,7 +137,7 @@ namespace {
 
         // 如果没有找到精确的映射，使用线性近似
         if (!found_start || !found_end) {
-            spdlog::warn("[calculateQueryInterval] 无法精确映射CIGAR区间，使用线性近似");
+            spdlog::warn("[calculateQueryInterval] Cannot precisely map CIGAR interval, using linear approximation");
             uint_t ref_offset = target_ref_start - original_ref_start;
             uint_t length = target_ref_end - target_ref_start;
             return {original_query_start + ref_offset, length};
@@ -330,18 +330,18 @@ void MultipleRareAligner::starAlignment(
         if (all_graphs[i]) {
             bool is_graph_valid = all_graphs[i]->verifyGraphCorrectness(true);
             if (!is_graph_valid) {
-                spdlog::error("图 {} 正确性验证失败", i);
+                spdlog::error("Graph {} correctness verification failed", i);
                 all_graphs_valid = false;
             } else {
-                spdlog::info("图 {} 正确性验证通过", i);
+                spdlog::info("Graph {} correctness verification passed", i);
             }
         }
     }
     
     if (all_graphs_valid) {
-        spdlog::info("所有图正确性验证通过");
+        spdlog::info("All graph correctness verifications passed");
     } else {
-        spdlog::error("部分图正确性验证失败");
+        spdlog::error("Some graph correctness verifications failed");
     }
 #endif // _DEBUG_
 
@@ -658,11 +658,15 @@ void MultipleRareAligner::mergeMultipleGraphs(
     RaMesh::RaMeshMultiGenomeGraph& graph,
     ThreadPool& shared_pool)
 {
-    spdlog::info("[mergeMultipleGraphs] 开始合并多基因组图，参考物种: {}，总共有 {} 个blocks",
+#ifdef _DEBUG_
+    spdlog::info("[mergeMultipleGraphs] Starting multi-genome graph merging, reference species: {}, total {} blocks",
                 ref_name, graph.blocks.size());
+#endif
 
     if (graph.blocks.empty()) {
-        spdlog::warn("[mergeMultipleGraphs] 没有blocks需要合并");
+#ifdef _DEBUG_
+        spdlog::warn("[mergeMultipleGraphs] No blocks to merge");
+#endif
         return;
     }
 
@@ -671,7 +675,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
     // ==================== 阶段一：识别重叠的Block关联集 ====================
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段一：识别重叠的Block关联集...");
+    spdlog::info("[mergeMultipleGraphs] Phase 1: Identifying overlapping block association sets...");
 #endif
     auto phase1_start = std::chrono::high_resolution_clock::now();
 
@@ -718,8 +722,8 @@ void MultipleRareAligner::mergeMultipleGraphs(
     }
 
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 第一步完成：从 {} 个blocks中提取了 {} 个ref-segments，分布在 {} 个染色体中",
-                graph.blocks.size(), total_segments, chr_segments.size());
+    spdlog::info("[mergeMultipleGraphs] Step 1 completed: Extracted {} ref-segments from {} blocks, distributed across {} chromosomes",
+                total_segments, graph.blocks.size(), chr_segments.size());
 #endif
 
     // 第二步：并行排序每个染色体的segments
@@ -757,7 +761,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
     // 第三步：构建重叠关系图
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 第三步：构建重叠关系图...");
+    spdlog::info("[mergeMultipleGraphs] Step 3: Building overlap relationship graph...");
 #endif
 
     // 使用并查集来跟踪Block之间的连通关系
@@ -849,7 +853,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
     // 【修复】：串行执行所有unite操作，确保线程安全
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 开始串行执行 {} 个unite操作...", all_overlaps.size());
+    spdlog::info("[mergeMultipleGraphs] Starting serial execution of {} unite operations...", all_overlaps.size());
 #endif
     for (const auto& [block_i, block_j] : all_overlaps) {
         block_union_find.unite(block_i, block_j);
@@ -859,7 +863,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
     auto phase1_duration = std::chrono::duration_cast<std::chrono::milliseconds>(phase1_end - phase1_start);
 
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段一完成 (耗时 {} ms)：检查了 {} 个segment对，发现 {} 个重叠关系",
+    spdlog::info("[mergeMultipleGraphs] Phase 1 completed ({} ms): Checked {} segment pairs, found {} overlap relationships",
                 phase1_duration.count(), total_pairs_checked.load(), overlap_count.load());
 #endif
 
@@ -885,16 +889,16 @@ void MultipleRareAligner::mergeMultipleGraphs(
     }
 
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 连通分量统计：");
-    spdlog::info("  - 总Block数量: {}", graph.blocks.size());
-    spdlog::info("  - 连通分量数量: {}", num_components);
-    spdlog::info("  - 单独Block数量: {}", singleton_components);
-    spdlog::info("  - 最大连通分量大小: {}", largest_component_size);
+    spdlog::info("[mergeMultipleGraphs] Connected component statistics:");
+    spdlog::info("[mergeMultipleGraphs]   - Total blocks: {}", graph.blocks.size());
+    spdlog::info("[mergeMultipleGraphs]   - Number of components: {}", num_components);
+    spdlog::info("[mergeMultipleGraphs]   - Singleton blocks: {}", singleton_components);
+    spdlog::info("[mergeMultipleGraphs]   - Largest component size: {}", largest_component_size);
 #endif
 
     // ==================== 阶段二：并行处理每个Block关联集 ====================
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段二：开始并行处理 {} 个Block关联集...", num_components);
+    spdlog::info("[mergeMultipleGraphs] Phase 2: Starting parallel processing of {} block association sets...", num_components);
 #endif
     auto phase2_start = std::chrono::high_resolution_clock::now();
 
@@ -966,7 +970,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
                 if (coordinates.size() < 2) {
 #ifdef _DEBUG_
-                    spdlog::warn("[mergeMultipleGraphs] 连通分量 {} 坐标点不足，跳过", component_id);
+                    spdlog::debug("[mergeMultipleGraphs] Component {} has insufficient coordinate points, skipping", component_id);
 #endif
                     processed_components++;
                     return;
@@ -1006,13 +1010,13 @@ void MultipleRareAligner::mergeMultipleGraphs(
                 // 定期报告进度
 #ifdef _DEBUG_
                 if (processed_components % 100 == 0) {
-                    spdlog::info("[mergeMultipleGraphs] 进度: {} / {} 连通分量已处理",
+                    spdlog::debug("[mergeMultipleGraphs] Progress: {} / {} components processed",
                                processed_components.load(), sorted_components.size());
                 }
 #endif
             }
             catch (const std::exception& e) {
-                spdlog::error("[mergeMultipleGraphs] 处理连通分量 {} 时出错: {}",
+                spdlog::error("[mergeMultipleGraphs] Error processing component {}: {}",
                             component_id, e.what());
                 processed_components++;
             }
@@ -1030,13 +1034,13 @@ void MultipleRareAligner::mergeMultipleGraphs(
     auto phase2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(phase2_end - phase2_start);
 
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段二完成 (耗时 {} ms)：重建了 {} 个新blocks",
+    spdlog::info("[mergeMultipleGraphs] Phase 2 completed ({} ms): Rebuilt {} new blocks",
                 phase2_duration.count(), new_blocks.size());
 #endif
 
     // ==================== 阶段三：原子化图结构更新 ====================
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段三：开始原子化图结构更新...");
+    spdlog::info("[mergeMultipleGraphs] Phase 3: Starting atomic graph structure update...");
 #endif
     auto phase3_start = std::chrono::high_resolution_clock::now();
 
@@ -1084,11 +1088,11 @@ void MultipleRareAligner::mergeMultipleGraphs(
         global_blocks = std::move(new_global_blocks);
 
 #ifdef _DEBUG_
-        spdlog::debug("[mergeMultipleGraphs] 移除了 {} 个原始blocks，最终blocks数量: {}",
+        spdlog::debug("[mergeMultipleGraphs] Removed {} original blocks, final block count: {}",
                     removed_blocks, global_blocks.size());
 
         // 重建GenomeEnd链表
-        spdlog::debug("[mergeMultipleGraphs] 开始重建染色体segment链表...");
+        spdlog::debug("[mergeMultipleGraphs] Starting chromosome segment chain reconstruction...");
 #endif
 
         // 收集所有有效blocks中的segments
@@ -1137,7 +1141,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
             bool has_overlap = false;
             for (size_t i = 1; i < segments.size(); ++i) {
                 if (segments[i]->start < segments[i-1]->start + segments[i-1]->length) {
-                    spdlog::error("[mergeMultipleGraphs] 检测到重叠segments: [{}, {}) 和 [{}, {})",
+                    spdlog::error("[mergeMultipleGraphs] Detected overlapping segments: [{}, {}) and [{}, {})",
                                 segments[i-1]->start, segments[i-1]->start + segments[i-1]->length,
                                 segments[i]->start, segments[i]->start + segments[i]->length);
                     has_overlap = true;
@@ -1145,7 +1149,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
             }
 
             if (has_overlap) {
-                spdlog::error("[mergeMultipleGraphs] 染色体 {}:{} 存在重叠segments，跳过重建",
+                spdlog::error("[mergeMultipleGraphs] Chromosome {}:{} has overlapping segments, skipping reconstruction",
                             species_name, chr_name);
                 continue;
             }
@@ -1174,7 +1178,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
                     processed_segments += segments.size();
                 }
                 catch (const std::exception& e) {
-                    spdlog::error("[mergeMultipleGraphs] 重建链表失败: {}", e.what());
+                    spdlog::error("[mergeMultipleGraphs] Failed to rebuild linked list: {}", e.what());
                 }
             }
         }
@@ -1196,15 +1200,19 @@ void MultipleRareAligner::mergeMultipleGraphs(
     }
 
 #ifdef _DEBUG_
-    spdlog::info("[mergeMultipleGraphs] 阶段三完成 (耗时 {} ms)", phase3_duration.count());
-    spdlog::info("[mergeMultipleGraphs] 合并完成统计：");
-    spdlog::info("  - 原始blocks数量: {}", original_blocks_count);
-    spdlog::info("  - 最终blocks数量: {}", final_block_count);
-    spdlog::info("  - 处理的segments数量: {}", processed_segments);
-    spdlog::info("  - 总耗时: {} ms", total_duration.count());
+    spdlog::info("[mergeMultipleGraphs] Phase 3 completed ({} ms)", phase3_duration.count());
+    spdlog::info("[mergeMultipleGraphs] Merge completion statistics:");
+    spdlog::info("[mergeMultipleGraphs]   - Original blocks: {}", original_blocks_count);
+    spdlog::info("[mergeMultipleGraphs]   - Final blocks: {}", final_block_count);
+    spdlog::info("[mergeMultipleGraphs]   - Processed segments: {}", processed_segments);
+    spdlog::info("[mergeMultipleGraphs]   - Total time: {} ms", total_duration.count());
 #endif
 
-    spdlog::info("[mergeMultipleGraphs] 多基因组图合并完成！");
+    spdlog::info("Multi-genome graph merging completed successfully.");
+    
+#ifdef _DEBUG_
+    spdlog::info("[mergeMultipleGraphs] Multi-genome graph merging completed!");
+#endif
 }
 
 // 辅助函数：处理基本区间
@@ -1331,7 +1339,7 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
         return new_block;
     }
     catch (const std::exception& e) {
-        spdlog::error("[processElementaryInterval] 处理区间[{}, {})时出错: {}",
+        spdlog::error("[processElementaryInterval] Error processing interval [{}, {}): {}",
                     interval_start, interval_end, e.what());
         return nullptr;
     }

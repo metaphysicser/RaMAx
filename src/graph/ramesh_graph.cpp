@@ -238,7 +238,10 @@ namespace RaMesh {
         std::shared_lock gLock(rw);
         
         if (verbose) {
-            spdlog::info("=== 开始图正确性验证 ===");
+            spdlog::info("");
+            spdlog::info("============================================================");
+            spdlog::info("              GRAPH CORRECTNESS VERIFICATION               ");
+            spdlog::info("============================================================");
         }
         
         bool is_valid = true;
@@ -251,18 +254,18 @@ namespace RaMesh {
             std::shared_lock species_lock(genome_graph.rw);
             
             if (verbose) {
-                spdlog::info("检查物种: {}", species_name);
+                spdlog::info("Checking species: {}", species_name);
             }
             
             for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
                 if (verbose) {
-                    spdlog::info("  检查染色体: {}", chr_name);
+                    spdlog::info("  Checking chromosome: {}", chr_name);
                 }
                 
                 // 检查头尾指针有效性
                 if (!genome_end.head || !genome_end.tail) {
                     if (verbose && detailed_errors_shown < max_detailed_errors) {
-                        spdlog::error("    ❌ 错误: 头或尾指针为空");
+                        spdlog::error("    Head or tail pointer is null");
                         detailed_errors_shown++;
                     }
                     is_valid = false;
@@ -273,7 +276,7 @@ namespace RaMesh {
                 // 检查头尾标记正确性
                 if (!genome_end.head->isHead() || !genome_end.tail->isTail()) {
                     if (verbose && detailed_errors_shown < max_detailed_errors) {
-                        spdlog::error("    ❌ 错误: 头尾segment角色标记不正确");
+                        spdlog::error("    Head/tail segment role markers are incorrect");
                         detailed_errors_shown++;
                     }
                     is_valid = false;
@@ -295,7 +298,7 @@ namespace RaMesh {
                     
                     if (prev_ptr != prev) {
                         if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    ❌ 错误: 双向链表prev指针不一致, segment_count={}", segment_count);
+                            spdlog::error("    Inconsistent prev pointer in doubly linked list, segment_count={}", segment_count);
                             detailed_errors_shown++;
                         }
                         is_valid = false;
@@ -306,7 +309,7 @@ namespace RaMesh {
                     if (current->isSegment()) {
                         if (current->length == 0) {
                             if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                spdlog::error("    ❌ 错误: segment长度为0, start={}", current->start);
+                                spdlog::error("    Segment length is zero, start={}", current->start);
                                 detailed_errors_shown++;
                             }
                             is_valid = false;
@@ -318,7 +321,7 @@ namespace RaMesh {
                             uint_t prev_end = prev->start + prev->length;
                             if (current->start < prev_end) {
                                 if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                    spdlog::error("    ❌ 错误: segment坐标重叠或无序, prev_end={}, current_start={}", 
+                                    spdlog::error("    Segment coordinates overlap or out of order, prev_end={}, current_start={}",
                                                  prev_end, current->start);
                                     detailed_errors_shown++;
                                 }
@@ -339,7 +342,7 @@ namespace RaMesh {
                         auto anchor_it = current->parent_block->anchors.find(key);
                         if (anchor_it == current->parent_block->anchors.end()) {
                             if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                spdlog::error("    ❌ 错误: segment的parent_block中找不到对应的anchor");
+                                spdlog::error("    Cannot find corresponding anchor in segment's parent_block");
                                 detailed_errors_shown++;
                             }
                             is_valid = false;
@@ -353,7 +356,7 @@ namespace RaMesh {
                     // 防止死循环
                     if (segment_count > 100000) {
                         if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    ❌ 错误: 链表可能存在循环，遍历超过10万个节点");
+                            spdlog::error("    Linked list may contain cycle, traversed over 100k nodes");
                             detailed_errors_shown++;
                         }
                         is_valid = false;
@@ -363,7 +366,7 @@ namespace RaMesh {
                 }
                 
                 if (verbose) {
-                    spdlog::info("    ✓ 染色体 {} 包含 {} 个segments", chr_name, segment_count);
+                    spdlog::info("    Chromosome {} contains {} segments", chr_name, segment_count);
                 }
             }
         }
@@ -382,7 +385,7 @@ namespace RaMesh {
                 for (const auto& [species_chr_pair, head_ptr] : block_ptr->anchors) {
                     if (!head_ptr) {
                         if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    ❌ 错误: Block中存在空的anchor指针");
+                            spdlog::error("    Null anchor pointer found in block");
                             detailed_errors_shown++;
                         }
                         is_valid = false;
@@ -395,25 +398,29 @@ namespace RaMesh {
         }
         
         if (verbose) {
-            spdlog::info("Block池统计: {} 个有效block, {} 个已过期block", valid_blocks, expired_blocks);
+            spdlog::info("Block pool statistics: {} valid blocks, {} expired blocks", valid_blocks, expired_blocks);
         }
         
         // 3. 验证线程安全性（基本检查）
         // 注意：这里只能做静态检查，动态竞争条件需要专门的工具
         if (verbose) {
-            spdlog::info("✓ 线程安全检查: 所有访问都在适当的锁保护下");
+            spdlog::info("[OK] Thread safety check: All accesses are properly protected by locks");
         }
         
         // 输出总结
         if (verbose) {
-            spdlog::info("=== 验证结果总结 ===");
-            spdlog::info("总错误数: {}", total_errors);
+            spdlog::info("");
+            spdlog::info("============================================================");
+            spdlog::info("              GRAPH VERIFICATION SUMMARY                   ");
+            spdlog::info("============================================================");
+            spdlog::info("Total errors: {}", total_errors);
             if (total_errors > max_detailed_errors) {
-                spdlog::info("详细错误显示数: {} (限制为{}个，还有{}个错误未详细显示)", 
+                spdlog::info("Detailed errors shown: {} (limited to {}, {} more errors not shown)", 
                            detailed_errors_shown, max_detailed_errors, total_errors - detailed_errors_shown);
             }
-            spdlog::info("图状态: {}", (is_valid ? "✓ 正确" : "❌ 存在问题"));
-            spdlog::info("==================");
+            spdlog::info("Graph status: {}", (is_valid ? "[OK] Valid" : "[ERROR] Issues found"));
+            spdlog::info("============================================================");
+            spdlog::info("");
         }
         
         return is_valid;

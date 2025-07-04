@@ -44,6 +44,45 @@ struct CommonArgs {
 };
 
 // ------------------------------------------------------------------
+// 美化参数输出函数
+// ------------------------------------------------------------------
+inline void printRunConfiguration(const CommonArgs &args) {
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                     RUN CONFIGURATION                     ");
+    spdlog::info("============================================================");
+    
+    // Input/Output section
+    spdlog::info("Input/Output:");
+    spdlog::info("  Input file       : {}", args.input_path.string());
+    spdlog::info("  Output file      : {}", args.output_path.string());
+    spdlog::info("  Work directory   : {}", args.work_dir_path.string());
+    spdlog::info("  Output format    : {}", 
+                 args.output_format == MultipleGenomeOutputFormat::HAL ? "HAL" :
+                 args.output_format == MultipleGenomeOutputFormat::MAF ? "MAF" : "Unknown");
+    
+    spdlog::info("");
+    
+    // Algorithm parameters section
+    spdlog::info("Algorithm Parameters:");
+    spdlog::info("  Chunk size            : {:L}", args.chunk_size);
+    spdlog::info("  Overlap size          : {:L}", args.overlap_size);
+    spdlog::info("  Min anchor length     : {}", args.min_anchor_length);
+    spdlog::info("  Max anchor frequency  : {}", args.max_anchor_frequency);
+    spdlog::info("  Repeat masking        : {}", args.enable_repeat_masking ? "Enabled" : "Disabled");
+    
+    spdlog::info("");
+    
+    // Performance section
+    spdlog::info("Performance:");
+    spdlog::info("  Thread count     : {}", args.thread_num);
+    spdlog::info("  Restart mode     : {}", args.restart ? "Enabled" : "Disabled");
+    
+    spdlog::info("============================================================");
+    spdlog::info("");
+}
+
+// ------------------------------------------------------------------
 // CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
 // ------------------------------------------------------------------
 inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
@@ -211,7 +250,7 @@ int main(int argc, char **argv) {
 
             setupLoggerWithFile(common_args.work_dir_path);
             spdlog::info("RaMAx version {}", VERSION);
-            spdlog::info("Alignment mode enabled.");
+            spdlog::info("Multiple genome alignment mode enabled.");
 
 
             common_args.output_format = detectMultipleGenomeOutputFormat(common_args.output_path);
@@ -233,7 +272,7 @@ int main(int argc, char **argv) {
             }
             cereal::JSONOutputArchive archive(os);
             archive(cereal::make_nvp("common_args", common_args));
-            spdlog::info("CommonArgs saved to {}", config_path.string());
+            spdlog::info("Configuration saved to {}", config_path.string());
         }
     } catch (const std::runtime_error &e) {
         spdlog::error("{}", e.what());
@@ -242,10 +281,18 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // 显示运行配置
+    printRunConfiguration(common_args);
+
     //	// ------------------------------
     //	// 主流程开始
     //	// ------------------------------
-    spdlog::info("Command: {}", getCommandLine(argc, argv));
+    spdlog::info("Executed command: {}", getCommandLine(argc, argv));
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                      INPUT VALIDATION                     ");
+    spdlog::info("============================================================");
+    
     SpeciesPathMap species_path_map;
     NewickParser newick_tree;
     parseSeqfile(
@@ -259,14 +306,15 @@ int main(int argc, char **argv) {
         } else {
             verifyLocalFile(path);
         }
-        spdlog::info("Input Genome: {} (size: {})",
+        spdlog::info("Input genome: {} (size: {})",
                      species,
                      getReadableFileSize(path));
     }
 
-    spdlog::info("Output: {}", common_args.output_path.string());
-    spdlog::info("Work directory: {}", common_args.work_dir_path.string());
-    spdlog::info("Threads: {}", common_args.thread_num);
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                    DATA PREPROCESSING                     ");
+    spdlog::info("============================================================");
 
     // ------------------------------
     // 数据预处理阶段
@@ -285,8 +333,7 @@ int main(int argc, char **argv) {
 
     // 如果要重复遮蔽
     if (common_args.enable_repeat_masking) {
-        spdlog::info("Repeat masking enabled. Generating interval files based on "
-            "raw files...");
+        spdlog::info("Repeat masking enabled. Generating interval files based on raw files...");
 
         // 1. 生成interval文件
         interval_files_map = repeatSeqMasking(
@@ -294,8 +341,7 @@ int main(int argc, char **argv) {
 
         if (interval_files_map.empty()) {
             // 没成功生成，中止程序建议用户检查一下
-            spdlog::error("No interval files were generated. Please check the input "
-                "FASTA files and ensure they are valid.");
+            spdlog::error("No interval files were generated. Please check the input FASTA files and ensure they are valid.");
             return 1;
         }
         spdlog::info("Interval files generated successfully.");
@@ -345,8 +391,7 @@ int main(int argc, char **argv) {
         }
     } else {
         // 不开启重复遮蔽，基于清洗后的文件创建常规SeqPro managers
-        spdlog::info(
-            "Repeat masking disabled. Creating standard SeqPro managers...");
+        spdlog::info("Repeat masking disabled. Creating standard SeqPro managers...");
 
         for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
             try {
@@ -382,6 +427,11 @@ int main(int argc, char **argv) {
         common_args.max_anchor_frequency
     );
 
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                    STAR ALIGNMENT                         ");
+    spdlog::info("============================================================");
+
     // ------------------------------
     // 步骤 1：构建索引
     // ------------------------------
@@ -395,12 +445,17 @@ int main(int argc, char **argv) {
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;
-    spdlog::info("star alignmnet in {:.3f} seconds.", align_time.count());
+    
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                       COMPLETION                          ");
+    spdlog::info("============================================================");
+    spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
 
 
     // ------------------------------
     // 退出
     // ------------------------------
-    spdlog::info("RaMAx exits!");
+    spdlog::info("RaMAx execution completed successfully!");
     return 0;
 }
