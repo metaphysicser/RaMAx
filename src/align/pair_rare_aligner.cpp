@@ -346,13 +346,14 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 #ifdef _DEBUG_
 				auto t1 = Clock::now();
 #endif
-				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+				// AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 #ifdef _DEBUG_
 				auto t2 = Clock::now();
 				ns_extend += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 				cnt_extend.fetch_add(1, std::memory_order_relaxed);
 #endif
-				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				// graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 #ifdef _DEBUG_
 				auto t3 = Clock::now();
 				ns_insert += std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();

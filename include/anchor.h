@@ -146,6 +146,10 @@ inline int_t diag(const Match& m) {
     return start2(m) - start1(m);
 }
 
+inline int_t diag_reverse(const Match& m) {
+    return -start2(m) - start1(m);
+}
+
 // 3. 彻底释放 cluster 内剩余元素的内存（swap 技巧）
 inline void releaseCluster(MatchVec& cluster) {
     MatchVec tmp; tmp.swap(cluster);

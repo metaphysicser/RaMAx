@@ -74,35 +74,38 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
         return clusters;
     }
 
-    // 预排序：按query起始位置排序，提升局部性
+    const bool is_forward = (unique_match.front().strand == FORWARD);
+
+    // 预排序：按ref起始位置排序，提升局部性
     std::sort(unique_match.begin(), unique_match.end(),
         [](const Match& a, const Match& b) { 
-            return start2(a) < start2(b); 
+            return start1(a) < start1(b); 
         });
 
     UnionFind uf(N);
-    
+
+ 
     // 优化的聚类算法：利用排序后的局部性
     for (uint_t i = 0; i < N; ++i) {
-        uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
+        uint_t i_end = start1(unique_match[i]) + len1(unique_match[i]);
         int_t  i_diag = diag(unique_match[i]);
-        
+
         // 只检查后续可能的匹配，利用排序优化
         for (uint_t j = i + 1; j < N; ++j) {
-            int_t sep = start2(unique_match[j]) - i_end;
-            
+            int_t sep = start1(unique_match[j]) - i_end;
+
             // 早期退出：如果gap太大，后续的j也不可能匹配
             if (sep > static_cast<int_t>(max_gap)) break;
-            
-            int_t diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+
+            int_t diag_diff = std::abs((is_forward ? diag(unique_match[j]):diag_reverse(unique_match[j])) - i_diag);
             int_t th = std::max(diagdiff, static_cast<int_t>(diagfactor * sep));
-            
-            if (diag_diff <= th) {
+
+            if (diag_diff <= th && unique_match[i].strand == unique_match[j].strand) {
                 uf.unite(i, j);
             }
         }
     }
-
+    
     // 高效的簇构建：使用哈希表而不是线性搜索
     std::unordered_map<int_t, int_t> root_to_cluster_id;
     root_to_cluster_id.reserve(N / 4);  // 预估簇数量
@@ -337,51 +340,41 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
     if (cluster.empty()) return {};
     if (cluster.size() == 1) return std::move(cluster);
 
+    Strand strand = cluster.front().strand;
+
     std::sort(cluster.begin(), cluster.end(),
-        [](const Match& a, const Match& b) { return start2(a) < start2(b); });
+        [](const Match& a, const Match& b) { return start1(a) < start1(b); });
 
     const uint_t N = static_cast<uint_t>(cluster.size());
     std::vector<int_t> score(N), pred(N, -1);
-    std::vector<Match> merged_matches(cluster);  // 存储可能合并后的匹配
     uint_t best_idx = 0;
 
     for (uint_t i = 0; i < N; ++i) {
-        score[i] = len2(merged_matches[i]);
+        score[i] = len2(cluster[i]);
         for (uint_t j = 0; j < i; ++j) {
-            if (start1(merged_matches[i]) <= start1(merged_matches[j])) continue;
-            
-            // 检查是否overlap
-            if (isOverlap(merged_matches[j], merged_matches[i])) {
-                // 合并overlap的锚点
-                Match merged = mergeOverlapMatches(merged_matches[j], merged_matches[i]);
-                int_t merged_score = len2(merged);
-                int_t combined_score = score[j] + merged_score;
-                
-                if (combined_score > score[i]) {
-                    score[i] = combined_score;
-                    pred[i] = static_cast<int_t>(j);
-                    merged_matches[i] = merged;  // 使用合并后的锚点
-                }
-                continue;
+            if (start1(cluster[i]) <= start1(cluster[j]) + len1(cluster[j])) continue;
+
+            int_t sep = 0;
+            if (strand == FORWARD) {
+                int_t prev_endj = start2(cluster[j]) + len2(cluster[j]);
+                if (start2(cluster[i]) <= prev_endj) continue;
+                sep = start2(cluster[i]) - prev_endj;
+            } else {
+                int_t prev_endi = start2(cluster[i]) + len2(cluster[j]);
+                if(prev_endi >= start2(cluster[j])) continue;
+				sep = start2(cluster[j]) - prev_endi;
             }
-            
-            // 原有的非overlap逻辑
-            int_t prev_end2 = start2(merged_matches[j]) + len2(merged_matches[j]);
-            if (start2(merged_matches[i]) <= prev_end2) continue;
-            int_t sep = start2(merged_matches[i]) - prev_end2;
-            int_t d = std::abs(diag(merged_matches[i]) - diag(merged_matches[j]));
-            int_t cand = score[j] + len2(merged_matches[i]) - (sep + static_cast<int_t>(diagfactor * d));
-            if (cand > score[i]) { 
-                score[i] = cand; 
-                pred[i] = static_cast<int_t>(j); 
-            }
+
+            int_t d = std::abs(diag(cluster[i]) - diag(cluster[j]));
+            int_t cand = score[j] + len2(cluster[i]) - (sep + static_cast<int_t>(diagfactor * d));
+            if (cand > score[i]) { score[i] = cand; pred[i] = static_cast<int_t>(j); }
         }
         if (score[i] > score[best_idx]) best_idx = i;
     }
 
     MatchVec chain;
     for (int_t k = static_cast<int_t>(best_idx); k != -1; k = pred[k])
-        chain.emplace_back(std::move(merged_matches[k]));
+        chain.emplace_back(std::move(cluster[k]));
     std::reverse(chain.begin(), chain.end());
     return chain;
 }

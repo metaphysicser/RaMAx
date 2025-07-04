@@ -335,7 +335,7 @@ namespace RaMesh {
                     current = next_ptr;
                     
                     // 防止死循环
-                    if (segment_count > 100000) {
+                    if (segment_count > 10000000) {
                         if (verbose) {
                             spdlog::error("    ❌ 错误: 链表可能存在循环，遍历超过10万个节点");
                         }

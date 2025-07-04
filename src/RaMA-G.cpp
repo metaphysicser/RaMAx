@@ -476,7 +476,7 @@ int main(int argc, char **argv) {
         spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
     
     #ifdef _DEBUG_
-        graph.debugPrint(false);
+        graph.verifyGraphCorrectness(true);
     #endif // _DEBUG_
     
         graph.exportToMaf(common_args.output_path, seqpro_managers, true, true);
