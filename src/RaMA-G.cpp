@@ -460,6 +460,9 @@ int main(int argc, char **argv) {
         auto t_end_filer = std::chrono::steady_clock::now();
         std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
         spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
+#ifdef _DEBUG_
+        validateClusters(cluster_vec_ptr);
+#endif
 
         // 记录构图时间
 	    spdlog::info("Constructing graph by greedy algorithm...");

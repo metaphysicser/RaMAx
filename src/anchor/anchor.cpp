@@ -605,3 +605,111 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     wavefront_aligner_delete(wf_aligner);// 收尾
     return anchors;
 }
+
+/// 方向枚举，沿用你的定义
+// enum Strand { FORWARD, REVERSE };
+
+/// 同时验证 ref/query，两者都通过才算成功
+void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
+{
+    if (!cluster_vec_ptr) {
+        spdlog::debug("validateClusters: cluster_vec_ptr is null, nothing to check.");
+        return;
+    }
+
+    std::size_t total_clusters = 0;
+    std::size_t failed_clusters = 0;
+
+    for (std::size_t strand_i = 0; strand_i < cluster_vec_ptr->size(); ++strand_i) {
+        const auto& by_query = (*cluster_vec_ptr)[strand_i];
+
+        for (std::size_t q_i = 0; q_i < by_query.size(); ++q_i) {
+            const auto& by_ref = by_query[q_i];
+
+            for (std::size_t r_i = 0; r_i < by_ref.size(); ++r_i) {
+                const auto& clusters_ptr = by_ref[r_i];
+                if (!clusters_ptr) continue;
+
+                for (std::size_t c_i = 0; c_i < clusters_ptr->size(); ++c_i) {
+                    ++total_clusters;
+                    const MatchCluster& cluster = (*clusters_ptr)[c_i];
+
+                    bool ref_sorted_ok = true;
+                    bool ref_overlap_free = true;
+                    bool qry_sorted_ok = true;
+                    bool qry_overlap_free = true;
+
+                    Coord_t ref_last_end = std::numeric_limits<Coord_t>::min();
+                    Coord_t qry_last_pos;                 // 启动值依赖方向
+                    bool    qry_is_first = true;          // 标记首个 match
+
+                    for (std::size_t m_i = 0; m_i < cluster.size(); ++m_i) {
+                        const Match& m = cluster[m_i];
+
+                        //-------------------//
+                        // 1) 参考坐标检查
+                        //-------------------//
+                        Coord_t ref_start = m.ref_region.start;
+                        Coord_t ref_end = ref_start + m.ref_region.length; // 右开
+
+                        if (m_i && ref_start < ref_last_end)
+                            ref_sorted_ok = false;            // 未按升序
+
+                        if (ref_start < ref_last_end)
+                            ref_overlap_free = false;         // 有重叠
+
+                        ref_last_end = std::max(ref_last_end, ref_end);
+
+                        //-------------------//
+                        // 2) 查询坐标检查
+                        //-------------------//
+                        Coord_t qry_start = m.query_region.start;
+                        Coord_t qry_end = qry_start + m.query_region.length;
+
+                        if (qry_is_first) {
+                            qry_last_pos = (m.strand == FORWARD) ? qry_end  // 下次比较用
+                                : qry_start;
+                            qry_is_first = false;
+                        }
+                        else {
+                            if (m.strand == FORWARD) {
+                                // 正向：要求升序且不重叠
+                                if (qry_start < qry_last_pos)
+                                    qry_sorted_ok = false;
+                                if (qry_start < qry_last_pos)
+                                    qry_overlap_free = false;
+
+                                qry_last_pos = std::max(qry_last_pos, qry_end);
+                            }
+                            else { // REVERSE
+                                // 反向：查询坐标应当递减，区间不重叠
+                                if (qry_start > qry_last_pos)
+                                    qry_sorted_ok = false;
+                                if (qry_end > qry_last_pos)
+                                    qry_overlap_free = false;
+
+                                qry_last_pos = std::min(qry_start, qry_last_pos - m.query_region.length);
+                            }
+                        }
+                    } // end matches loop
+
+                    if (!(ref_sorted_ok && ref_overlap_free &&
+                        qry_sorted_ok && qry_overlap_free)) {
+
+                        ++failed_clusters;
+                        spdlog::debug(
+                            "❌ Cluster FAILED (strand={},query={},ref={},cluster={}): "
+                            "refSorted={},refNoOverlap={},qrySorted={},qryNoOverlap={}",
+                            strand_i, q_i, r_i, c_i,
+                            ref_sorted_ok, ref_overlap_free,
+                            qry_sorted_ok, qry_overlap_free);
+                    }
+                }
+            }
+        }
+    }
+
+    spdlog::debug("validateClusters finished: {} clusters checked, {} failed.",
+        total_clusters, failed_clusters);
+}
+

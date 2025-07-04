@@ -210,6 +210,8 @@ splitCluster(const MatchCluster& cl,
     bool  query_hit,
     int_t bad_q_beg, int_t bad_q_end);
 
+void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr);
+
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
     Match match;                    // 匹配信息
