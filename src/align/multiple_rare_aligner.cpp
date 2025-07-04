@@ -1023,6 +1023,9 @@ void MultipleRareAligner::mergeMultipleGraphs(
         }
     }
 
+    // 保存原始blocks数量，用于最终统计
+    size_t original_blocks_count = graph.blocks.size();
+
     // 在全局写锁保护下执行原子化更新
     size_t processed_segments = 0;
     {
@@ -1167,7 +1170,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
     spdlog::info("[mergeMultipleGraphs] 阶段三完成 (耗时 {} ms)", phase3_duration.count());
     spdlog::info("[mergeMultipleGraphs] 合并完成统计：");
-    spdlog::info("  - 原始blocks数量: {}", graph.blocks.size());
+    spdlog::info("  - 原始blocks数量: {}", original_blocks_count);
     spdlog::info("  - 最终blocks数量: {}", final_block_count);
     spdlog::info("  - 处理的segments数量: {}", processed_segments);
     spdlog::info("  - 总耗时: {} ms", total_duration.count());

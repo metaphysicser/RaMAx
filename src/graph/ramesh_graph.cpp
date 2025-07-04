@@ -243,6 +243,8 @@ namespace RaMesh {
         
         bool is_valid = true;
         size_t total_errors = 0;
+        size_t detailed_errors_shown = 0;
+        const size_t max_detailed_errors = 10;  // 最多显示10个详细错误
         
         // 1. 验证每个物种图的结构完整性
         for (const auto& [species_name, genome_graph] : species_graphs) {
@@ -259,8 +261,9 @@ namespace RaMesh {
                 
                 // 检查头尾指针有效性
                 if (!genome_end.head || !genome_end.tail) {
-                    if (verbose) {
+                    if (verbose && detailed_errors_shown < max_detailed_errors) {
                         spdlog::error("    ❌ 错误: 头或尾指针为空");
+                        detailed_errors_shown++;
                     }
                     is_valid = false;
                     total_errors++;
@@ -269,8 +272,9 @@ namespace RaMesh {
                 
                 // 检查头尾标记正确性
                 if (!genome_end.head->isHead() || !genome_end.tail->isTail()) {
-                    if (verbose) {
+                    if (verbose && detailed_errors_shown < max_detailed_errors) {
                         spdlog::error("    ❌ 错误: 头尾segment角色标记不正确");
+                        detailed_errors_shown++;
                     }
                     is_valid = false;
                     total_errors++;
@@ -290,8 +294,9 @@ namespace RaMesh {
                     SegPtr prev_ptr = current->primary_path.prev.load(std::memory_order_acquire);
                     
                     if (prev_ptr != prev) {
-                        if (verbose) {
+                        if (verbose && detailed_errors_shown < max_detailed_errors) {
                             spdlog::error("    ❌ 错误: 双向链表prev指针不一致, segment_count={}", segment_count);
+                            detailed_errors_shown++;
                         }
                         is_valid = false;
                         total_errors++;
@@ -300,8 +305,9 @@ namespace RaMesh {
                     // 检查非哨兵segment的坐标合理性
                     if (current->isSegment()) {
                         if (current->length == 0) {
-                            if (verbose) {
+                            if (verbose && detailed_errors_shown < max_detailed_errors) {
                                 spdlog::error("    ❌ 错误: segment长度为0, start={}", current->start);
+                                detailed_errors_shown++;
                             }
                             is_valid = false;
                             total_errors++;
@@ -311,9 +317,10 @@ namespace RaMesh {
                         if (prev && prev->isSegment()) {
                             uint_t prev_end = prev->start + prev->length;
                             if (current->start < prev_end) {
-                                if (verbose) {
+                                if (verbose && detailed_errors_shown < max_detailed_errors) {
                                     spdlog::error("    ❌ 错误: segment坐标重叠或无序, prev_end={}, current_start={}", 
                                                  prev_end, current->start);
+                                    detailed_errors_shown++;
                                 }
                                 is_valid = false;
                                 total_errors++;
@@ -331,8 +338,9 @@ namespace RaMesh {
                         SpeciesChrPair key{species_name, chr_name};
                         auto anchor_it = current->parent_block->anchors.find(key);
                         if (anchor_it == current->parent_block->anchors.end()) {
-                            if (verbose) {
+                            if (verbose && detailed_errors_shown < max_detailed_errors) {
                                 spdlog::error("    ❌ 错误: segment的parent_block中找不到对应的anchor");
+                                detailed_errors_shown++;
                             }
                             is_valid = false;
                             total_errors++;
@@ -343,9 +351,10 @@ namespace RaMesh {
                     current = next_ptr;
                     
                     // 防止死循环
-                    if (segment_count > 10000000) {
-                        if (verbose) {
+                    if (segment_count > 100000) {
+                        if (verbose && detailed_errors_shown < max_detailed_errors) {
                             spdlog::error("    ❌ 错误: 链表可能存在循环，遍历超过10万个节点");
+                            detailed_errors_shown++;
                         }
                         is_valid = false;
                         total_errors++;
@@ -372,8 +381,9 @@ namespace RaMesh {
                 // 检查block中的anchors是否都有效
                 for (const auto& [species_chr_pair, head_ptr] : block_ptr->anchors) {
                     if (!head_ptr) {
-                        if (verbose) {
+                        if (verbose && detailed_errors_shown < max_detailed_errors) {
                             spdlog::error("    ❌ 错误: Block中存在空的anchor指针");
+                            detailed_errors_shown++;
                         }
                         is_valid = false;
                         total_errors++;
@@ -398,6 +408,10 @@ namespace RaMesh {
         if (verbose) {
             spdlog::info("=== 验证结果总结 ===");
             spdlog::info("总错误数: {}", total_errors);
+            if (total_errors > max_detailed_errors) {
+                spdlog::info("详细错误显示数: {} (限制为{}个，还有{}个错误未详细显示)", 
+                           detailed_errors_shown, max_detailed_errors, total_errors - detailed_errors_shown);
+            }
             spdlog::info("图状态: {}", (is_valid ? "✓ 正确" : "❌ 存在问题"));
             spdlog::info("==================");
         }
