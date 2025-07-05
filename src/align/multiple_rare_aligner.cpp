@@ -311,7 +311,7 @@ void MultipleRareAligner::starAlignment(
         constructMultipleGraphsByGreedy(
            seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool
         );
-
+        multi_graph->verifyGraphCorrectness(true);
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         mergeMultipleGraphs(ref_name, *multi_graph, shared_pool);
 

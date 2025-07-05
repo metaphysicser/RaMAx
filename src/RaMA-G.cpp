@@ -52,6 +52,47 @@ struct CommonArgs {
 
 
 // ------------------------------------------------------------------
+// 美化参数输出函数
+// ------------------------------------------------------------------
+inline void printRunConfiguration(const CommonArgs &args) {
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                     RUN CONFIGURATION                     ");
+    spdlog::info("============================================================");
+    
+    // Input/Output section
+    spdlog::info("Input/Output:");
+    spdlog::info("  Reference file   : {}", args.reference_path.string());
+    spdlog::info("  Query file       : {}", args.query_path.string());
+    spdlog::info("  Output file      : {}", args.output_path.string());
+    spdlog::info("  Work directory   : {}", args.work_dir_path.string());
+    spdlog::info("  Output format    : {}", 
+                 args.output_format == PairGenomeOutputFormat::SAM ? "SAM" :
+                 args.output_format == PairGenomeOutputFormat::MAF ? "MAF" :
+                 args.output_format == PairGenomeOutputFormat::PAF ? "PAF" : "Unknown");
+    
+    spdlog::info("");
+    
+    // Algorithm parameters section
+    spdlog::info("Algorithm Parameters:");
+    spdlog::info("  Chunk size            : {:L}", args.chunk_size);
+    spdlog::info("  Overlap size          : {:L}", args.overlap_size);
+    spdlog::info("  Min anchor length     : {}", args.min_anchor_length);
+    spdlog::info("  Max anchor frequency  : {}", args.max_anchor_frequency);
+    spdlog::info("  Repeat masking        : {}", args.enable_repeat_masking ? "Enabled" : "Disabled");
+    
+    spdlog::info("");
+    
+    // Performance section
+    spdlog::info("Performance:");
+    spdlog::info("  Thread count     : {}", args.thread_num);
+    spdlog::info("  Restart mode     : {}", args.restart ? "Enabled" : "Disabled");
+    
+    spdlog::info("============================================================");
+    spdlog::info("");
+}
+
+// ------------------------------------------------------------------
 // CLI11 参数注册：配置常用命令行参数（参考 RaMAx 主程序）
 // ------------------------------------------------------------------
 inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
@@ -185,7 +226,9 @@ int main(int argc, char **argv) {
             // 初始化日志器
             setupLoggerWithFile(common_args.work_dir_path);
             spdlog::info("RaMA-G version {}", VERSION);
+#ifdef _DEBUG_
             spdlog::info("Restart mode enabled.");
+#endif
 
             // 加载之前保存的参数配置文件
             FilePath config_path = common_args.work_dir_path / CONFIG_FILE;
@@ -196,7 +239,9 @@ int main(int argc, char **argv) {
             }
             cereal::JSONInputArchive archive(is);
             archive(common_args); // 反序列化参数
+#ifdef _DEBUG_
             spdlog::info("CommonArgs loaded from {}", config_path.string());
+#endif
         }
 
         // ------------------------------
@@ -230,7 +275,6 @@ int main(int argc, char **argv) {
 
             setupLoggerWithFile(common_args.work_dir_path);
             spdlog::info("RaMA-G version {}", VERSION);
-            spdlog::info("Alignment mode enabled.");
 
             // 验证参考文件路径
             std::string ref_str = common_args.reference_path.string();
@@ -268,7 +312,9 @@ int main(int argc, char **argv) {
             }
             cereal::JSONOutputArchive archive(os);
             archive(cereal::make_nvp("common_args", common_args));
-            spdlog::info("CommonArgs saved to {}", config_path.string());
+#ifdef _DEBUG_
+            spdlog::info("Configuration saved to {}", config_path.string());
+#endif
         }
     } catch (const std::runtime_error &e) {
         spdlog::error("{}", e.what());
@@ -277,26 +323,31 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // 显示运行配置
+    printRunConfiguration(common_args);
+
     // ------------------------------
     // 主流程开始
     // ------------------------------
-    spdlog::info("Command: {}", getCommandLine(argc, argv));
-
-    spdlog::info("Reference: {} (size: {})",
+    spdlog::info("Executed command: {}", getCommandLine(argc, argv));
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                      INPUT VALIDATION                     ");
+    spdlog::info("============================================================");
+    
+    spdlog::info("Reference genome: {} (size: {})",
                  common_args.reference_path.string(),
                  getReadableFileSize(common_args.reference_path));
 
-    spdlog::info("Query: {} (size: {})",
+    spdlog::info("Query genome: {} (size: {})",
                  common_args.query_path.string(),
                  getReadableFileSize(common_args.query_path));
 
-    spdlog::info("Output: {}", common_args.output_path.string());
-    spdlog::info("Work directory: {}", common_args.work_dir_path.string());
-    spdlog::info("Threads: {}", common_args.thread_num);
-
-    // ------------------------------
-    // 数据预处理阶段
-    // ------------------------------
+    spdlog::info("");
+    spdlog::info("============================================================");
+    spdlog::info("                    DATA PREPROCESSING                     ");
+    spdlog::info("============================================================");
+    
     SpeciesPathMap species_path_map;
     species_path_map["reference"] = common_args.reference_path;
     species_path_map["query"] = common_args.query_path;
@@ -339,8 +390,10 @@ int main(int argc, char **argv) {
                         std::move(original_manager),
                         interval_files_map[species_name]
                     );
-                                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}", 
+                    #ifdef _DEBUG_
+                    spdlog::info("[{}] SeqPro Manager created with repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
+#endif
                     
                     // 记录序列统计信息
                     SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
@@ -356,8 +409,10 @@ int main(int argc, char **argv) {
                 try {
                     auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
 
+#ifdef _DEBUG_
                     spdlog::info("[{}] SeqPro Manager created without repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
+#endif
                     
                     // 记录序列统计信息
                     SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
@@ -378,8 +433,10 @@ int main(int argc, char **argv) {
         for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
             try {
                 auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+#ifdef _DEBUG_
                 spdlog::info("[{}] SeqPro Manager created: {}", species_name,
                              cleaned_fasta_path.string());
+#endif
 
                 // 记录序列统计信息
                 SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
@@ -411,9 +468,11 @@ int main(int argc, char **argv) {
     );
 
     try {
-    // ------------------------------
-    // 步骤 1：构建索引
-    // ------------------------------
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                     INDEX BUILDING                        ");
+        spdlog::info("============================================================");
+        
         auto t_start_build = std::chrono::steady_clock::now();
 
         pra.buildIndex("reference", seqpro_managers["reference"], true); // 可切换 CaPS / divsufsort
@@ -421,9 +480,11 @@ int main(int argc, char **argv) {
         std::chrono::duration<double> build_time = t_end_build - t_start_build;
         spdlog::info("Index built in {:.3f} seconds.", build_time.count());
 
-        // ------------------------------
-        // 步骤 2：查询序列比对
-        // ------------------------------
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                     QUERY ALIGNMENT                       ");
+        spdlog::info("============================================================");
+        
         auto t_start_align = std::chrono::steady_clock::now();
         sdsl::int_vector<0> ref_global_cache;
         // 初始化ref_global_cache：采样策略避免二分搜索
@@ -451,10 +512,12 @@ int main(int argc, char **argv) {
 #endif 
 
         RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
-        // ------------------------------
-        // 步骤 3：过滤锚点
-        // ------------------------------
-        spdlog::info("Filtering anchors...");
+        
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                    ANCHOR FILTERING                       ");
+        spdlog::info("============================================================");
+        
         auto t_start_filer = std::chrono::steady_clock::now();
         ClusterVecPtrByStrandByQueryRefPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
         auto t_end_filer = std::chrono::steady_clock::now();
@@ -464,15 +527,17 @@ int main(int argc, char **argv) {
         validateClusters(cluster_vec_ptr);
 #endif
 
-        // 记录构图时间
-	    spdlog::info("Constructing graph by greedy algorithm...");
-	    auto t_start_construct = std::chrono::steady_clock::now();
-	    // 使用贪心算法构建图
-
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                   GRAPH CONSTRUCTION                      ");
+        spdlog::info("============================================================");
+        
+        auto t_start_construct = std::chrono::steady_clock::now();
+        // 使用贪心算法构建图
         pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, 50);
 
-	    auto t_end_construct = std::chrono::steady_clock::now();
-	    std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
+        auto t_end_construct = std::chrono::steady_clock::now();
+        std::chrono::duration<double> construct_time = t_end_construct - t_start_construct;
         spdlog::info("Graph constructed in {:.3f} seconds.", construct_time.count());
     
     #ifdef _DEBUG_
@@ -480,14 +545,17 @@ int main(int argc, char **argv) {
     #endif // _DEBUG_
     
         graph.exportToMaf(common_args.output_path, seqpro_managers, true, true);
+        
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                       COMPLETION                          ");
+        spdlog::info("============================================================");
     }
     catch (std::exception& e) {
-        spdlog::error("export to result failed: ", e.what());
+        spdlog::error("Export to result failed: {}", e.what());
+        return 1;
     }
 
-    // ------------------------------
-    // 退出
-    // ------------------------------
-    spdlog::info("RaMA-G exits!");
+    spdlog::info("RaMA-G execution completed successfully!");
     return 0;
 }
