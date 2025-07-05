@@ -125,9 +125,15 @@ namespace RaMesh {
             }
         }
 
+        if (cluster.front().strand == REVERSE) {
+            std::reverse(qry_segs.begin(), qry_segs.end());
+        }
+
         // 3. Link internal chains locally (single‑threaded)
         Segment::linkChain(ref_segs);
         Segment::linkChain(qry_segs);
+
+
 
         // 4. Atomically splice into genome graph
         uint_t ref_beg = cluster.front().ref_region.start;
@@ -173,7 +179,9 @@ namespace RaMesh {
                 blocks.emplace_back(WeakBlock(blk));
             }
         }
-
+        if (anchor_vec.front().match.strand == REVERSE) {
+            std::reverse(qry_segs.begin(), qry_segs.end());
+        }
         // 3. Link internal chains locally (single‑threaded)
         Segment::linkChain(ref_segs);
         Segment::linkChain(qry_segs);
@@ -335,7 +343,7 @@ namespace RaMesh {
                     current = next_ptr;
                     
                     // 防止死循环
-                    if (segment_count > 100000) {
+                    if (segment_count > 10000000) {
                         if (verbose) {
                             spdlog::error("    ❌ 错误: 链表可能存在循环，遍历超过10万个节点");
                         }

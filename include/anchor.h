@@ -146,6 +146,10 @@ inline int_t diag(const Match& m) {
     return start2(m) - start1(m);
 }
 
+inline int_t diag_reverse(const Match& m) {
+    return -start2(m) - start1(m);
+}
+
 // 3. 彻底释放 cluster 内剩余元素的内存（swap 技巧）
 inline void releaseCluster(MatchVec& cluster) {
     MatchVec tmp; tmp.swap(cluster);
@@ -209,6 +213,8 @@ splitCluster(const MatchCluster& cl,
     int_t bad_r_beg, int_t bad_r_end,
     bool  query_hit,
     int_t bad_q_beg, int_t bad_q_end);
+
+void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr);
 
 // 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {

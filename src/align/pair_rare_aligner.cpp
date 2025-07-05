@@ -247,17 +247,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   */
 void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
-#ifdef _DEBUG_
-	using Clock = std::chrono::steady_clock;
-	using nsec_t = uint64_t;
-	static std::atomic<nsec_t> ns_producer{ 0 }, ns_extend{ 0 }, ns_insert{ 0 };
-	static std::atomic<uint64_t> cnt_submit{ 0 }, cnt_extend{ 0 }, cnt_insert{ 0 }, cnt_finish{ 0 };
 
-	static std::atomic<nsec_t> ns_check_overlap{ 0 }, ns_insert_interval{ 0 },
-		ns_clone_cluster{ 0 }, ns_enqueue_task{ 0 }, ns_store_kept{ 0 };
-
-	auto ns2ms = [](nsec_t ns) { return static_cast<double>(ns) / 1'000'000.0; };
-#endif
 
 	ThreadPool pool(thread_num);
 
@@ -292,9 +282,6 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	kept.reserve(heap.size());
 
 	while (!heap.empty()) {
-#ifdef _DEBUG_
-		auto t0 = Clock::now();
-#endif
 
 		std::pop_heap(heap.begin(), heap.end(), cmp);
 		Node cur = std::move(heap.back());
@@ -305,81 +292,38 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
 		const ChrName& qChr = cur.cl.front().query_region.chr_name;
 
+		Strand strand = cur.cl.front().strand;
 		uint_t rb = start1(cur.cl.front());
 		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
-		uint_t qb = start2(cur.cl.front());
-		uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
+		uint_t qb = 0;
+		uint_t qe = 0;
+		if (strand == FORWARD) {
+			qb = start2(cur.cl.front());
+			qe = start2(cur.cl.back()) + len2(cur.cl.back());
+		}
+		else {
+			qb = start2(cur.cl.back());
+			qe = start2(cur.cl.front()) + len2(cur.cl.front());
+		}
 
 		int_t RL = 0, RR = 0, QL = 0, QR = 0;
 
-#ifdef _DEBUG_
-		auto t_chk = Clock::now();
-#endif
 		bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
 		bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
-#ifdef _DEBUG_
-		ns_check_overlap += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_chk).count();
-#endif
 
 		if (!ref_hit && !query_hit) {
-#ifdef _DEBUG_
-			auto t_ins = Clock::now();
-#endif
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
-#ifdef _DEBUG_
-			ns_insert_interval += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_ins).count();
-#endif
-
-#ifdef _DEBUG_
-			auto t_clone = Clock::now();
-#endif
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
-#ifdef _DEBUG_
-			ns_clone_cluster += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_clone).count();
-#endif
 
-#ifdef _DEBUG_
-			auto t_enq = Clock::now();
-#endif
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
-#ifdef _DEBUG_
-				auto t1 = Clock::now();
-#endif
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-#ifdef _DEBUG_
-				auto t2 = Clock::now();
-				ns_extend += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
-				cnt_extend.fetch_add(1, std::memory_order_relaxed);
-#endif
 				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
-#ifdef _DEBUG_
-				auto t3 = Clock::now();
-				ns_insert += std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
-				cnt_insert.fetch_add(1, std::memory_order_relaxed);
-				cnt_finish.fetch_add(1, std::memory_order_relaxed);
-#endif
+				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 				});
-#ifdef _DEBUG_
-			ns_enqueue_task += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_enq).count();
-#endif
-
-#ifdef _DEBUG_
-			auto t_store = Clock::now();
-#endif
 			kept.emplace_back(cur.cl);
-#ifdef _DEBUG_
-			ns_store_kept += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_store).count();
-#endif
-
-#ifdef _DEBUG_
-			ns_producer += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
-			cnt_submit.fetch_add(1, std::memory_order_relaxed);
-#endif
-
 			continue;
 		}
-
 		for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR, query_hit, QL, QR)) {
 			int_t sc = clusterSpan(part);
 			if (sc >= min_span) {
@@ -391,30 +335,9 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 	pool.waitAllTasksDone();
 
-#ifdef _DEBUG_
-	std::cerr << "\n==========  DEBUG: constructGraphByGreedy  ==========\n"
-		<< "Producer (split/enqueue) : " << ns2ms(ns_producer.load()) << " ms\n"
-		<< "extendClusterToAnchor    : " << ns2ms(ns_extend.load()) << " ms  ("
-		<< cnt_extend << " calls, avg "
-		<< ns2ms(ns_extend.load()) / std::max<uint64_t>(1, cnt_extend) << " ms)\n"
-		<< "insertAnchorIntoGraph    : " << ns2ms(ns_insert.load()) << " ms  ("
-		<< cnt_insert << " calls, avg "
-		<< ns2ms(ns_insert.load()) / std::max<uint64_t>(1, cnt_insert) << " ms)\n"
-		<< "Tasks submitted / finished : "
-		<< cnt_submit << " / " << cnt_finish << '\n'
-		<< "----- Producer step breakdown (ms) -----\n"
-		<< "check overlap         : " << ns2ms(ns_check_overlap) << '\n'
-		<< "insertInterval        : " << ns2ms(ns_insert_interval) << '\n'
-		<< "clone cluster (shared): " << ns2ms(ns_clone_cluster) << '\n'
-		<< "enqueue task          : " << ns2ms(ns_enqueue_task) << '\n'
-		<< "store kept            : " << ns2ms(ns_store_kept) << '\n'
-		<< "=====================================================\n";
-#endif
 
 	// *cluster_vec_ptr = std::move(kept);
 }
-
-
 
 ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)
 {
