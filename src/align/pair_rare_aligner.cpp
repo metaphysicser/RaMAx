@@ -318,8 +318,8 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-				// graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
-				graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 				});
 			kept.emplace_back(cur.cl);
 			continue;

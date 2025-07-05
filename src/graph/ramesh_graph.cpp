@@ -179,7 +179,9 @@ namespace RaMesh {
                 blocks.emplace_back(WeakBlock(blk));
             }
         }
-
+        if (anchor_vec.front().match.strand == REVERSE) {
+            std::reverse(qry_segs.begin(), qry_segs.end());
+        }
         // 3. Link internal chains locally (single‑threaded)
         Segment::linkChain(ref_segs);
         Segment::linkChain(qry_segs);
