@@ -76,6 +76,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 
     const bool is_forward = (unique_match.front().strand == FORWARD);
 
+
     // 预排序：按ref起始位置排序，提升局部性
     std::sort(unique_match.begin(), unique_match.end(),
         [](const Match& a, const Match& b) { 
@@ -88,7 +89,14 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     // 优化的聚类算法：利用排序后的局部性
     for (uint_t i = 0; i < N; ++i) {
         uint_t i_end = start1(unique_match[i]) + len1(unique_match[i]);
-        int_t  i_diag = diag(unique_match[i]);
+        int_t  i_diag = 0;
+        if (is_forward) {
+            i_diag = diag(unique_match[i]);
+        }
+        else {
+			i_diag = diag_reverse(unique_match[i]);
+        }
+        
 
         // 只检查后续可能的匹配，利用排序优化
         for (uint_t j = i + 1; j < N; ++j) {
@@ -96,11 +104,18 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 
             // 早期退出：如果gap太大，后续的j也不可能匹配
             if (sep > static_cast<int_t>(max_gap)) break;
+            int_t diag_diff = 0;
+            if (is_forward) {
+				diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+			}
+            else {
+                diag_diff = std::abs(diag_reverse(unique_match[j]) - i_diag);
+            }
 
-            int_t diag_diff = std::abs((is_forward ? diag(unique_match[j]):diag_reverse(unique_match[j])) - i_diag);
+            // int_t diag_diff = std::abs((is_forward ? diag(unique_match[j]):diag_reverse(unique_match[j])) - i_diag);
             int_t th = std::max(diagdiff, static_cast<int_t>(diagfactor * sep));
 
-            if (diag_diff <= th && unique_match[i].strand == unique_match[j].strand) {
+            if (diag_diff <= th) {
                 uf.unite(i, j);
             }
         }
@@ -360,7 +375,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
                 if (start2(cluster[i]) <= prev_endj) continue;
                 sep = start2(cluster[i]) - prev_endj;
             } else {
-                int_t prev_endi = start2(cluster[i]) + len2(cluster[j]);
+                int_t prev_endi = start2(cluster[i]) + len2(cluster[i]);
                 if(prev_endi >= start2(cluster[j])) continue;
 				sep = start2(cluster[j]) - prev_endi;
             }

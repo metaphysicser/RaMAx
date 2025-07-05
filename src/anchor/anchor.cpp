@@ -497,6 +497,7 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     /* ===== 初始 anchor 状态 ===== */
     const Match& first = cluster.front();
     Strand strand = first.strand;
+    bool   fwd = (strand == FORWARD);
     ChrName ref_chr = first.ref_region.chr_name;
     ChrName qry_chr = first.query_region.chr_name;
 
@@ -617,6 +618,8 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
     std::size_t total_clusters = 0;
     std::size_t failed_clusters = 0;
 
+    bool reverse_cluster = false;
+
     for (std::size_t strand_i = 0; strand_i < cluster_vec_ptr->size(); ++strand_i) {
         const auto& by_query = (*cluster_vec_ptr)[strand_i];
 
@@ -632,6 +635,10 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
                     const MatchCluster& cluster = (*clusters_ptr)[c_i];
  
                     Strand strand = cluster[0].strand;
+
+					if (strand == REVERSE && cluster.size() > 5) {
+						reverse_cluster = true;
+					}   
 
                     for (std::size_t m_i = 0; m_i < cluster.size(); ++m_i) {
                         if (cluster[m_i].strand != strand) {
@@ -706,6 +713,10 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
                 }
             }
         }
+    }
+    if (reverse_cluster == false) {
+		spdlog::debug("reverse chain may fail");
+		return;
     }
 
     spdlog::debug("validateClusters finished: {} clusters checked, {} failed.",
