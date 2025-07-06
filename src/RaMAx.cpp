@@ -26,6 +26,37 @@ struct CommonArgs {
     MultipleGenomeOutputFormat output_format = MultipleGenomeOutputFormat::UNKNOWN;
     bool enable_repeat_masking = false; // 是否启用重复序列遮蔽，默认为 false
 
+    // 新增算法参数
+    SearchMode search_mode = ACCURATE_SEARCH;  // 搜索模式
+    bool allow_MEM = false;                    // 是否允许MEM
+    bool fast_build = true;                    // 是否使用快速索引构建
+    SeqPro::Length sampling_interval = 32;    // 采样间隔
+    uint_t min_span = 50;                      // 最小跨度阈值
+
+    // 日志相关参数
+    std::string log_level = "info";            // 日志级别
+    bool verbose = false;                      // 详细输出模式
+    bool quiet = false;                        // 静默模式
+
+    // 内存控制参数
+    std::string memory_limit = "";             // 内存使用限制
+    uint_t cache_size = 0;                     // 缓存大小
+
+    // 输出控制参数
+    bool keep_temp = false;                    // 保留临时文件
+    bool compress_output = false;              // 压缩输出文件
+    bool show_progress = false;                // 显示进度条
+
+    // 质量控制参数
+    float min_identity = 0.0;                  // 最小序列相似度
+    uint_t max_gaps = 0;                       // 最大gap数量
+    uint_t filter_short = 0;                   // 过滤短比对
+
+    // 并行化控制参数
+    int io_threads = 0;                        // IO专用线程数
+    int index_threads = 0;                     // 索引构建专用线程数
+    int align_threads = 0;                     // 比对专用线程数
+
     // 支持 cereal 序列化
     template<class Archive>
     void serialize(Archive &ar) {
@@ -38,7 +69,26 @@ struct CommonArgs {
             CEREAL_NVP(restart),
             CEREAL_NVP(thread_num),
             CEREAL_NVP(output_format),
-            CEREAL_NVP(enable_repeat_masking)
+            CEREAL_NVP(enable_repeat_masking),
+            CEREAL_NVP(search_mode),
+            CEREAL_NVP(allow_MEM),
+            CEREAL_NVP(fast_build),
+            CEREAL_NVP(sampling_interval),
+            CEREAL_NVP(min_span),
+            CEREAL_NVP(log_level),
+            CEREAL_NVP(verbose),
+            CEREAL_NVP(quiet),
+            CEREAL_NVP(memory_limit),
+            CEREAL_NVP(cache_size),
+            CEREAL_NVP(keep_temp),
+            CEREAL_NVP(compress_output),
+            CEREAL_NVP(show_progress),
+            CEREAL_NVP(min_identity),
+            CEREAL_NVP(max_gaps),
+            CEREAL_NVP(filter_short),
+            CEREAL_NVP(io_threads),
+            CEREAL_NVP(index_threads),
+            CEREAL_NVP(align_threads)
         );
     }
 };
@@ -69,14 +119,59 @@ inline void printRunConfiguration(const CommonArgs &args) {
     spdlog::info("  Overlap size          : {:L}", args.overlap_size);
     spdlog::info("  Min anchor length     : {}", args.min_anchor_length);
     spdlog::info("  Max anchor frequency  : {}", args.max_anchor_frequency);
+    spdlog::info("  Search mode           : {}", SearchModeToString(args.search_mode));
+    spdlog::info("  Allow MEM             : {}", args.allow_MEM ? "Enabled" : "Disabled");
+    spdlog::info("  Fast build            : {}", args.fast_build ? "Enabled" : "Disabled");
+    spdlog::info("  Sampling interval     : {}", args.sampling_interval);
+    spdlog::info("  Min span              : {}", args.min_span);
     spdlog::info("  Repeat masking        : {}", args.enable_repeat_masking ? "Enabled" : "Disabled");
+    
+    spdlog::info("");
+    
+    // Quality control section
+    spdlog::info("Quality Control:");
+    if (args.min_identity > 0.0) {
+        spdlog::info("  Min identity          : {:.2f}", args.min_identity);
+    }
+    if (args.max_gaps > 0) {
+        spdlog::info("  Max gaps              : {}", args.max_gaps);
+    }
+    if (args.filter_short > 0) {
+        spdlog::info("  Filter short          : {}", args.filter_short);
+    }
     
     spdlog::info("");
     
     // Performance section
     spdlog::info("Performance:");
-    spdlog::info("  Thread count     : {}", args.thread_num);
-    spdlog::info("  Restart mode     : {}", args.restart ? "Enabled" : "Disabled");
+    spdlog::info("  Thread count          : {}", args.thread_num);
+    if (args.io_threads > 0) {
+        spdlog::info("  IO threads            : {}", args.io_threads);
+    }
+    if (args.index_threads > 0) {
+        spdlog::info("  Index threads         : {}", args.index_threads);
+    }
+    if (args.align_threads > 0) {
+        spdlog::info("  Align threads         : {}", args.align_threads);
+    }
+    spdlog::info("  Restart mode          : {}", args.restart ? "Enabled" : "Disabled");
+    if (!args.memory_limit.empty()) {
+        spdlog::info("  Memory limit          : {}", args.memory_limit);
+    }
+    if (args.cache_size > 0) {
+        spdlog::info("  Cache size            : {}", args.cache_size);
+    }
+    
+    spdlog::info("");
+    
+    // Output control section
+    spdlog::info("Output Control:");
+    spdlog::info("  Log level             : {}", args.log_level);
+    spdlog::info("  Verbose mode          : {}", args.verbose ? "Enabled" : "Disabled");
+    spdlog::info("  Quiet mode            : {}", args.quiet ? "Enabled" : "Disabled");
+    spdlog::info("  Keep temp files       : {}", args.keep_temp ? "Enabled" : "Disabled");
+    spdlog::info("  Compress output       : {}", args.compress_output ? "Enabled" : "Disabled");
+    spdlog::info("  Show progress         : {}", args.show_progress ? "Enabled" : "Disabled");
     
     spdlog::info("============================================================");
     spdlog::info("");
@@ -146,7 +241,74 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
             ->type_name("<int>")
             ->transform(trim_whitespace);
 
+    // 新增算法参数
+    auto *search_mode_opt = cmd->add_option("--search-mode", args.search_mode,
+                                            "Anchor search mode: fast/middle/accurate (default: accurate).")
+            ->default_val(ACCURATE_SEARCH)
+            ->capture_default_str()
+            ->group("Software Parameters")
+            ->type_name("<mode>")
+            ->transform(CLI::CheckedTransformer(
+                std::map<std::string, SearchMode>{
+                    {"fast", FAST_SEARCH},
+                    {"middle", MIDDLE_SEARCH},
+                    {"accurate", ACCURATE_SEARCH}
+                }, CLI::ignore_case));
 
+    auto *allow_mem_flag = cmd->add_flag("--allow-mem", args.allow_MEM,
+                                         "Allow MEM (Maximal Exact Match) instead of only MUM.")
+            ->group("Software Parameters");
+
+    auto *slow_build_flag = cmd->add_flag("--slow-build",
+                                          "Use slow but more accurate index building method.")
+            ->group("Software Parameters");
+
+    auto *sampling_interval_opt = cmd->add_option("--sampling-interval", args.sampling_interval,
+                                                  "Reference sequence sampling interval (default: 32).")
+            ->default_val(32)
+            ->capture_default_str()
+            ->group("Software Parameters")
+            ->check(CLI::Range(1, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    auto *min_span_opt = cmd->add_option("--min-span", args.min_span,
+                                         "Minimum span threshold for graph construction (default: 50).")
+            ->default_val(50)
+            ->capture_default_str()
+            ->group("Software Parameters")
+            ->check(CLI::Range(1, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    /* auto* mask_repeats_flag = */
+    cmd->add_flag("--mask-repeats", args.enable_repeat_masking,
+                  "Enable repeat sequence masking.")
+            ->group("Software Parameters");
+
+    // 质量控制参数
+    auto *min_identity_opt = cmd->add_option("--min-identity", args.min_identity,
+                                             "Minimum sequence identity threshold (0.0-1.0).")
+            ->group("Quality Control")
+            ->check(CLI::Range(0.0, 1.0))
+            ->type_name("<float>")
+            ->transform(trim_whitespace);
+
+    auto *max_gaps_opt = cmd->add_option("--max-gaps", args.max_gaps,
+                                         "Maximum number of gaps allowed.")
+            ->group("Quality Control")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    auto *filter_short_opt = cmd->add_option("--filter-short", args.filter_short,
+                                             "Filter alignments shorter than specified length.")
+            ->group("Quality Control")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    // 性能参数
     auto *threads_opt = cmd->add_option("-t,--threads", args.thread_num,
                                         "Number of threads to use for parallel processing (default: system cores).")
             ->default_val(std::thread::hardware_concurrency())
@@ -156,22 +318,94 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
             ->check(CLI::Range(1, std::numeric_limits<int>::max()))
             ->type_name("<int>")->transform(trim_whitespace);
 
+    auto *io_threads_opt = cmd->add_option("--io-threads", args.io_threads,
+                                           "Number of threads dedicated to I/O operations.")
+            ->group("Performance")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    auto *index_threads_opt = cmd->add_option("--index-threads", args.index_threads,
+                                              "Number of threads dedicated to index building.")
+            ->group("Performance")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    auto *align_threads_opt = cmd->add_option("--align-threads", args.align_threads,
+                                              "Number of threads dedicated to alignment.")
+            ->group("Performance")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
+    auto *memory_limit_opt = cmd->add_option("--memory-limit", args.memory_limit,
+                                             "Memory usage limit (e.g., 8G, 16G).")
+            ->group("Performance")
+            ->type_name("<size>")
+            ->transform(trim_whitespace);
+
+    auto *cache_size_opt = cmd->add_option("--cache-size", args.cache_size,
+                                           "Cache size limit.")
+            ->group("Performance")
+            ->check(CLI::Range(0, std::numeric_limits<int>::max()))
+            ->type_name("<int>")
+            ->transform(trim_whitespace);
+
     auto *restart_flag = cmd->add_flag("--restart", args.restart,
                                        "Restart the alignment process by skipping the existing index files.")
             ->group("Performance");
 
+    // 日志和输出控制参数
+    auto *log_level_opt = cmd->add_option("--log-level", args.log_level,
+                                          "Log level: debug/info/warn/error (default: info).")
+            ->default_val("info")
+            ->capture_default_str()
+            ->group("Output Control")
+            ->type_name("<level>")
+            ->transform(CLI::CheckedTransformer(
+                std::map<std::string, std::string>{
+                    {"debug", "debug"},
+                    {"info", "info"},
+                    {"warn", "warn"},
+                    {"error", "error"}
+                }, CLI::ignore_case));
 
-    /* auto* mask_repeats_flag = */
-    cmd->add_flag("--mask-repeats", args.enable_repeat_masking,
-                  "Enable repeat sequence masking.")
-            ->group("Software Parameters");
+    auto *verbose_flag = cmd->add_flag("--verbose", args.verbose,
+                                       "Enable verbose output mode.")
+            ->group("Output Control");
+
+    auto *quiet_flag = cmd->add_flag("--quiet", args.quiet,
+                                     "Enable quiet mode (only errors).")
+            ->group("Output Control");
+
+    auto *keep_temp_flag = cmd->add_flag("--keep-temp", args.keep_temp,
+                                         "Keep temporary files for debugging.")
+            ->group("Output Control");
+
+    auto *compress_output_flag = cmd->add_flag("--compress-output", args.compress_output,
+                                               "Compress output files.")
+            ->group("Output Control");
+
+    auto *show_progress_flag = cmd->add_flag("--progress", args.show_progress,
+                                             "Show progress bar.")
+            ->group("Output Control");
 
     // Set dependencies and exclusions
     restart_flag->needs(workspace_opt);
     restart_flag->excludes(input_opt,
                            output_opt, threads_opt,
                            chunk_size_opt, overlap_size_opt,
-                           min_anchor_length_opt, max_anchor_frequency_opt);
+                           min_anchor_length_opt, max_anchor_frequency_opt,
+                           search_mode_opt, allow_mem_flag, slow_build_flag,
+                           sampling_interval_opt, min_span_opt);
+
+    // 互斥选项
+    verbose_flag->excludes(quiet_flag);
+    quiet_flag->excludes(verbose_flag);
+
+    // 处理 --slow-build 标志的逻辑
+    // 在解析完成后检查slow_build标志并相应设置fast_build
 }
 
 
@@ -185,6 +419,28 @@ int main(int argc, char **argv) {
     CommonArgs common_args; // 存储用户输入的参数
     setupCommonOptions(&app, common_args); // 注册参数解析
     CLI11_PARSE(app, argc, argv); // 开始解析命令行参数
+
+    // 处理特殊标志的逻辑
+    if (app.count("--slow-build")) {
+        common_args.fast_build = false;
+    }
+
+    // 设置日志级别
+    if (common_args.quiet) {
+        spdlog::set_level(spdlog::level::err);
+    } else if (common_args.verbose) {
+        spdlog::set_level(spdlog::level::debug);
+    } else {
+        if (common_args.log_level == "debug") {
+            spdlog::set_level(spdlog::level::debug);
+        } else if (common_args.log_level == "info") {
+            spdlog::set_level(spdlog::level::info);
+        } else if (common_args.log_level == "warn") {
+            spdlog::set_level(spdlog::level::warn);
+        } else if (common_args.log_level == "error") {
+            spdlog::set_level(spdlog::level::err);
+        }
+    }
 
     try {
         // ------------------------------
@@ -438,10 +694,10 @@ int main(int argc, char **argv) {
     auto t_start_align = std::chrono::steady_clock::now();
 
     // 初始化ref_global_cache：采样策略避免二分搜索
-    auto sampling_interval = std::min(static_cast<SeqPro::Length>(32), reference_min_seq_length);
+    auto sampling_interval = std::min(static_cast<SeqPro::Length>(common_args.sampling_interval), reference_min_seq_length);
     uint_t tree_root = 0;
 
-    mra.starAlignment(seqpro_managers, tree_root, ACCURATE_SEARCH, true, false, common_args.enable_repeat_masking, sampling_interval);
+    mra.starAlignment(seqpro_managers, tree_root, common_args.search_mode, common_args.fast_build, common_args.allow_MEM, common_args.enable_repeat_masking, sampling_interval, common_args.min_span);
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;

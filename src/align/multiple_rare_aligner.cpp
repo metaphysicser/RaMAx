@@ -263,7 +263,8 @@ void MultipleRareAligner::starAlignment(
     bool                       fast_build,
     bool                       allow_MEM,
     bool                       mask_mode,
-    SeqPro::Length sampling_interval)
+    SeqPro::Length sampling_interval,
+    uint_t min_span)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
 	uint_t leaf_num = leaf_vec.size();
@@ -309,7 +310,7 @@ void MultipleRareAligner::starAlignment(
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
         constructMultipleGraphsByGreedy(
-           seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool
+           seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool, min_span
         );
         multi_graph->verifyGraphCorrectness(true);
         spdlog::info("merge multiple genome graphs for {}", ref_name);
