@@ -154,6 +154,18 @@ namespace RaMesh {
         updateSampling(segs); // 插入成功后修补采样表
     }
 
+    void GenomeEnd::clearAllSegments() {
+        std::unique_lock lk(rw);
+
+        // 1) 复位双向链表
+        head->primary_path.next.store(tail, std::memory_order_relaxed);
+        tail->primary_path.prev.store(head, std::memory_order_relaxed);
+
+        // 2) 清空采样表，只保留 slot0 指向 head
+        sample_vec.clear();
+        sample_vec.resize(1, head);
+    }
+
     /* =============================================================
      * 2. Block factories
      * ===========================================================*/

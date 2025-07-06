@@ -43,7 +43,8 @@ public:
         bool                       fast_build,
         bool                       allow_MEM,
         bool                       mask_mode=false,
-        SeqPro::Length sampling_interval=32);
+        SeqPro::Length sampling_interval=32,
+        uint_t min_span=50);
 
     SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
