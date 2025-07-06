@@ -147,6 +147,8 @@ namespace RaMesh {
         void spliceSegmentChain(const std::vector<SegPtr>& segments,
             uint_t beg, uint_t end);
 
+        void clearAllSegments();
+
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
 

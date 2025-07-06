@@ -1,4 +1,5 @@
 #include <sequence_utils.h>
+#include <algorithm>
 
 #include "rare_aligner.h"
 #include "anchor.h"  // 包含 UnionFind 定义
@@ -312,7 +313,6 @@ void MultipleRareAligner::starAlignment(
         constructMultipleGraphsByGreedy(
            seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool, min_span
         );
-        multi_graph->verifyGraphCorrectness(true);
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         mergeMultipleGraphs(ref_name, *multi_graph, shared_pool);
 
@@ -621,8 +621,11 @@ std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
                     //        }
                     //    }
                     //}
-                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
-                                                                  graph, min_span);
+                    {
+                        std::lock_guard<std::mutex> lock(graph_mutex);
+                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
+                                                                      graph, min_span);
+                    }
 
                     spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
                                species_name);
@@ -852,7 +855,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
         future.get();
     }
 
-    // 【修复】：串行执行所有unite操作，确保线程安全
+    // 串行执行所有unite操作，确保线程安全
 #ifdef _DEBUG_
     spdlog::info("[mergeMultipleGraphs] Starting serial execution of {} unite operations...", all_overlaps.size());
 #endif
@@ -984,7 +987,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
                 std::vector<RaMesh::BlockPtr> component_new_blocks;
                 component_new_blocks.reserve(sorted_coords.size() - 1);
 
-                // 【修复】：避免过度并行化，大连通分量也使用串行处理以防止线程争用
+                // 避免过度并行化，大连通分量也使用串行处理以防止线程争用
                 // 所有连通分量都使用串行处理基本区间，避免在并行任务内部再创建并行任务
                 for (size_t i = 0; i < sorted_coords.size() - 1; ++i) {
                     uint_t interval_start = sorted_coords[i];
@@ -1010,7 +1013,7 @@ void MultipleRareAligner::mergeMultipleGraphs(
 
                 // 定期报告进度
 #ifdef _DEBUG_
-                if (processed_components % 100 == 0) {
+                if (processed_components % 1000 == 0) {
                     spdlog::debug("[mergeMultipleGraphs] Progress: {} / {} components processed",
                                processed_components.load(), sorted_components.size());
                 }
@@ -1132,6 +1135,14 @@ void MultipleRareAligner::mergeMultipleGraphs(
                 });
 
             // 去重：移除完全相同的segments（相同的起始位置和长度）
+            // 先移除length==0的无效segment
+            segments.erase(std::remove_if(segments.begin(), segments.end(),
+                [](RaMesh::SegPtr s){ return s->length == 0; }), segments.end());
+
+            if (segments.empty()) {
+                continue; // 没有有效segment可处理
+            }
+
             auto last = std::unique(segments.begin(), segments.end(),
                 [](RaMesh::SegPtr a, RaMesh::SegPtr b) {
                     return a->start == b->start && a->length == b->length;
@@ -1164,9 +1175,8 @@ void MultipleRareAligner::mergeMultipleGraphs(
                         seg->primary_path.next.store(nullptr, std::memory_order_relaxed);
                     }
 
-                    // 清空现有链表
-                    genome_end.head->primary_path.next.store(genome_end.tail);
-                    genome_end.tail->primary_path.prev.store(genome_end.head);
+                    // 清空现有链表及采样表
+                    genome_end.clearAllSegments();
 
                     // 链接所有segments
                     RaMesh::Segment::linkChain(segments);
@@ -1269,10 +1279,14 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                     uint_t seg_end = source_segment->start + source_segment->length;
 
                     if (seg_start <= interval_start && seg_end >= interval_end) {
+                        uint_t new_length = interval_end - interval_start;
+                        if (new_length == 0) {
+                            continue; // 跳过零长度片段，避免后续重叠
+                        }
                         // 创建新的ref-segment片段
                         auto new_segment = RaMesh::Segment::create(
                             interval_start,
-                            interval_end - interval_start,
+                            new_length,
                             source_segment->strand,
                             Cigar_t{},  // ref segment通常没有CIGAR
                             source_segment->align_role,
@@ -1306,6 +1320,11 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                             ref_start,
                             source_segment->start
                         );
+
+                        // 跳过零长度query segment
+                        if (query_length == 0) {
+                            continue;
+                        }
 
                         // 提取对应的CIGAR子序列
                         uint_t ref_offset = interval_start - ref_start;
