@@ -697,7 +697,7 @@ int main(int argc, char **argv) {
     auto sampling_interval = std::min(static_cast<SeqPro::Length>(common_args.sampling_interval), reference_min_seq_length);
     uint_t tree_root = 0;
 
-    mra.starAlignment(seqpro_managers, tree_root, common_args.search_mode, common_args.fast_build, common_args.allow_MEM, common_args.enable_repeat_masking, sampling_interval, common_args.min_span);
+    std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> graph = mra.starAlignment(seqpro_managers, tree_root, common_args.search_mode, common_args.fast_build, common_args.allow_MEM, common_args.enable_repeat_masking, sampling_interval, common_args.min_span);
 
     auto t_end_align = std::chrono::steady_clock::now();
     std::chrono::duration<double> align_time = t_end_align - t_start_align;
@@ -707,6 +707,8 @@ int main(int argc, char **argv) {
     spdlog::info("                       COMPLETION                          ");
     spdlog::info("============================================================");
     spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
+
+    graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
 
 
     // ------------------------------

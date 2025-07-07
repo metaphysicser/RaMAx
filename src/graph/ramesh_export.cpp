@@ -7,7 +7,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::exportToMaf(
         const FilePath& maf_path,
-        const std::map<SpeciesName, SeqPro::ManagerVariant>& seq_mgrs,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs,
         bool  only_primary,
         bool  pairwise_mode) const
     {
@@ -22,14 +22,47 @@ namespace RaMesh {
         ofs << "##maf version=1 scoring=none\n";
 
         /* ---- 序列提取工具 ---- */
+/* ---- 统一使用“原始管理器”取子串 ---- */
         auto fetchSeq = [&](const SeqPro::ManagerVariant& mv,
-            const ChrName& chr, uint64_t b, uint64_t l)->std::string {
-                return std::visit([&](auto& p) { return p->getSubSequence(chr, b, l); }, mv);
+            const ChrName& chr, uint64_t b, uint64_t l) -> std::string
+            {
+                return std::visit([&](auto& up) -> std::string {
+                    using PtrT = std::decay_t<decltype(up)>;
+
+                    if constexpr (std::is_same_v<PtrT,
+                        std::unique_ptr<SeqPro::SequenceManager>>) {
+                        /* 直接 SequenceManager */
+                        return up->getSubSequence(chr, b, l);
+
+                    }
+                    else { // → MaskedSequenceManager
+                    //    /* 回退到底层原始管理器 */
+                    return up->getOriginalManager()
+                            .getSubSequence(chr, b, l);
+                    }
+                    }, mv);
             };
+
+        /* ---- 同理：取染色体长度 ---- */
         auto fetchLen = [&](const SeqPro::ManagerVariant& mv,
-            const ChrName& chr)->uint64_t {
-                return std::visit([&](auto& p) { return p->getSequenceLength(chr); }, mv);
+            const ChrName& chr) -> uint64_t
+            {
+                return std::visit([&](auto& up) -> uint64_t {
+                    using PtrT = std::decay_t<decltype(up)>;
+
+                    if constexpr (std::is_same_v<PtrT,
+                        std::unique_ptr<SeqPro::SequenceManager>>) {
+                        return up->getSequenceLength(chr);
+                    }
+                    else {
+                    return up->getOriginalManager()
+                            .getSequenceLength(chr);
+                    }
+                    return up->getSequenceLength(chr);
+                    }, mv);
+
             };
+
 
         /* ========================================================= */
         for (const auto& wblk : blocks)
@@ -68,27 +101,35 @@ namespace RaMesh {
 
                 /* 3-b 获取并按 strand 处理序列 */
                 const SegPtr seg = r.seg;
-                std::string raw = fetchSeq(mgrIt->second, r.chr, seg->start, seg->length);
+
+                if (r.seg->start == 387964) {
+                    std::cout << "";
+                }
+
+                std::string raw = fetchSeq(*mgrIt->second, r.chr, seg->start, seg->length);
                 if (seg->strand == Strand::REVERSE) reverseComplement(raw);
 
                 /* 3-c key 名称（也是 MAF 行名称） */
                 ChrName key_name = pairwise_mode ? r.chr : r.sp + "." + r.chr;
                 seqs.emplace(key_name, std::move(raw));
 
-                if (&r != &refRec)                // 参考行不填 cigar
-                    cigars.emplace(key_name, seg->cigar);
+                
+                cigars.emplace(key_name, seg->cigar);
             }
             if (seqs.empty()) continue;           // 缺管理器则跳过
 
             //---------------- 4. 归并成多序列对齐 ------------------
             const ChrName ref_key = pairwise_mode ? refRec.chr : refRec.sp + "." + refRec.chr;
-            try {
-                mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
+            if (refRec.sp != "simChimp") {
+                std::cout << "";
             }
-            catch (const std::exception& e) {
-                spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
-                continue;
-            }
+            //try {
+            //    mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
+            //}
+            //catch (const std::exception& e) {
+            //    spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
+            //    continue;
+            //}
 
             //---------------- 5. 写 MAF 块头 ----------------------
             ofs << "a score=0\n";
@@ -96,16 +137,13 @@ namespace RaMesh {
             /* 方便后面统一写行的 lambda */
             auto write_row = [&](const Rec& r, const std::string& aln) {
                 auto mgrIt = seq_mgrs.find(r.sp);
-                uint64_t chr_len = fetchLen(mgrIt->second, r.chr);
+                uint64_t chr_len = fetchLen(*mgrIt->second, r.chr);
 
-                uint64_t maf_start = (r.seg->strand == Strand::FORWARD)
-                    ? r.seg->start
-                    : chr_len - (r.seg->start + r.seg->length);
 
                 ofs << "s "
                     << std::left << std::setw(20)
                     << (pairwise_mode ? r.chr : r.sp + "." + r.chr)
-                    << std::right << std::setw(12) << maf_start
+                    << std::right << std::setw(12) << r.seg->start
                     << std::setw(12) << r.seg->length            // 非 gap 长度
                     << ' ' << (r.seg->strand == Strand::FORWARD ? '+' : '-')
                     << std::setw(12) << chr_len

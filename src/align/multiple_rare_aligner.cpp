@@ -390,7 +390,7 @@ MultipleRareAligner::MultipleRareAligner(
 
 }
 
-void MultipleRareAligner::starAlignment(
+std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignment(
     std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
     uint_t tree_root,
     SearchMode                 search_mode,
@@ -408,8 +408,11 @@ void MultipleRareAligner::starAlignment(
     ThreadPool shared_pool(thread_num);
     // 存储所有迭代的图，用于最后统一验证
     std::vector<std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph>> all_graphs;
-    
-    for (uint_t i = 0; i < leaf_num; i++) {
+
+    // 创建当前迭代的多基因组图
+    auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
+    for (uint_t i = 0; i < 1; i++) {
+    // for (uint_t i = 0; i < leaf_num; i++) {
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
@@ -436,8 +439,6 @@ void MultipleRareAligner::starAlignment(
 			ref_name, species_fasta_manager_map, match_ptr, shared_pool
 		);
 
-        // 创建当前迭代的多基因组图
-        auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
@@ -448,6 +449,7 @@ void MultipleRareAligner::starAlignment(
         mergeMultipleGraphs(ref_name, *multi_graph, shared_pool);
 
         // 将当前图添加到集合中，用于最后验证
+
         all_graphs.emplace_back(std::move(multi_graph));
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
@@ -488,7 +490,8 @@ void MultipleRareAligner::starAlignment(
 #endif // _DEBUG_
 
 
-    return;
+    return std::move(all_graphs.back());
+
 }
 
 SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(

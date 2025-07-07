@@ -623,7 +623,7 @@ int main(int argc, char **argv) {
 
     // 声明interval文件映射和SeqPro managers变量
     std::map<SpeciesName, FilePath> interval_files_map;
-    std::map<SpeciesName, SeqPro::ManagerVariant> seqpro_managers;
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers;
     SeqPro::Length reference_min_seq_length = std::numeric_limits<SeqPro::Length>::max();
     // 清洗 FASTA 文件（统一格式，替换非法字符）
     cleanRawDataset(common_args.work_dir_path, species_path_map,
@@ -660,12 +660,15 @@ int main(int argc, char **argv) {
                     spdlog::info("[{}] SeqPro Manager created with repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
 #endif
-                    
+                    auto mgr_var = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+                    seqpro_managers[species_name] = mgr_var;
+                    SequenceUtils::recordReferenceSequenceStats(
+                        species_name, seqpro_managers[species_name], reference_min_seq_length);
                     // 记录序列统计信息
-                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    // SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
                     
                     // 移动到seqpro_managers中
-                    seqpro_managers[species_name] = std::move(manager);
+                    //seqpro_managers[species_name] = std::move(manager);
                 } catch (const std::exception &e) {
                     spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
                                   e.what());
@@ -679,11 +682,14 @@ int main(int argc, char **argv) {
                     spdlog::info("[{}] SeqPro Manager created without repeat masking: {}", 
                                  species_name, cleaned_fasta_path.string());
 #endif
-                    
+                    auto mgr_var = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+                    seqpro_managers[species_name] = mgr_var;
+                    SequenceUtils::recordReferenceSequenceStats(
+                        species_name, seqpro_managers[species_name], reference_min_seq_length);
                     // 记录序列统计信息
-                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                    // SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
-                     seqpro_managers[species_name] = std::move(manager);
+                     //seqpro_managers[species_name] = std::move(manager);
                 } catch (const std::exception &e) {
                     spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
                                   e.what());
@@ -693,27 +699,35 @@ int main(int argc, char **argv) {
         }
     } else {
         // 不开启重复遮蔽，基于清洗后的文件创建常规SeqPro managers
-        spdlog::info(
-            "Repeat masking disabled. Creating standard SeqPro managers...");
+        // 不开启重复遮蔽，基于清洗后的文件创建常规 SeqPro managers
+        spdlog::info("Repeat masking disabled. Creating standard SeqPro managers...");
 
-        for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
+        for (const auto& [species_name, cleaned_fasta_path] : species_path_map) {
             try {
-                auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+                /* 1. 先建普通 SequenceManager（unique_ptr） */
+                auto raw_ptr = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
 #ifdef _DEBUG_
                 spdlog::info("[{}] SeqPro Manager created: {}", species_name,
-                             cleaned_fasta_path.string());
+                    cleaned_fasta_path.string());
 #endif
 
-                // 记录序列统计信息
-                SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                /* 2. 把 unique_ptr 包进 ManagerVariant → SharedManagerVariant */
+                auto mgr_var = std::make_shared<SeqPro::ManagerVariant>(std::move(raw_ptr));
 
-                seqpro_managers[species_name] = std::move(manager);
-            } catch (const std::exception &e) {
-                spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
-                              e.what());
+                /* 3. 存入全局 map */
+                seqpro_managers[species_name] = mgr_var;
+
+                /* 4. 记录序列统计（函数需要 SharedManagerVariant） */
+                SequenceUtils::recordReferenceSequenceStats(
+                    species_name, seqpro_managers[species_name], reference_min_seq_length);
+
+            }
+            catch (const std::exception& e) {
+                spdlog::error("[{}] Error creating SeqPro manager: {}", species_name, e.what());
                 return 1;
             }
         }
+
     }
 
 
@@ -741,7 +755,7 @@ int main(int argc, char **argv) {
         
         auto t_start_build = std::chrono::steady_clock::now();
 
-        pra.buildIndex("reference", seqpro_managers["reference"], common_args.fast_build); // 可切换 CaPS / divsufsort
+        pra.buildIndex("reference", *seqpro_managers["reference"], common_args.fast_build); // 可切换 CaPS / divsufsort
         auto t_end_build = std::chrono::steady_clock::now();
         std::chrono::duration<double> build_time = t_end_build - t_start_build;
         spdlog::info("Index built in {:.3f} seconds.", build_time.count());
@@ -760,7 +774,7 @@ int main(int argc, char **argv) {
         SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
 
         MatchVec3DPtr anchors = pra.alignPairGenome(
-            "query", seqpro_managers["query"], common_args.search_mode, common_args.allow_MEM, ref_global_cache, sampling_interval);
+            "query", *seqpro_managers["query"], common_args.search_mode, common_args.allow_MEM, ref_global_cache, sampling_interval);
         auto t_end_align = std::chrono::steady_clock::now();
         std::chrono::duration<double> align_time = t_end_align - t_start_align;
         spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
@@ -777,7 +791,7 @@ int main(int argc, char **argv) {
             );
         } 
 
-        RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
+        RaMesh::RaMeshMultiGenomeGraph graph;
         
         spdlog::info("");
         spdlog::info("============================================================");
@@ -785,7 +799,7 @@ int main(int argc, char **argv) {
         spdlog::info("============================================================");
         
         auto t_start_filer = std::chrono::steady_clock::now();
-        ClusterVecPtrByStrandByQueryRefPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, seqpro_managers["query"], graph);
+        ClusterVecPtrByStrandByQueryRefPtr cluster_vec_ptr = pra.filterPairSpeciesAnchors("query", anchors, *seqpro_managers["query"], graph);
         auto t_end_filer = std::chrono::steady_clock::now();
         std::chrono::duration<double> filter_time = t_end_filer - t_start_filer;
         spdlog::info("Anchors clustered in {:.3f} seconds.", filter_time.count());
@@ -801,10 +815,10 @@ int main(int argc, char **argv) {
         auto t_start_construct = std::chrono::steady_clock::now();
         // 使用选择的算法构建图
         if (common_args.graph_algorithm == "greedy") {
-            pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, common_args.min_span);
+            pra.constructGraphByGreedy("query", *seqpro_managers["query"], cluster_vec_ptr, graph, common_args.min_span);
         } else if (common_args.graph_algorithm == "dp") {
             // 如果有DP算法的话
-            pra.constructGraphByGreedy("query", seqpro_managers["query"], cluster_vec_ptr, graph, common_args.min_span);
+            pra.constructGraphByGreedy("query", *seqpro_managers["query"], cluster_vec_ptr, graph, common_args.min_span);
         }
 
         auto t_end_construct = std::chrono::steady_clock::now();
