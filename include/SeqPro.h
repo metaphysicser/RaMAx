@@ -184,9 +184,15 @@ public:
   Length getTotalMaskedBases(SequenceId seq_id) const;
   SequenceId getOrCreateSequenceId(const std::string &seq_name);
 
+
   template <class Archive> void serialize(Archive &ar) {
     ar(mask_intervals_, name_to_id_mapping_);
   }
+
+  // === 批量操作支持 ===
+  void addMaskIntervals(SequenceId seq_id, const std::vector<MaskInterval> &intervals);
+  void finalizeMaskIntervals(SequenceId seq_id);
+  void clearMaskIntervals(SequenceId seq_id);
 
 private:
   std::unordered_map<SequenceId, std::vector<MaskInterval>> mask_intervals_;
@@ -299,6 +305,7 @@ public:
   // 构造函数
   MaskedSequenceManager(std::unique_ptr<SequenceManager> seq_manager,
                        const std::filesystem::path &mask_file);
+  MaskedSequenceManager(std::unique_ptr<SequenceManager> seq_manager);
   ~MaskedSequenceManager() = default;
 
   // 禁止拷贝
@@ -387,6 +394,29 @@ public:
   SequenceId getSequenceId(const std::string &seq_name) const;
   size_t getSequenceCount() const;
 
+  // === 批量遮蔽区间管理 ===
+
+  // 批量添加区间（基于遮蔽坐标，内部自动转换为原始坐标）
+  void addMaskInterval(const std::string &seq_name, const MaskInterval &interval);
+  void addMaskIntervals(const std::string &seq_name, const std::vector<MaskInterval> &intervals);
+  void addMaskIntervals(SequenceId seq_id, const std::vector<MaskInterval> &intervals);
+
+  // 从文件批量加载区间
+  bool loadMaskIntervalsFromFile(const std::filesystem::path &file_path, bool append = false);
+
+  // 定案/优化所有未处理的区间
+  void finalizeMaskIntervals();
+  void finalizeMaskIntervals(const std::string &seq_name);
+  void finalizeMaskIntervals(SequenceId seq_id);
+
+  // 清除特定序列的mask区间
+  void clearMaskIntervals(const std::string &seq_name);
+  void clearMaskIntervals(SequenceId seq_id);
+
+  // 状态查询
+  bool hasUnfinalizedIntervals() const;
+  size_t getUnfinalizedSequenceCount() const;
+
 private:
   std::unique_ptr<SequenceManager> original_manager_;
   MaskManager mask_manager_;
@@ -396,12 +426,19 @@ private:
   mutable Position total_masked_length_ = 0;
   mutable bool cache_valid_ = false;
 
+  // 未定案序列的标记
+  mutable std::unordered_set<SequenceId> unfinalized_sequences_;
+
   // 构建缓存
   void buildGlobalOffsetCache() const;
   void ensureCacheValid() const;
 
   // 内部辅助方法
   const SequenceInfo* getSequenceInfoByMaskedGlobalPosition(Position global_masked_pos) const;
+
+  // 坐标转换和定案辅助函数
+  MaskInterval convertMaskedToOriginalInterval(SequenceId seq_id, const MaskInterval &masked_interval) const;
+  void ensureFinalized(SequenceId seq_id) const;
 };
 
 
