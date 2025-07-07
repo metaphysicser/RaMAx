@@ -260,6 +260,30 @@ void MaskManager::sortAndMergeIntervals(std::vector<MaskInterval> &intervals) {
   intervals = std::move(merged);
 }
 
+// === MaskManager 批量操作支持实现 ===
+
+void MaskManager::addMaskIntervals(SequenceId seq_id, const std::vector<MaskInterval> &intervals) {
+  if (intervals.empty()) return;
+  
+  auto& seq_intervals = mask_intervals_[seq_id];
+  seq_intervals.reserve(seq_intervals.size() + intervals.size());
+  
+  for (const auto& interval : intervals) {
+    seq_intervals.push_back(interval);
+  }
+}
+
+void MaskManager::finalizeMaskIntervals(SequenceId seq_id) {
+  auto it = mask_intervals_.find(seq_id);
+  if (it != mask_intervals_.end()) {
+    sortAndMergeIntervals(it->second);
+  }
+}
+
+void MaskManager::clearMaskIntervals(SequenceId seq_id) {
+  mask_intervals_.erase(seq_id);
+}
+
 // ========================
 // SequenceIndex 实现
 // ========================
@@ -808,6 +832,21 @@ MaskedSequenceManager::MaskedSequenceManager(std::unique_ptr<SequenceManager> se
   }
 }
 
+// 创建一个空的遮蔽manager
+MaskedSequenceManager::MaskedSequenceManager(std::unique_ptr<SequenceManager> seq_manager)
+      : original_manager_(std::move(seq_manager)), cache_valid_(false) {
+
+  if (!original_manager_) {
+    throw SeqProException("MaskedSequenceManager received a null SequenceManager.");
+  }
+
+  // 初始化空的 name -> id 映射，确保与原始序列管理器一致
+  auto seq_names = original_manager_->getSequenceNames();
+  for (const auto &name : seq_names) {
+    mask_manager_.getOrCreateSequenceId(name);
+  }
+}
+
 std::string MaskedSequenceManager::getSubSequence(const std::string &seq_name, 
                                                 Position start, Length length) const {
   SequenceId seq_id = getSequenceId(seq_name);
@@ -1152,6 +1191,128 @@ void MaskedSequenceManager::buildGlobalOffsetCache() const {
   }
   
   cache_valid_ = true;
+}
+
+void MaskedSequenceManager::addMaskInterval(const std::string &seq_name, const MaskInterval &interval) {
+  // 转换为内部ID
+  SequenceId seq_id = original_manager_->getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  
+  // 直接调用内部 mask_manager_ 的方法
+  mask_manager_.addMaskInterval(seq_id, interval);
+  
+  // 添加区间后，全局坐标缓存会失效
+  cache_valid_ = false;
+}
+
+// === 批量遮蔽区间管理实现 ===
+
+void MaskedSequenceManager::addMaskIntervals(const std::string &seq_name, 
+                                           const std::vector<MaskInterval> &intervals) {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  addMaskIntervals(seq_id, intervals);
+}
+
+void MaskedSequenceManager::addMaskIntervals(SequenceId seq_id, 
+                                           const std::vector<MaskInterval> &intervals) {
+  if (intervals.empty()) return;
+  
+  // 批量转换遮蔽坐标为原始坐标
+  std::vector<MaskInterval> original_intervals;
+  original_intervals.reserve(intervals.size());
+  
+  for (const auto& interval : intervals) {
+    MaskInterval original_interval = convertMaskedToOriginalInterval(seq_id, interval);
+    original_intervals.push_back(original_interval);
+  }
+  
+  // 使用 MaskManager 的公共接口添加
+  mask_manager_.addMaskIntervals(seq_id, original_intervals);
+  
+  // 标记为未定案
+  unfinalized_sequences_.insert(seq_id);
+  
+  // 缓存失效
+  cache_valid_ = false;
+}
+
+bool MaskedSequenceManager::loadMaskIntervalsFromFile(const std::filesystem::path &file_path, 
+                                                    bool append) {
+  if (!append) {
+    mask_manager_.clear();
+    unfinalized_sequences_.clear();
+  }
+  
+  bool success = mask_manager_.loadFromIntervalFile(file_path);
+  if (success) {
+    // 标记所有序列为已定案（从文件加载的区间已经是原始坐标）
+    unfinalized_sequences_.clear();
+    cache_valid_ = false;
+  }
+  return success;
+}
+
+void MaskedSequenceManager::finalizeMaskIntervals() {
+  // 复制集合以避免在迭代过程中修改
+  auto sequences_to_finalize = unfinalized_sequences_;
+  for (SequenceId seq_id : sequences_to_finalize) {
+    finalizeMaskIntervals(seq_id);
+  }
+}
+
+void MaskedSequenceManager::finalizeMaskIntervals(const std::string &seq_name) {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id != SequenceIndex::INVALID_ID) {
+    finalizeMaskIntervals(seq_id);
+  }
+}
+
+void MaskedSequenceManager::finalizeMaskIntervals(SequenceId seq_id) {
+  if (unfinalized_sequences_.count(seq_id)) {
+    mask_manager_.finalizeMaskIntervals(seq_id);
+    unfinalized_sequences_.erase(seq_id);
+    cache_valid_ = false;
+  }
+}
+
+void MaskedSequenceManager::clearMaskIntervals(const std::string &seq_name) {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id != SequenceIndex::INVALID_ID) {
+    clearMaskIntervals(seq_id);
+  }
+}
+
+void MaskedSequenceManager::clearMaskIntervals(SequenceId seq_id) {
+  mask_manager_.clearMaskIntervals(seq_id);
+  unfinalized_sequences_.erase(seq_id);
+  cache_valid_ = false;
+}
+
+bool MaskedSequenceManager::hasUnfinalizedIntervals() const {
+  return !unfinalized_sequences_.empty();
+}
+
+size_t MaskedSequenceManager::getUnfinalizedSequenceCount() const {
+  return unfinalized_sequences_.size();
+}
+
+MaskInterval MaskedSequenceManager::convertMaskedToOriginalInterval(SequenceId seq_id, 
+                                                                  const MaskInterval &masked_interval) const {
+  Position orig_start = toOriginalPosition(seq_id, masked_interval.start);
+  Position orig_end = toOriginalPosition(seq_id, masked_interval.end - 1) + 1;
+  return MaskInterval(orig_start, orig_end);
+}
+
+void MaskedSequenceManager::ensureFinalized(SequenceId seq_id) const {
+  if (unfinalized_sequences_.count(seq_id)) {
+    // 由于这是const函数，需要cast掉const
+    const_cast<MaskedSequenceManager*>(this)->finalizeMaskIntervals(seq_id);
+  }
 }
 
 void MaskedSequenceManager::ensureCacheValid() const {

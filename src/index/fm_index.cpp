@@ -21,7 +21,7 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
 // 使用 CaPS 算法构建索引（适用于较大的序列）
 bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
     this->total_size += 1; // 加终止符
-    std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+    std::string T = std::visit([](auto &&manager_ptr) -> std::string {
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
@@ -91,12 +91,12 @@ bool FM_Index::buildIndexUsingCaPSImpl(const std::string &T,
 // 使用 divsufsort 构建索引（适用于中小序列）
 bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
     this->total_size += 1;
-    std::string T = std::visit([](auto&& manager_ptr) -> std::string {
-            if (!manager_ptr) {
-                throw std::runtime_error("Manager pointer is null inside variant.");
-            }
-            return manager_ptr->concatAllSequences('\0');
-        }, fasta_manager);
+    std::string T = std::visit([](auto &&manager_ptr) -> std::string {
+        if (!manager_ptr) {
+            throw std::runtime_error("Manager pointer is null inside variant.");
+        }
+        return manager_ptr->concatAllSequences('\0');
+    }, fasta_manager);
     size_t n = T.size() + 1;
     if (n == 0)
         return false;
@@ -141,17 +141,17 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
 
 // 总调度函数：根据模式选择索引构建方式
 bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
-  std::string fasta_path_str;
-	std::visit([&fasta_path_str](auto&& manager_ptr) {
-		using PtrType = std::decay_t<decltype(manager_ptr)>;
-		if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-			fasta_path_str = manager_ptr->getFastaPath();
-		} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-			fasta_path_str = manager_ptr->getOriginalManager().getFastaPath();
-		} else {
-			throw std::runtime_error("Unhandled manager type in variant.");
-		}
-	}, fasta_manager);
+    std::string fasta_path_str;
+    std::visit([&fasta_path_str](auto &&manager_ptr) {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            fasta_path_str = manager_ptr->getFastaPath();
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            fasta_path_str = manager_ptr->getOriginalManager().getFastaPath();
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
+    }, fasta_manager);
     if (isFileSmallerThan(fasta_path_str, 1024)) {
         buildIndexUsingDivsufsort(thread);
     } else {
@@ -168,11 +168,11 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
     char2idx.fill(0xFF);
     count_array.fill(0);
 
-    bool has_ambiguous_bases = std::visit([](auto&& manager_ptr) -> bool {
+    bool has_ambiguous_bases = std::visit([](auto &&manager_ptr) -> bool {
         using PtrType = std::decay_t<decltype(manager_ptr)>;
-        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
             return manager_ptr->hasAmbiguousBasesAll();
-        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
             return manager_ptr->getOriginalManager().hasAmbiguousBasesAll();
         } else {
             throw std::runtime_error("Unhandled manager type in variant.");
@@ -236,7 +236,7 @@ MatchVec2DPtr FM_Index::findAnchors(ChrName query_chr, std::string query,
                                     bool allow_MEM, uint_t query_offset,
                                     uint_t min_anchor_length,
                                     uint_t max_anchor_frequency,
-                                    sdsl::int_vector<0>& ref_global_cache,
+                                    sdsl::int_vector<0> &ref_global_cache,
                                     SeqPro::Length sampling_interval) {
     if (search_mode == FAST_SEARCH) {
         return findAnchorsFast(query_chr, query, strand, allow_MEM, query_offset,
@@ -256,7 +256,7 @@ MatchVec2DPtr FM_Index::findAnchors(ChrName query_chr, std::string query,
 // 快速查找模式：逐段匹配 query 子串
 MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, Strand strand, bool allow_MEM,
                                         uint_t query_offset, uint_t min_anchor_length, uint_t max_anchor_frequency,
-                                        sdsl::int_vector<0>& ref_global_cache,
+                                        sdsl::int_vector<0> &ref_global_cache,
                                         SeqPro::Length sampling_interval) {
     // query 字符串反向或互补（FM 索引默认支持反向搜索）
     if (strand == FORWARD) {
@@ -315,7 +315,7 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
                                           uint_t query_offset,
                                           uint_t min_anchor_length,
                                           uint_t max_anchor_frequency,
-                                          sdsl::int_vector<0>& ref_global_cache,
+                                          sdsl::int_vector<0> &ref_global_cache,
                                           SeqPro::Length sampling_interval) {
     if (strand == FORWARD) {
         std::reverse(query.begin(), query.end());
@@ -376,7 +376,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
                                             bool allow_MEM, uint_t query_offset,
                                             uint_t min_anchor_length,
                                             uint_t max_anchor_frequency,
-                                            sdsl::int_vector<0>& ref_global_cache,
+                                            sdsl::int_vector<0> &ref_global_cache,
                                             SeqPro::Length sampling_interval) {
     MatchVec2DPtr out = std::make_shared<MatchVec2D>();
 
@@ -509,12 +509,12 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
 // 递归二分：把 (left.pos, right.pos) 区间彻底搜索干净
 // -------------------------------------------------------------
 void FM_Index::bisectAnchors(const std::string &query, ChrName query_chr,
-                              Strand strand, bool allow_MEM, uint_t query_offset,
-                              uint_t query_length, uint_t min_len,
-                              uint_t max_freq, const MUMInfo &left,
-                              const MUMInfo &right, MatchVec2D &out,
-                              sdsl::int_vector<0>& ref_global_cache,
-                              uint_t sampling_interval) {
+                             Strand strand, bool allow_MEM, uint_t query_offset,
+                             uint_t query_length, uint_t min_len,
+                             uint_t max_freq, const MUMInfo &left,
+                             const MUMInfo &right, MatchVec2D &out,
+                             sdsl::int_vector<0> &ref_global_cache,
+                             uint_t sampling_interval) {
     if (right.pos <= left.pos + 1)
         return; // 区间不足 1bp
 
@@ -566,7 +566,7 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
                                    bool allow_MEM, RegionVec &region_vec,
                                    uint_t min_anchor_length,
                                    uint_t max_anchor_frequency,
-                                   sdsl::int_vector<0>& ref_global_cache,
+                                   sdsl::int_vector<0> &ref_global_cache,
                                    SeqPro::Length sampling_interval) {
     uint_t match_length = 0;
     SAInterval I = {0, total_size - 1};
@@ -589,35 +589,37 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
         region_vec.reserve(region_vec.size() + frequency);
         // 使用传入的采样间隔参数
         auto cache_size = ref_global_cache.size();
-        
+
         for (uint_t i = I.l; i < I.r; i++) {
             uint_t ref_global_pos = getSA(i);
 
-            std::visit([&](auto&& manager_ptr) {
+            std::visit([&](auto &&manager_ptr) {
                 SeqPro::SequenceId seq_id = SeqPro::SequenceIndex::INVALID_ID;
                 SeqPro::Position local_pos = 0;
-                
+
                 // 尝试使用缓存快速获取序列ID，避免二分搜索
                 if (cache_size > 0) {
                     auto cache_index = ref_global_pos / sampling_interval;
-                    
+
                     if (cache_index < cache_size) {
                         auto candidate_seq_id = ref_global_cache[cache_index];
-                        
+
                         if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
                             // 获取候选序列的信息进行快速验证
                             using PtrType = std::decay_t<decltype(manager_ptr)>;
-                            const SeqPro::SequenceInfo* candidate_info = nullptr;
-                            
-                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                            const SeqPro::SequenceInfo *candidate_info = nullptr;
+
+                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
                                 candidate_info = manager_ptr->getIndex().getSequenceInfo(candidate_seq_id);
-                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                                candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(candidate_seq_id);
+                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                SeqPro::MaskedSequenceManager> >) {
+                                candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(
+                                    candidate_seq_id);
                             }
-                            
+
                             // 快速验证：检查全局坐标是否在该序列范围内
-                            if (candidate_info && 
-                                ref_global_pos >= candidate_info->global_start_pos && 
+                            if (candidate_info &&
+                                ref_global_pos >= candidate_info->global_start_pos &&
                                 ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
                                 // 缓存命中！直接计算局部坐标
                                 seq_id = candidate_seq_id;
@@ -626,7 +628,7 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
                         }
                     }
                 }
-                
+
                 // 如果缓存未命中，回退到原始的二分搜索
                 if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
                     auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocal(ref_global_pos);
@@ -639,13 +641,12 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
                 }
 
                 if (manager_ptr->isValidPosition(seq_id, local_pos, match_length)) {
-
                     using PtrType = std::decay_t<decltype(manager_ptr)>;
-                    const SeqPro::SequenceInfo* info = nullptr;
+                    const SeqPro::SequenceInfo *info = nullptr;
 
-                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
                         info = manager_ptr->getIndex().getSequenceInfo(seq_id);
-                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
                         info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(seq_id);
                     }
 
@@ -665,24 +666,24 @@ bool FM_Index::saveToFile(const std::string &filename) const {
     if (!ofs) return false;
 
     // 保存基本信息
-    ofs.write(reinterpret_cast<const char*>(&sample_rate), sizeof(sample_rate));
-    ofs.write(reinterpret_cast<const char*>(&total_size), sizeof(total_size));
-    ofs.write(reinterpret_cast<const char*>(&alpha_set), sizeof(alpha_set));
-    ofs.write(reinterpret_cast<const char*>(&alpha_set_without_N), sizeof(alpha_set_without_N));
-    ofs.write(reinterpret_cast<const char*>(&count_array), sizeof(count_array));
-    ofs.write(reinterpret_cast<const char*>(&char2idx), sizeof(char2idx));
-    
+    ofs.write(reinterpret_cast<const char *>(&sample_rate), sizeof(sample_rate));
+    ofs.write(reinterpret_cast<const char *>(&total_size), sizeof(total_size));
+    ofs.write(reinterpret_cast<const char *>(&alpha_set), sizeof(alpha_set));
+    ofs.write(reinterpret_cast<const char *>(&alpha_set_without_N), sizeof(alpha_set_without_N));
+    ofs.write(reinterpret_cast<const char *>(&count_array), sizeof(count_array));
+    ofs.write(reinterpret_cast<const char *>(&char2idx), sizeof(char2idx));
+
     // 使用SDSL的store_to_file函数
     std::string sa_file = filename + ".sa";
     std::string wt_file = filename + ".wt";
-    
+
     if (!sdsl::store_to_file(sampled_sa, sa_file)) {
         return false;
     }
     if (!sdsl::store_to_file(wt_bwt, wt_file)) {
         return false;
     }
-    
+
     return static_cast<bool>(ofs);
 }
 
@@ -691,24 +692,24 @@ bool FM_Index::loadFromFile(const std::string &filename) {
     if (!ifs) return false;
 
     // 加载基本信息
-    ifs.read(reinterpret_cast<char*>(&sample_rate), sizeof(sample_rate));
-    ifs.read(reinterpret_cast<char*>(&total_size), sizeof(total_size));
-    ifs.read(reinterpret_cast<char*>(&alpha_set), sizeof(alpha_set));
-    ifs.read(reinterpret_cast<char*>(&alpha_set_without_N), sizeof(alpha_set_without_N));
-    ifs.read(reinterpret_cast<char*>(&count_array), sizeof(count_array));
-    ifs.read(reinterpret_cast<char*>(&char2idx), sizeof(char2idx));
-    
+    ifs.read(reinterpret_cast<char *>(&sample_rate), sizeof(sample_rate));
+    ifs.read(reinterpret_cast<char *>(&total_size), sizeof(total_size));
+    ifs.read(reinterpret_cast<char *>(&alpha_set), sizeof(alpha_set));
+    ifs.read(reinterpret_cast<char *>(&alpha_set_without_N), sizeof(alpha_set_without_N));
+    ifs.read(reinterpret_cast<char *>(&count_array), sizeof(count_array));
+    ifs.read(reinterpret_cast<char *>(&char2idx), sizeof(char2idx));
+
     // 使用SDSL的load_from_file函数
     std::string sa_file = filename + ".sa";
     std::string wt_file = filename + ".wt";
-    
+
     if (!sdsl::load_from_file(sampled_sa, sa_file)) {
         return false;
     }
     if (!sdsl::load_from_file(wt_bwt, wt_file)) {
         return false;
     }
-    
+
     return static_cast<bool>(ifs);
 }
 

@@ -3,6 +3,8 @@
 
 #include "rare_aligner.h"
 #include "anchor.h"  // 包含 UnionFind 定义
+#include "SeqPro.h"  // 包含 SeqPro 相关定义
+#include "ramesh.h"  // 包含 RaMesh 图结构定义
 
 // 辅助函数：根据CIGAR字符串计算query区间对应关系
 namespace {
@@ -220,6 +222,137 @@ namespace {
 
 } // anonymous namespace
 
+/**
+ * @brief 确保 SeqPro manager 是 MaskedSequenceManager 类型
+ * @param manager_variant 当前的 manager variant
+ * @return 指向 MaskedSequenceManager 的指针
+ */
+SeqPro::MaskedSequenceManager* ensureMaskedManager(SeqPro::SharedManagerVariant& manager_variant) {
+    auto& variant = *manager_variant;
+    
+    // 检查当前类型
+    if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(variant)) {
+        // 已经是 MaskedSequenceManager
+        return std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(variant).get();
+    } 
+    else if (std::holds_alternative<std::unique_ptr<SeqPro::SequenceManager>>(variant)) {
+        // 需要转换为 MaskedSequenceManager
+        auto seq_manager = std::move(std::get<std::unique_ptr<SeqPro::SequenceManager>>(variant));
+        auto masked_manager = std::make_unique<SeqPro::MaskedSequenceManager>(std::move(seq_manager));
+        auto* result_ptr = masked_manager.get();
+        
+        // 替换 variant 中的内容
+        variant = std::move(masked_manager);
+        
+        return result_ptr;
+    }
+    
+    throw std::runtime_error("Invalid SeqPro manager variant type");
+}
+
+/**
+ * @brief 从比对结果图中提取已比对的区间，并作为遮蔽区间添加到对应的 SeqPro manager 中
+ * @param graph 比对结果图
+ * @param seqpro_managers SeqPro manager 映射
+ * @param ref_name 参考物种名称
+ */
+void addAlignedRegionsAsMask(
+    const RaMesh::RaMeshMultiGenomeGraph& graph,
+    std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+    const SpeciesName& ref_name) {
+    
+    if (graph.blocks.empty()) {
+        spdlog::info("[addAlignedRegionsAsMask] No blocks to process for masking");
+        return;
+    }
+    
+    spdlog::info("[addAlignedRegionsAsMask] Extracting aligned regions as mask intervals from {} blocks", 
+                 graph.blocks.size());
+    
+    // 按物种和染色体分组收集区间
+    std::unordered_map<SpeciesName, std::unordered_map<ChrName, std::vector<SeqPro::MaskInterval>>> 
+        species_chr_intervals;
+    
+    size_t total_intervals = 0;
+    size_t valid_blocks = 0;
+    
+    // 遍历所有 blocks，提取 segment 区间
+    for (const auto& weak_block : graph.blocks) {
+        auto block_ptr = weak_block.lock();
+        if (!block_ptr) continue;
+        
+        valid_blocks++;
+        std::shared_lock block_lock(block_ptr->rw);
+        
+        // 处理该 block 中的所有 anchors
+        for (const auto& [species_chr_pair, segment] : block_ptr->anchors) {
+            const auto& [species_name, chr_name] = species_chr_pair;
+            
+            // 只处理有效的 segment
+            if (!segment || !segment->isSegment() || segment->length == 0) {
+                continue;
+            }
+            
+            // 检查该物种是否在 seqpro_managers 中
+            if (seqpro_managers.find(species_name) == seqpro_managers.end()) {
+                continue;
+            }
+            
+            // 创建遮蔽区间（使用原始坐标）
+            SeqPro::MaskInterval interval(segment->start, segment->start + segment->length);
+            species_chr_intervals[species_name][chr_name].push_back(interval);
+            total_intervals++;
+        }
+    }
+    
+    spdlog::info("[addAlignedRegionsAsMask] Collected {} intervals from {} valid blocks across {} species", 
+                 total_intervals, valid_blocks, species_chr_intervals.size());
+    
+    // 为每个物种批量添加遮蔽区间
+    for (auto& [species_name, chr_intervals] : species_chr_intervals) {
+        try {
+            // 确保该物种的 manager 是 MaskedSequenceManager
+            auto* masked_manager = ensureMaskedManager(seqpro_managers[species_name]);
+            
+            size_t species_total_intervals = 0;
+            
+            // 按染色体处理区间
+            for (auto& [chr_name, intervals] : chr_intervals) {
+                if (intervals.empty()) continue;
+                
+                // 构造序列名（假设格式为染色体名）
+                std::string seq_name = chr_name;
+                
+                                // 检查序列是否存在
+                if (masked_manager->getSequenceId(seq_name) == SeqPro::SequenceIndex::INVALID_ID) {
+                    spdlog::warn("[addAlignedRegionsAsMask] Sequence not found: {}:{}, skipping", 
+                                species_name, seq_name);
+                    continue;
+                }
+                
+                // 批量添加区间（segment中的坐标是遮蔽后的坐标，需要转换为原始坐标）
+                masked_manager->addMaskIntervals(seq_name, intervals);
+                species_total_intervals += intervals.size();
+                
+                spdlog::debug("[addAlignedRegionsAsMask] Added {} intervals for {}:{}", 
+                             intervals.size(), species_name, seq_name);
+            }
+            
+            // 定案该物种的所有遮蔽区间
+            masked_manager->finalizeMaskIntervals();
+            
+            spdlog::info("[addAlignedRegionsAsMask] Successfully added {} mask intervals for species {}", 
+                        species_total_intervals, species_name);
+        }
+        catch (const std::exception& e) {
+            spdlog::error("[addAlignedRegionsAsMask] Error processing species {}: {}", 
+                         species_name, e.what());
+        }
+    }
+    
+    spdlog::info("[addAlignedRegionsAsMask] Mask interval addition completed for all species");
+}
+
 MultipleRareAligner::MultipleRareAligner(
     const FilePath& work_dir_,       // 与声明中的类型、顺序一致
     SpeciesPathMap& species_path_map_,
@@ -276,9 +409,7 @@ void MultipleRareAligner::starAlignment(
     // 存储所有迭代的图，用于最后统一验证
     std::vector<std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph>> all_graphs;
     
-    // TODO 完成迭代的星比对
-    for (uint_t i = 0; i < 1; i++) {
-    /*for (uint_t i = 0; i < leaf_num; i++) {*/
+    for (uint_t i = 0; i < leaf_num; i++) {
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
@@ -319,6 +450,16 @@ void MultipleRareAligner::starAlignment(
         // 将当前图添加到集合中，用于最后验证
         all_graphs.emplace_back(std::move(multi_graph));
 
+        // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
+        // 这样后续轮次就不会重复比对已经成功比对的区间
+        spdlog::info("Adding aligned regions as mask intervals for {}", ref_name);
+        try {
+            addAlignedRegionsAsMask(*all_graphs.back(), seqpro_managers, ref_name);
+            spdlog::info("Successfully added mask intervals for round with reference {}", ref_name);
+        }
+        catch (const std::exception& e) {
+            spdlog::error("Failed to add mask intervals for {}: {}", ref_name, e.what());
+        }
     }
 
     // 在所有迭代完成后，进行最终的图正确性验证
@@ -372,7 +513,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
         / ("group_" + std::to_string(group_id))
         / ("round_" + std::to_string(round_id));
     std::filesystem::create_directories(result_dir);
-
+    round_id++;
     FilePath anchor_file = result_dir / (ref_name + "_"
         + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
