@@ -193,6 +193,39 @@ KSW2AlignConfig makeDefaultKSW2Config();
 
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
+
+/* ────────────────────────────────────────────────────────────
+ * 基础类型
+ * ────────────────────────────────────────────────────────── */
+struct Op { char code; uint32_t len; };          // 展开后的单元
+using OpVec = std::vector<Op>;
+
+struct AlignState {
+    const std::string* raw{};    // 原始 query 序列
+    std::string        aln;      // 输出：对齐后
+    OpVec              ops;      // 展开后的 cigar
+    std::size_t        idx = 0;    // 当前 op 索引
+    uint32_t           rest = 0;    // 当前 op 剩余
+    std::size_t        qpos = 0;    // 已用 query 基数
+};
+
+/* ────────────────────────────────────────────────────────────
+ * 工具函数
+ * ────────────────────────────────────────────────────────── */
+OpVec      decode_cigar(const Cigar_t& c);
+void       advance_op(AlignState& st);                    // 跳到下一个非零 op
+bool       consume_insertion(AlignState& st, char& out); // 如当前为 I/S 则消费
+char       consume_refcol(AlignState& st, char ref_base);// 处理 M/= /X/D
+void       flush_insertions(std::vector<AlignState>& sts,
+    std::string& ref_aln);        // 把同列插入写入输出
+
+/* ────────────────────────────────────────────────────────────
+ * 主函数：就地合并
+ * ────────────────────────────────────────────────────────── */
+void mergeAlignmentByRef(
+    ChrName ref_name,
+    std::unordered_map<ChrName, std::string>& seqs,
+    const std::unordered_map<ChrName, Cigar_t>& cigars);
 #endif
 
 

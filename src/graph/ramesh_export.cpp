@@ -4,6 +4,7 @@
 
 namespace RaMesh {
 
+
     void RaMeshMultiGenomeGraph::exportToMaf(
         const FilePath& maf_path,
         const std::map<SpeciesName, SeqPro::ManagerVariant>& seq_mgrs,
@@ -12,7 +13,7 @@ namespace RaMesh {
     {
         namespace fs = std::filesystem;
 
-        /* -------- 0. 打开文件、写头 -------- */
+        /* ---- 0. 打开文件、写头 ---- */
         if (!maf_path.parent_path().empty())
             fs::create_directories(maf_path.parent_path());
 
@@ -20,33 +21,34 @@ namespace RaMesh {
         if (!ofs) throw std::runtime_error("Cannot open: " + maf_path.string());
         ofs << "##maf version=1 scoring=none\n";
 
-        /* -------- 小工具 -------- */
+        /* ---- 序列提取工具 ---- */
         auto fetchSeq = [&](const SeqPro::ManagerVariant& mv,
             const ChrName& chr, uint64_t b, uint64_t l)->std::string {
-                return std::visit([&](auto& p) { return p->getSubSequence(chr, b, l);}, mv);
+                return std::visit([&](auto& p) { return p->getSubSequence(chr, b, l); }, mv);
             };
         auto fetchLen = [&](const SeqPro::ManagerVariant& mv,
             const ChrName& chr)->uint64_t {
-                return std::visit([&](auto& p) { return p->getSequenceLength(chr);}, mv);
+                return std::visit([&](auto& p) { return p->getSequenceLength(chr); }, mv);
             };
 
-        /* ====================================================== */
-        for (auto const& wblk : blocks)
+        /* ========================================================= */
+        for (const auto& wblk : blocks)
         {
             BlockPtr blk = wblk.lock();
             if (!blk) continue;
 
-            /* 1. 收集 Rec 列表 */
+            //---------------- 1. 收集 segment 列表 -----------------
             struct Rec { SpeciesName sp; ChrName chr; SegPtr seg; };
             std::vector<Rec> recs;
             recs.reserve(blk->anchors.size());
-            for (auto const& [sp_chr, seg] : blk->anchors) {
+
+            for (auto& [sp_chr, seg] : blk->anchors) {
                 if (only_primary && !seg->isPrimary()) continue;
                 recs.push_back({ sp_chr.first, sp_chr.second, seg });
             }
             if (recs.size() < 2) continue;
 
-            /* 2. 把参考行放 recs[0] */
+            //---------------- 2. 让参考排第一个 --------------------
             auto it_ref = std::find_if(recs.begin(), recs.end(),
                 [&](const Rec& r) { return r.chr == blk->ref_chr; });
             if (it_ref != recs.end()) std::swap(*recs.begin(), *it_ref);
@@ -54,73 +56,76 @@ namespace RaMesh {
             const Rec& refRec = recs.front();
             const SegPtr refSeg = refRec.seg;
 
-            /* 3. 拿参考序列 & 长度 */
-            auto itMgr = seq_mgrs.find(refRec.sp);
-            if (itMgr == seq_mgrs.end()) continue;
-            std::string ref_raw = fetchSeq(itMgr->second, refRec.chr, refSeg->start, refSeg->length);
-            uint64_t    ref_chr_len = fetchLen(itMgr->second, refRec.chr);
-            if (refSeg->strand == Strand::REVERSE) reverseComplement(ref_raw);
+            //---------------- 3. 提取所有原始子串 -------------------
+            std::unordered_map<ChrName, std::string> seqs;   // key -> rawSeq
+            std::unordered_map<ChrName, Cigar_t>     cigars; // key -> CIGAR (query 侧)
 
-            /* 4. 写块头 */
-            ofs << "a score=0\n";
-
-            /* ===== 遍历 recs，先写参考行，再写每条 query 行 ===== */
-            bool ref_written = false;
             for (const Rec& r : recs)
             {
-                /* 4-a. Manager */
+                /* 3-a 找到序列管理器 */
                 auto mgrIt = seq_mgrs.find(r.sp);
-                if (mgrIt == seq_mgrs.end()) continue;
+                if (mgrIt == seq_mgrs.end()) { seqs.clear(); break; }
+
+                /* 3-b 获取并按 strand 处理序列 */
                 const SegPtr seg = r.seg;
+                std::string raw = fetchSeq(mgrIt->second, r.chr, seg->start, seg->length);
+                if (seg->strand == Strand::REVERSE) reverseComplement(raw);
 
-                /* 4-b. 拿 query 序列 & 长度 */
-                std::string qry_raw = fetchSeq(mgrIt->second, r.chr, seg->start, seg->length);
-                uint64_t    qry_chr_len = fetchLen(mgrIt->second, r.chr);
-                if (seg->strand == Strand::REVERSE) reverseComplement(qry_raw);
+                /* 3-c key 名称（也是 MAF 行名称） */
+                ChrName key_name = pairwise_mode ? r.chr : r.sp + "." + r.chr;
+                seqs.emplace(key_name, std::move(raw));
 
-                /* 4-c. 生成对齐串 */
-                auto [ref_aln, qry_aln] = buildAlignment(ref_raw, qry_raw, seg->cigar);
-                if (ref_aln.empty() || qry_aln.empty()) continue;        // 保护
+                if (&r != &refRec)                // 参考行不填 cigar
+                    cigars.emplace(key_name, seg->cigar);
+            }
+            if (seqs.empty()) continue;           // 缺管理器则跳过
 
-                /* 4-d. 如未写过参考行 → 写一次带 gap 的参考行 */
-                if (!ref_written)
-                {
-                    uint64_t ref_maf_start = (refSeg->strand == Strand::FORWARD)
-                        ? refSeg->start
-                        : ref_chr_len - (refSeg->start + refSeg->length);
+            //---------------- 4. 归并成多序列对齐 ------------------
+            const ChrName ref_key = pairwise_mode ? refRec.chr : refRec.sp + "." + refRec.chr;
+            try {
+                mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
+            }
+            catch (const std::exception& e) {
+                spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
+                continue;
+            }
 
-                    ofs << "s "
-                        << std::left << std::setw(20)
-                        << (pairwise_mode ? refRec.chr : refRec.sp + "." + refRec.chr)
-                        << std::right << std::setw(12) << ref_maf_start
-                        << std::setw(12) << refSeg->length
-                        << ' ' << (refSeg->strand == Strand::FORWARD ? '+' : '-')
-                        << std::setw(12) << ref_chr_len
-                        << ' ' << ref_aln << '\n';
+            //---------------- 5. 写 MAF 块头 ----------------------
+            ofs << "a score=0\n";
 
-                    ref_written = true;
-                }
+            /* 方便后面统一写行的 lambda */
+            auto write_row = [&](const Rec& r, const std::string& aln) {
+                auto mgrIt = seq_mgrs.find(r.sp);
+                uint64_t chr_len = fetchLen(mgrIt->second, r.chr);
 
-                /* 4-e. 若当前就是参考记录 → 跳过写 query 行 */
-                if (&r == &refRec) continue;
-
-                /* 4-f. 写 query 行（带 gap） */
-                uint64_t qry_maf_start = (seg->strand == Strand::FORWARD)
-                    ? seg->start
-                    : qry_chr_len - (seg->start + seg->length);
+                uint64_t maf_start = (r.seg->strand == Strand::FORWARD)
+                    ? r.seg->start
+                    : chr_len - (r.seg->start + r.seg->length);
 
                 ofs << "s "
                     << std::left << std::setw(20)
                     << (pairwise_mode ? r.chr : r.sp + "." + r.chr)
-                    << std::right << std::setw(12) << qry_maf_start
-                    << std::setw(12) << seg->length
-                    << ' ' << (seg->strand == Strand::FORWARD ? '+' : '-')
-                    << std::setw(12) << qry_chr_len
-                    << ' ' << qry_aln << '\n';
+                    << std::right << std::setw(12) << maf_start
+                    << std::setw(12) << r.seg->length            // 非 gap 长度
+                    << ' ' << (r.seg->strand == Strand::FORWARD ? '+' : '-')
+                    << std::setw(12) << chr_len
+                    << ' ' << aln << '\n';
+                };
+
+            //---------------- 6. 写参考行 -------------------------
+            write_row(refRec, seqs[ref_key]);
+
+            //---------------- 7. 写 query 行 ----------------------
+            for (std::size_t i = 1; i < recs.size(); ++i) {
+                const Rec& r = recs[i];
+                ChrName key = pairwise_mode ? r.chr : r.sp + "." + r.chr;
+                write_row(r, seqs[key]);
             }
-            ofs << '\n';     // block 分隔
+
+            ofs << '\n';   // 块间空行
         }
     }
+
 
     
 

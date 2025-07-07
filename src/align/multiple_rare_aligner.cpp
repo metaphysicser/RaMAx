@@ -319,6 +319,8 @@ void MultipleRareAligner::starAlignment(
         // 将当前图添加到集合中，用于最后验证
         all_graphs.emplace_back(std::move(multi_graph));
 
+        /*multi_graph->exportToMaf();*/
+
     }
 
     // 在所有迭代完成后，进行最终的图正确性验证
@@ -345,6 +347,7 @@ void MultipleRareAligner::starAlignment(
         spdlog::error("Some graph correctness verifications failed");
     }
 #endif // _DEBUG_
+
 
     return;
 }
