@@ -36,7 +36,7 @@ public:
         uint_t max_anchor_frequency
     );
 
-    void starAlignment(
+    std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> starAlignment(
         std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
         uint_t tree_root,
         SearchMode                 search_mode,

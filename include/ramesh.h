@@ -203,7 +203,7 @@ namespace RaMesh {
         std::vector<WeakBlock>                             blocks;         // guard: rw
         mutable std::shared_mutex                          rw;             // multi‑reader / single‑writer
 
-        void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::ManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
+        void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
 
     };
 
