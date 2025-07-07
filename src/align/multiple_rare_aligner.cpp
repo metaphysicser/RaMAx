@@ -446,11 +446,15 @@ std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignme
            seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool, min_span
         );
         spdlog::info("merge multiple genome graphs for {}", ref_name);
+#ifdef _DEBUG_
+        multi_graph->verifyGraphCorrectness(true);
+#endif // _DEBUG_
+
         mergeMultipleGraphs(ref_name, *multi_graph, shared_pool);
 
-        // 将当前图添加到集合中，用于最后验证
-
-        all_graphs.emplace_back(std::move(multi_graph));
+#ifdef _DEBUG_
+        multi_graph->verifyGraphCorrectness(true);
+#endif // _DEBUG_
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
         // 这样后续轮次就不会重复比对已经成功比对的区间
