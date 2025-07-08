@@ -406,17 +406,15 @@ std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignme
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
     ThreadPool shared_pool(thread_num);
-    // 存储所有迭代的图，用于最后统一验证
-    std::vector<std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph>> all_graphs;
 
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
-    for (uint_t i = 0; i < 1; i++) {
-    // for (uint_t i = 0; i < leaf_num; i++) {
+    // for (uint_t i = 0; i < 1; i++) {
+    for (uint_t i = 0; i < leaf_num; i++) {
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
-
+        multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
 		uint_t ref_id = leaf_vec[i];
 		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
         std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
@@ -439,24 +437,29 @@ std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignme
 			ref_name, species_fasta_manager_map, match_ptr, shared_pool
 		);
 
-
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
         constructMultipleGraphsByGreedy(
            seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool, min_span
         );
+#ifdef _DEBUG_
+        multi_graph->verifyGraphCorrectness(true);
+#endif // _DEBUG_
+
         spdlog::info("merge multiple genome graphs for {}", ref_name);
+
+
         mergeMultipleGraphs(ref_name, *multi_graph, shared_pool);
 
-        // 将当前图添加到集合中，用于最后验证
-
-        all_graphs.emplace_back(std::move(multi_graph));
+#ifdef _DEBUG_
+        multi_graph->verifyGraphCorrectness(true);
+#endif // _DEBUG_
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
         // 这样后续轮次就不会重复比对已经成功比对的区间
         spdlog::info("Adding aligned regions as mask intervals for {}", ref_name);
         try {
-            addAlignedRegionsAsMask(*all_graphs.back(), seqpro_managers, ref_name);
+            addAlignedRegionsAsMask(*multi_graph, seqpro_managers, ref_name);
             spdlog::info("Successfully added mask intervals for round with reference {}", ref_name);
         }
         catch (const std::exception& e) {
@@ -467,30 +470,8 @@ std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignme
     // 在所有迭代完成后，进行最终的图正确性验证
     spdlog::default_logger()->flush();
 
-#ifdef _DEBUG_
-    // 验证所有图的正确性
-    bool all_graphs_valid = true;
-    for (size_t i = 0; i < all_graphs.size(); ++i) {
-        if (all_graphs[i]) {
-            bool is_graph_valid = all_graphs[i]->verifyGraphCorrectness(true);
-            if (!is_graph_valid) {
-                spdlog::error("Graph {} correctness verification failed", i);
-                all_graphs_valid = false;
-            } else {
-                spdlog::info("Graph {} correctness verification passed", i);
-            }
-        }
-    }
-    
-    if (all_graphs_valid) {
-        spdlog::info("All graph correctness verifications passed");
-    } else {
-        spdlog::error("Some graph correctness verifications failed");
-    }
-#endif // _DEBUG_
 
-
-    return std::move(all_graphs.back());
+    return std::move(multi_graph);
 
 }
 
