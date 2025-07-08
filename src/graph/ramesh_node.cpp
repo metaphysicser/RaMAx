@@ -61,7 +61,7 @@ namespace RaMesh {
     {
         for (size_t i = 0; i + 1 < segs.size(); ++i) {
             segs[i]->primary_path.next.store(segs[i + 1], std::memory_order_relaxed);
-            segs[i + 1]->primary_path.prev.store(segs[i], std::memory_order_relaxed);
+            segs[i + 1]->primary_path.prev.store(segs[i], std::memory_order_release);
         }
     }
 
@@ -74,7 +74,7 @@ namespace RaMesh {
         head = head_holder.get();
         tail = tail_holder.get();
         head->primary_path.next.store(tail, std::memory_order_relaxed);
-        tail->primary_path.prev.store(head, std::memory_order_relaxed);
+        tail->primary_path.prev.store(head, std::memory_order_release);
 
         sample_vec.resize(1, head);   // slot 0 永远指向 head
     }
@@ -125,8 +125,9 @@ namespace RaMesh {
         SegPtr first, SegPtr last)
     {
         // Step‑0: stitch inside chain
-        first->primary_path.prev.store(prev, std::memory_order_relaxed);
-        last->primary_path.next.store(next, std::memory_order_relaxed);
+        // 使用 release 语义，保证链表完整性对其他线程可见
+        first->primary_path.prev.store(prev, std::memory_order_release);
+        last->primary_path.next.store(next, std::memory_order_release);
         std::atomic_thread_fence(std::memory_order_release);
 
         // Step‑1: CAS prev‑>next
@@ -159,7 +160,7 @@ namespace RaMesh {
 
         // 1) 复位双向链表
         head->primary_path.next.store(tail, std::memory_order_relaxed);
-        tail->primary_path.prev.store(head, std::memory_order_relaxed);
+        tail->primary_path.prev.store(head, std::memory_order_release);
 
         // 2) 清空采样表，只保留 slot0 指向 head
         sample_vec.clear();
