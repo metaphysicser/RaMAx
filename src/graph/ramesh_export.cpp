@@ -102,10 +102,6 @@ namespace RaMesh {
                 /* 3-b 获取并按 strand 处理序列 */
                 const SegPtr seg = r.seg;
 
-                if (r.seg->start == 387964) {
-                    std::cout << "";
-                }
-
                 std::string raw = fetchSeq(*mgrIt->second, r.chr, seg->start, seg->length);
                 if (seg->strand == Strand::REVERSE) reverseComplement(raw);
 
@@ -123,13 +119,13 @@ namespace RaMesh {
             if (refRec.sp != "simChimp") {
                 std::cout << "";
             }
-            //try {
-            //    mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
-            //}
-            //catch (const std::exception& e) {
-            //    spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
-            //    continue;
-            //}
+            try {
+                mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
+            }
+            catch (const std::exception& e) {
+                spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
+                continue;
+            }
 
             //---------------- 5. 写 MAF 块头 ----------------------
             ofs << "a score=0\n";
