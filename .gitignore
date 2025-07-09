@@ -369,7 +369,6 @@ FodyWeavers.xsd
 /CMakePresets.json
 /workdir-alignathon
 /workdir-alignathon2
-/submodule/
 /cmake-build-debug-wsl/
 /.idea/
 /test/data/simChimp.fa

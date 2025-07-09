@@ -153,87 +153,8 @@ alignInsertBlock(const std::vector<std::string>& ins_vec)
 }
 
 
-/* ──────────── 解码 CIGAR ──────────── */
-OpVec decode_cigar(const Cigar_t& c)
-{
-    OpVec v; v.reserve(c.size());
-    char op; uint32_t len;
-    for (auto u : c) {
-        intToCigar(u, op, len);
-        if (op == 'H') continue;          // hard-clip 不进对齐
-        v.push_back({ op, len });
-    }
-    return v;
-}
-
-/* ──────────── 前进到下一个 op ──────────── */
-void advance_op(AlignState& st)
-{
-    while (st.idx < st.ops.size() && st.rest == 0)
-        ++st.idx, st.rest = (st.idx < st.ops.size()) ? st.ops[st.idx].len : 0;
-}
-
-/* ──────────── 尝试消费一个插入 / soft-clip ──────────── */
-bool consume_insertion(AlignState& st, char& out)
-{
-    if (st.rest == 0) advance_op(st);
-    if (st.rest &&
-        (st.ops[st.idx].code == 'I' || st.ops[st.idx].code == 'S'))
-    {
-        out = (*st.raw)[st.qpos++];
-        --st.rest;
-        return true;
-    }
-    return false;
-}
-
-/* ──────────── 处理参考列 (M/= /X / D) ──────────── */
-char consume_refcol(AlignState& st, char ref_base)
-{
-    if (st.rest == 0) advance_op(st);
-    if (!st.rest) return '-';
-
-    char op = st.ops[st.idx].code;
-    char ch = '-';
-    if (op == 'M' || op == '=' || op == 'X') {
-        ch = (*st.raw)[st.qpos++];
-    }
-    // 对 D: ch 留 '-'，只消耗参考
-    --st.rest;
-    return ch;
-}
-
-/* ──────────── 写入同列插入 ──────────── */
-void flush_insertions(std::vector<AlignState>& sts,
-    std::string& ref_aln)
-{
-    while (true) {
-        // ① 收集插入块
-        std::vector<std::string> ins;
-        ins.reserve(sts.size());
-        bool any = false;
-        for (auto& st : sts) {
-            std::string frag;
-            char c;
-            while (consume_insertion(st, c)) { frag.push_back(c); any = true; }
-            ins.push_back(std::move(frag));
-        }
-        if (!any) break;                       // 无插入可处理
-
-        // ② 统一长度
-        std::vector<std::string> msa =
-            alignInsertBlock(ins);             // ← 新增一步
-
-        size_t W = msa.front().size();
-        ref_aln.append(W, '-');                // 参考列写 W 个 gap
-        for (size_t i = 0; i < sts.size(); ++i)
-            sts[i].aln += msa[i];              // append
-    }
-}
-
-
 /* ──────────── 合并成 MSA (就地修改 seqs) ──────────── */
-void mergeAlignmentByRef(
+uint_t mergeAlignmentByRef(
     ChrName ref_name,
     std::unordered_map<ChrName, std::string>& seqs,
     const std::unordered_map<ChrName, Cigar_t>& cigars)
@@ -242,42 +163,71 @@ void mergeAlignmentByRef(
     if (ref_it == seqs.end())
         throw std::invalid_argument("mergeAlignmentByRef: ref not found");
 
-    const std::string& ref_raw = ref_it->second;
-    std::string        ref_aln; ref_aln.reserve(ref_raw.size() * 2);
+    std::string& ref_raw = ref_it->second;
+    uint_t total_aligned_length = ref_raw.size();
+	RefAlignInfo insert_info;
 
-    /* --- 构建每条 Query 的状态机 --- */
-    std::vector<ChrName>  keys;
-    std::vector<AlignState> states;
-
-    for (const auto& [key, cig] : cigars) {
+    for (const auto& [key, cigar] : cigars) {
         if (key == ref_name) continue;
         auto q_it = seqs.find(key);
-        if (q_it == seqs.end())
+        if (q_it == seqs.end()) {
             throw std::invalid_argument("mergeAlignmentByRef: seq missing");
+        }
 
-        AlignState st;
-        st.raw = &q_it->second;
-        st.ops = decode_cigar(cig);
-        if (!st.ops.empty()) { st.rest = st.ops[0].len; }
-        keys.push_back(key);
-        states.push_back(std::move(st));
+		std::string& qry_raw = q_it->second;
+
+		uint_t ref_pos = 0;
+		uint_t qry_pos = 0;
+        for (auto& unit : cigar) {
+            uint32_t len;
+            char op;
+			intToCigar(unit, op, len);
+
+            if (op == 'D') {
+				qry_raw.insert(qry_pos, len, '-');
+                ref_pos += len;
+            }
+            else if (op == 'I') {
+                std::string ins = qry_raw.substr(qry_pos, len);
+
+                // 2) 在 insert_info 里插入或更新
+                auto it = insert_info.find(ref_pos);
+                if (it != insert_info.end()) {
+                    it->second.seqs[key] = ins;
+                }
+                else {
+                    InsertInfo info;
+                    info.seqs[key] = ins;
+                    insert_info[ref_pos] = std::move(info);
+                }
+
+                // 3) 从原始 query 序列里移除这段已“消费”的子串
+                qry_raw.erase(qry_pos, len);
+            }
+            else {
+                ref_pos += len;
+                qry_pos += len;
+            }
+        }
     }
 
-    /* --- 主循环：遍历参考序列 --- */
-    for (std::size_t rpos = 0; ; ++rpos)
-    {
-        flush_insertions(states, ref_aln);           // ① 先刷插入
-        if (rpos == ref_raw.size()) break;          // 末尾 sentinel
+	for (auto& [ref_pos, info] : insert_info) {
+		info.alignSeqs(); // 对齐所有插入序列
+		if (info.ref_name.empty()) continue; // 没有参考序列，跳过
+		for (auto& [sp_name, seq] : seqs) {
+			auto it = info.seqs.find(sp_name);
+            if (it != info.seqs.end()) {
+				seq.insert(ref_pos, it->second); // 在 ref_pos 位置插入
+            }
+            else {
+                seq.insert(ref_pos, info.total_length, '-');   // 直接用 string::insert 重载
+            }
+		}
+        total_aligned_length += info.total_length; // 更新总长度
+	}
 
-        ref_aln.push_back(ref_raw[rpos]);            // ② 参考列
-        for (auto& st : states)
-            st.aln.push_back(consume_refcol(st, ref_raw[rpos]));
-    }
+    return total_aligned_length;
 
-    /* --- 写回 --- */
-    ref_it->second.swap(ref_aln);
-    for (std::size_t i = 0; i < keys.size(); ++i)
-        seqs[keys[i]].swap(states[i].aln);
 }
 
 

@@ -318,9 +318,6 @@ namespace RaMesh {
                         
                         // 检查坐标是否有序且无重叠
                         if (prev && prev->isSegment()) {
-                            if (prev->start == 387964) {
-                                std::cout << "";
-                            }
                             uint_t prev_end = prev->start + prev->length;
                             if (current->start < prev_end) {
                                 if (verbose && detailed_errors_shown < max_detailed_errors) {

@@ -44,3 +44,9 @@
 [submodule "submodule/libdivsufsort"]
 	path = submodule/libdivsufsort
 	url = https://github.com/simongog/libdivsufsort.git
+[submodule "submodule/sonLib"]
+	path = submodule/sonLib
+	url = https://github.com/ComparativeGenomicsToolkit/sonLib.git
+[submodule "submodule/hal"]
+	path = submodule/hal
+	url = https://github.com/ComparativeGenomicsToolkit/hal.git

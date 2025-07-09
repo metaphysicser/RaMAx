@@ -16,7 +16,8 @@ sudo apt install -y \
     zlib1g-dev \
     libboost-dev \
     pkg-config \
-    doxygen
+    doxygen \
+    libhdf5-dev
 ```
 
 > **Note:**  

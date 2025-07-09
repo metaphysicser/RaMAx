@@ -461,8 +461,8 @@ starAlignment(
 
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
-    // for (uint_t i = 0; i < 1; i++) {
-    for (uint_t i = 0; i < leaf_num; i++) {
+    for (uint_t i = 0; i < 1; i++) {
+    // for (uint_t i = 0; i < leaf_num; i++) {
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);

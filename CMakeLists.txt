@@ -28,6 +28,31 @@ set(BIGBWT_DIR         "${INDEX_DIR}/bigBWT")
 set(BIGBWT_INCLUDE_DIR "${INCLUDE_DIR}/bigBWT")
 set(SUFFIX_ARRAY_DIR   "${INDEX_DIR}/suffix_array")
 set(SUFFIX_ARRAY_INCLUDE_DIR "${INCLUDE_DIR}/suffix_array")
+set(SONLIB_DIR ${SUBMODULE_DIR}/sonLib)
+set(HAL_DIR    ${SUBMODULE_DIR}/hal)
+
+find_program(MAKE_EXE NAMES make gmake REQUIRED)
+
+# ───── 2. 构建 sonLib ─────────────────────────────────────────
+add_custom_target(sonLib_build
+    COMMAND ${MAKE_EXE} -C ${SONLIB_DIR} -j      # 等同“pushd sonLib && make”
+    USES_TERMINAL
+)
+
+# ───── 3. 构建 HAL（传参 sonLibRootDir）───────────────────────
+add_custom_target(hal_tools
+    COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j                   # 相当于“make sonLibRootDir=…”
+    DEPENDS sonLib_build                                   # 先编 sonLib
+    USES_TERMINAL
+)
+
+# ───── 4. 把可执行文件复制到 build/bin（可选，但常用）─────────
+set(HAL_OUT ${CMAKE_BINARY_DIR}/bin)
+add_custom_command(TARGET hal_tools POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory  ${HAL_OUT}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory  ${HAL_DIR}/bin  ${HAL_OUT}
+)
+
 
 # ============ 编译优化选项 ============
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mavx2")
@@ -135,6 +160,10 @@ configure_rama_target(RaMA-G)
 add_executable(RaMAx ${MAIN_X} ${RAMA_COMMON_SOURCES})
 configure_rama_target(RaMAx)
 
+# 如需确保先有 HAL 工具，再编你的程序：
+add_dependencies(RaMA-G hal_tools)
+add_dependencies(RaMAx  hal_tools)
+
 # ================= 安装规则（可选） =================
 # install(TARGETS RaMAG RaMAx DESTINATION bin)
 
@@ -144,6 +173,8 @@ install(TARGETS RaMA-G RaMAx DESTINATION bin)
 
 # 安装 windowmasker 工具
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/bin/windowmasker" 
+         ${HAL_DIR}/bin/maf2hal
+         ${HAL_DIR}/bin/hal2fasta
         DESTINATION bin 
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE 
                    GROUP_READ GROUP_EXECUTE 
