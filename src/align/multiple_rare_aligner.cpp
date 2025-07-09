@@ -146,7 +146,12 @@ namespace {
             return {original_query_start + ref_offset, length};
         }
 
-        uint_t query_length = target_query_end - target_query_start;
+        // 如果出现 start > end（可能来源于反向链坐标系），进行交换校正
+        if (target_query_start > target_query_end) {
+            std::swap(target_query_start, target_query_end);
+        }
+
+        uint_t query_length = target_query_end > target_query_start ? (target_query_end - target_query_start) : 0;
         return {target_query_start, query_length};
     }
 
@@ -220,6 +225,52 @@ namespace {
         return result_cigar;
     }
 
+    /**
+     * @brief 修剪同一染色体上一组 segment 之间的重叠。
+     *        输入必须已按 start 升序。算法：线性扫描，若发现 seg.start < prevEnd，
+     *        则将 seg.start 调整为 prevEnd 并相应减少 length；若 length<=0 则丢弃。
+     * @param segs  Segment 向量（已排序）。
+     * @return true 表示处理后仍然存在重叠（异常）；false 表示已无重叠。
+     */
+    bool trimSegments(std::vector<RaMesh::SegPtr>& segs) {
+        if (segs.empty()) return false;
+
+        std::vector<RaMesh::SegPtr> trimmed;
+        trimmed.reserve(segs.size());
+
+        RaMesh::SegPtr prev = nullptr;
+        for (auto seg : segs) {
+            if (!prev) {
+                trimmed.push_back(seg);
+                prev = seg;
+                continue;
+            }
+
+            uint_t prev_end = prev->start + prev->length;
+            if (seg->start < prev_end) {
+                uint_t overlap_len = prev_end - seg->start;
+                if (seg->length <= overlap_len) {
+                    // 完全被覆盖，跳过
+                    continue;
+                }
+                seg->start = prev_end;
+                seg->length -= overlap_len;
+            }
+
+            trimmed.push_back(seg);
+            prev = seg;
+        }
+
+        segs.swap(trimmed);
+
+        // 再次检查是否还有重叠
+        for (size_t i = 1; i < segs.size(); ++i) {
+            if (segs[i]->start < segs[i-1]->start + segs[i-1]->length) {
+                return true; // 仍有重叠
+            }
+        }
+        return false;
+    }
 } // anonymous namespace
 
 /**
@@ -390,7 +441,8 @@ MultipleRareAligner::MultipleRareAligner(
 
 }
 
-std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignment(
+std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::
+starAlignment(
     std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
     uint_t tree_root,
     SearchMode                 search_mode,
@@ -414,7 +466,6 @@ std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::starAlignme
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
-        multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>();
 		uint_t ref_id = leaf_vec[i];
 		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
         std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
@@ -1287,9 +1338,11 @@ void MultipleRareAligner::mergeMultipleGraphs(
             }
 
             if (has_overlap) {
-                spdlog::error("[mergeMultipleGraphs] Chromosome {}:{} has overlapping segments, skipping reconstruction",
-                            species_name, chr_name);
-                continue;
+                bool still_overlap = trimSegments(segments);
+                if (still_overlap) {
+                    spdlog::error("[mergeMultipleGraphs] Chromosome {}:{} still has overlapping segments after trimming, skipping reconstruction", species_name, chr_name);
+                    continue;
+                }
             }
 
             // 重建链表
@@ -1373,8 +1426,8 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                     uint_t seg_start = segment->start;
                     uint_t seg_end = segment->start + segment->length;
 
-                    // 检查segment是否覆盖基本区间
-                    if (seg_start <= interval_start && seg_end >= interval_end) {
+                    // 检查segment是否与基本区间有重叠
+                    if (!(seg_end <= interval_start || seg_start >= interval_end)) {
                         covering_blocks.push_back(block_ptr);
                         break;
                     }
@@ -1404,14 +1457,20 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                     uint_t seg_start = source_segment->start;
                     uint_t seg_end = source_segment->start + source_segment->length;
 
-                    if (seg_start <= interval_start && seg_end >= interval_end) {
-                        uint_t new_length = interval_end - interval_start;
+                    // 判断与基本区间是否有重叠
+                    if (!(seg_end <= interval_start || seg_start >= interval_end)) {
+                        // 取交集部分
+                        uint_t new_start  = std::max(seg_start, interval_start);
+                        uint_t new_end    = std::min(seg_end,   interval_end);
+                        uint_t new_length = new_end > new_start ? (new_end - new_start) : 0;
+
                         if (new_length == 0) {
-                            continue; // 跳过零长度片段，避免后续重叠
+                            continue; // 跳过零长度片段
                         }
-                        // 创建新的ref-segment片段
+
+                        // 创建新的ref-segment片段，仅包含交集部分
                         auto new_segment = RaMesh::Segment::create(
-                            interval_start,
+                            new_start,
                             new_length,
                             source_segment->strand,
                             Cigar_t{},  // ref segment通常没有CIGAR
@@ -1437,12 +1496,20 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                         continue; // 无法获取映射
                     }
 
-                    // 检查query segment的ref映射是否覆盖基本区间
-                    if (ref_start <= interval_start && ref_end >= interval_end) {
-                        // 计算query区间
+                    // 判断映射到ref后的区间与基本区间是否有重叠
+                    if (!(ref_end <= interval_start || ref_start >= interval_end)) {
+                        // 取交集部分（在ref坐标系）
+                        uint_t overlap_ref_start = std::max(ref_start, interval_start);
+                        uint_t overlap_ref_end   = std::min(ref_end,   interval_end);
+
+                        if (overlap_ref_end <= overlap_ref_start) {
+                            continue;
+                        }
+
+                        // 计算对应的query区间
                         auto [query_start, query_length] = calculateQueryInterval(
                             source_segment->cigar,
-                            interval_start, interval_end,
+                            overlap_ref_start, overlap_ref_end,
                             ref_start,
                             source_segment->start
                         );
@@ -1452,12 +1519,12 @@ RaMesh::BlockPtr MultipleRareAligner::processElementaryInterval(
                             continue;
                         }
 
-                        // 提取对应的CIGAR子序列
-                        uint_t ref_offset = interval_start - ref_start;
+                        // 提取对应的CIGAR子序列（以重叠部分为基准）
+                        uint_t ref_offset = overlap_ref_start - ref_start;
                         Cigar_t new_cigar = extractCigarSubsequence(
                             source_segment->cigar,
                             ref_offset,
-                            interval_end - interval_start
+                            overlap_ref_end - overlap_ref_start
                         );
 
                         auto new_segment = RaMesh::Segment::create(

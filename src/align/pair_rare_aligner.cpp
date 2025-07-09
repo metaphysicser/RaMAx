@@ -275,39 +275,11 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
-	// 1. 先对cluster_vec_ptr进行确定性排序，消除输入顺序的随机性
-	std::sort(cluster_vec_ptr->begin(), cluster_vec_ptr->end(),
-		[](const MatchCluster& A, const MatchCluster& B) {
-			if (A.empty() || B.empty()) return A.empty() < B.empty();
-			const auto& a = A.front();
-			const auto& b = B.front();
-			int_t spanA = clusterSpan(A);
-			int_t spanB = clusterSpan(B);
-			// 使用多重键保证全序：span、refChr、qryChr、ref_start、qry_start
-			auto keyA = std::tuple{ spanA, a.ref_region.chr_name, a.query_region.chr_name, 
-				a.ref_region.start, a.query_region.start };
-			auto keyB = std::tuple{ spanB, b.ref_region.chr_name, b.query_region.chr_name,
-				b.ref_region.start, b.query_region.start };
-			return keyA < keyB;
-		});
-
 	struct Node {
 		MatchCluster cl;
 		int_t        span;
 	};
-	// 2. 使用严格比较器，确保相同span的节点也有确定顺序
-	auto cmp = [](const Node& A, const Node& B) {
-		if (A.span != B.span) return A.span < B.span; // 最大堆，span小者在堆顶
-		if (A.cl.empty() || B.cl.empty()) return A.cl.empty() > B.cl.empty();
-		const auto& a = A.cl.front();
-		const auto& b = B.cl.front();
-		// 次级键保证严格弱序
-		auto keyA = std::tuple{ a.ref_region.chr_name, a.query_region.chr_name,
-			a.ref_region.start, a.query_region.start };
-		auto keyB = std::tuple{ b.ref_region.chr_name, b.query_region.chr_name,
-			b.ref_region.start, b.query_region.start };
-		return keyA > keyB; // 注意用">"保持最大堆性质
-	};
+	auto cmp = [](const Node& a, const Node& b) { return a.span < b.span; };
 
 	std::vector<Node> heap;
 	heap.reserve(cluster_vec_ptr->size());
@@ -326,10 +298,6 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
-
-	// 3. 收集要插入graph的anchors，而不是立即并发插入
-	std::vector<std::tuple<SpeciesName, SpeciesName, AnchorVec>> collected_anchors;
-	std::mutex collection_mutex;
 
 	while (!heap.empty()) {
 #ifdef _DEBUG_
@@ -391,13 +359,10 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 #ifdef _DEBUG_
 			auto t_enq = Clock::now();
 #endif
-			pool.enqueue([this, &collected_anchors, &collection_mutex, &query_name, task_cl, &query_seqpro_manager] {
+			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-				// 收集而非立即插入
-				{
-					std::lock_guard lock(collection_mutex);
-					collected_anchors.emplace_back(ref_name, query_name, std::move(anchor_vec));
-				}
+				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 				});
 #ifdef _DEBUG_
 			ns_enqueue_task += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_enq).count();
@@ -429,84 +394,6 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	}
 
 	pool.waitAllTasksDone();
-
-	// 4. 对收集的anchors按确定性顺序排序，然后串行插入graph
-	std::sort(collected_anchors.begin(), collected_anchors.end(),
-		[](const auto& a, const auto& b) {
-			const auto& [ref_a, qry_a, anchors_a] = a;
-			const auto& [ref_b, qry_b, anchors_b] = b;
-			if (anchors_a.empty() || anchors_b.empty()) {
-				return anchors_a.empty() < anchors_b.empty();
-			}
-			// 按ref_name、query_name、ref_chr、qry_chr、ref_start排序
-			auto keyA = std::tuple{ ref_a, qry_a, 
-				anchors_a.front().match.ref_region.chr_name,
-				anchors_a.front().match.query_region.chr_name,
-				anchors_a.front().match.ref_region.start };
-			auto keyB = std::tuple{ ref_b, qry_b,
-				anchors_b.front().match.ref_region.chr_name,
-				anchors_b.front().match.query_region.chr_name,
-				anchors_b.front().match.ref_region.start };
-			return keyA < keyB;
-		});
-
-	// 5. 展开所有anchors，去除重叠，确保坐标有序且无冲突
-	std::vector<std::tuple<SpeciesName, SpeciesName, Anchor>> all_individual_anchors;
-	for (const auto& [ref_name, query_name, anchor_vec] : collected_anchors) {
-		for (const Anchor& anchor : anchor_vec) {
-			all_individual_anchors.emplace_back(ref_name, query_name, anchor);
-		}
-	}
-
-	// 按ref_chr + ref_start排序
-	std::sort(all_individual_anchors.begin(), all_individual_anchors.end(),
-		[](const auto& a, const auto& b) {
-			const auto& [ref_a, qry_a, anchor_a] = a;
-			const auto& [ref_b, qry_b, anchor_b] = b;
-			auto keyA = std::tuple{ ref_a, qry_a,
-				anchor_a.match.ref_region.chr_name,
-				anchor_a.match.query_region.chr_name,
-				anchor_a.match.ref_region.start };
-			auto keyB = std::tuple{ ref_b, qry_b,
-				anchor_b.match.ref_region.chr_name,
-				anchor_b.match.query_region.chr_name,
-				anchor_b.match.ref_region.start };
-			return keyA < keyB;
-		});
-
-	// 去重：移除重叠的anchor
-	std::vector<std::tuple<SpeciesName, SpeciesName, Anchor>> filtered_anchors;
-	std::unordered_map<std::string, uint_t> last_end_pos; // chr_key -> last_end_position
-
-	for (const auto& [ref_name, query_name, anchor] : all_individual_anchors) {
-		std::string chr_key = ref_name + ":" + query_name + ":" + anchor.match.ref_region.chr_name;
-		uint_t anchor_start = anchor.match.ref_region.start;
-		uint_t anchor_end = anchor_start + anchor.match.ref_region.length;
-
-		auto it = last_end_pos.find(chr_key);
-		if (it == last_end_pos.end() || anchor_start >= it->second) {
-			// 无重叠或第一个，可以插入
-			filtered_anchors.emplace_back(ref_name, query_name, anchor);
-			last_end_pos[chr_key] = anchor_end;
-		}
-		// 否则跳过重叠的anchor
-	}
-
-	// 6. 重新按species分组并批量插入
-	std::map<std::tuple<SpeciesName, SpeciesName, ChrName, ChrName>, AnchorVec> grouped;
-	for (const auto& [ref_name, query_name, anchor] : filtered_anchors) {
-		auto key = std::make_tuple(ref_name, query_name, 
-			anchor.match.ref_region.chr_name, anchor.match.query_region.chr_name);
-		grouped[key].push_back(anchor);
-	}
-
-	// 7. 串行插入graph
-	for (const auto& [key, anchor_vec] : grouped) {
-		const auto& [ref_name, query_name, ref_chr, qry_chr] = key;
-		if (!anchor_vec.empty()) {
-			graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
-		}
-	}
 
 #ifdef _DEBUG_
 	spdlog::debug("");
