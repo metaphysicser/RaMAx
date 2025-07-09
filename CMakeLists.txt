@@ -19,6 +19,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(SOURCE_DIR         "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(INCLUDE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(SUBMODULE_DIR      "${CMAKE_CURRENT_SOURCE_DIR}/submodule")
+set(BIN_DIR            "${CMAKE_CURRENT_SOURCE_DIR}/bin")
 set(PREPROCESS_DIR     "${SOURCE_DIR}/preprocess")
 set(INDEX_DIR          "${SOURCE_DIR}/index")
 set(ALIGN_DIR          "${SOURCE_DIR}/align")
@@ -31,27 +32,34 @@ set(SUFFIX_ARRAY_INCLUDE_DIR "${INCLUDE_DIR}/suffix_array")
 set(SONLIB_DIR ${SUBMODULE_DIR}/sonLib)
 set(HAL_DIR    ${SUBMODULE_DIR}/hal)
 
+set(HAL_MAF2HAL  ${HAL_DIR}/bin/maf2hal)
+set(HAL_HAL2FASTA ${HAL_DIR}/bin/hal2fasta)
+
 find_program(MAKE_EXE NAMES make gmake REQUIRED)
 
-# ───── 2. 构建 sonLib ─────────────────────────────────────────
-add_custom_target(sonLib_build
-    COMMAND ${MAKE_EXE} -C ${SONLIB_DIR} -j      # 等同“pushd sonLib && make”
-    USES_TERMINAL
+# ================= HAL tools =================
+# 只要 maf2hal / hal2fasta 缺失或过期，就重新 make -C hal
+add_custom_command(
+    OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
+    COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j
+    WORKING_DIRECTORY ${HAL_DIR}
+    COMMENT "Building HAL tools (this also builds sonLib)…"
 )
 
-# ───── 3. 构建 HAL（传参 sonLibRootDir）───────────────────────
 add_custom_target(hal_tools
-    COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j                   # 相当于“make sonLibRootDir=…”
-    DEPENDS sonLib_build                                   # 先编 sonLib
-    USES_TERMINAL
+    DEPENDS ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
 )
 
-# ───── 4. 把可执行文件复制到 build/bin（可选，但常用）─────────
-set(HAL_OUT ${CMAKE_BINARY_DIR}/bin)
+# 如果你之前脚本里还有一些地方依赖 sonLib_build，
+# 可以留一个“别名”空目标，保持兼容
+add_custom_target(sonLib_build DEPENDS hal_tools)
+
+# 仅当刚刚重新生成时才复制到 bin
 add_custom_command(TARGET hal_tools POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory  ${HAL_OUT}
-    COMMAND ${CMAKE_COMMAND} -E copy_directory  ${HAL_DIR}/bin  ${HAL_OUT}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${HAL_MAF2HAL}  ${BIN_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${HAL_HAL2FASTA} ${BIN_DIR}
 )
+
 
 
 # ============ 编译优化选项 ============
@@ -172,9 +180,9 @@ add_dependencies(RaMAx  hal_tools)
 install(TARGETS RaMA-G RaMAx DESTINATION bin)
 
 # 安装 windowmasker 工具
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/bin/windowmasker" 
-         ${HAL_DIR}/bin/maf2hal
-         ${HAL_DIR}/bin/hal2fasta
+install(FILES "${BIN_DIR}/windowmasker" 
+         ${BIN_DIR}/maf2hal
+         ${BIN_DIR}/hal2fasta
         DESTINATION bin 
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE 
                    GROUP_READ GROUP_EXECUTE 
