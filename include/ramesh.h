@@ -12,6 +12,8 @@
 #include <map>
 #include <shared_mutex>
 #include <iostream>
+#include <chrono>
+#include <algorithm>
 
 #include "config.hpp"
 #include "anchor.h"
@@ -96,6 +98,11 @@ namespace RaMesh {
 
         // ――― utilities ―――
         static void  linkChain(const std::vector<SegPtr>& segments);
+        
+        // ――― deletion utilities ―――
+        static void unlinkSegment(SegPtr segment);
+        static void deleteSegment(SegPtr segment);
+        static void deleteBatch(const std::vector<SegPtr>& segments);
     };
 
     // ────────────────────────────────────────────────
@@ -124,6 +131,11 @@ namespace RaMesh {
             const ChrName& ref_chr,
             const ChrName& qry_chr,
             const BlockPtr& blk);
+            
+        // ――― deletion methods ―――
+        void removeAllSegments();
+        void removeSegmentsBySpecies(const SpeciesName& species);
+        bool removeSegment(const SpeciesName& species, const ChrName& chr);
 
         Block() = default;
         ~Block() = default;
@@ -148,6 +160,12 @@ namespace RaMesh {
             uint_t beg, uint_t end);
 
         void clearAllSegments();
+        
+        // ――― deletion methods ―――
+        bool removeSegment(SegPtr segment);
+        bool removeSegmentRange(uint_t start, uint_t end);
+        void removeBatch(const std::vector<SegPtr>& segments);
+        void invalidateSampling(uint_t start, uint_t end);
 
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
@@ -164,7 +182,11 @@ namespace RaMesh {
             SegPtr first, SegPtr last);
 
         void ensureSampleSize(uint_t pos);          // 自动扩容
+    
+    public:
         void updateSampling(const std::vector<SegPtr>& segs); // 插入后修补
+        
+    private:
     };
 
     // ────────────────────────────────────────────────
@@ -205,6 +227,32 @@ namespace RaMesh {
 
         void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
 
+        void mergeMultipleGraphs(const SpeciesName& ref_name, ThreadPool& shared_pool);
+        
+        // ――― high-performance deletion methods ―――
+        bool removeBlock(const BlockPtr& block);
+        bool removeBlockById(size_t block_index);
+        void removeBlocksBatch(const std::vector<BlockPtr>& blocks);
+        size_t removeExpiredBlocks();
+        
+        void removeSpecies(const SpeciesName& species);
+        void removeChromosome(const SpeciesName& species, const ChrName& chr);
+        void clearAllGraphs();
+        
+        // ――― garbage collection and maintenance ―――
+        size_t compactBlockPool();
+        void optimizeGraphStructure();
+        
+        // ――― deletion statistics and diagnostics ―――
+        struct DeletionStats {
+            size_t segments_removed = 0;
+            size_t blocks_removed = 0;
+            size_t expired_blocks_cleaned = 0;
+            size_t sampling_updates = 0;
+            std::chrono::microseconds total_time{0};
+        };
+        
+        DeletionStats performMaintenance(bool full_gc = false);
     };
 
 } // namespace RaMesh
