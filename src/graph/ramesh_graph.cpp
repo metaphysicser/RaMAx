@@ -2,8 +2,10 @@
 //  File: ramesh_graph.cpp –  High‑level graph ops (v0.6‑alpha)
 // =============================================================
 #include "ramesh.h"
+#include <curl/curl.h>
 #include <iomanip>
 #include <shared_mutex>
+#include "align.h"
 
 namespace RaMesh {
 
@@ -426,4 +428,442 @@ namespace RaMesh {
         return is_valid;
     }
 
+    /* =============================================================
+     * 6.  Merge multiple graphs (public API)
+     * ===========================================================*/
+    void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName& ref_name, ThreadPool& shared_pool) {
+        std::shared_lock graph_lock(rw);
+    
+        auto ref_it = species_graphs.find(ref_name);
+        if (ref_it == species_graphs.end()) return;
+        
+        const auto& ref_genome = ref_it->second;
+        std::shared_lock genome_lock(ref_genome.rw);
+        // 主循环，遍历所有Ref序列
+        for (const auto& [chr_name, genome_end] : ref_genome.chr2end) {
+            // 从头节点开始遍历链表
+            SegPtr prev = genome_end.head->primary_path.next.load(std::memory_order_acquire);
+            SegPtr current = prev->primary_path.next.load(std::memory_order_acquire);
+            BlockPtr prev_block = prev->parent_block;
+            BlockPtr current_block = nullptr;
+
+            while (current && !current->isTail()) {
+                // 只处理真正的segment（跳过头尾哨兵）
+                if (current->isSegment() && current->parent_block) {
+                    current_block = current->parent_block;
+                
+                    // 构造查找键并直接find
+                    SpeciesChrPair ref_key{ref_name, chr_name};
+                    
+                    // 预先获取锁以避免重复lock/unlock
+                    std::shared_lock prev_lock(prev_block->rw);
+                    std::shared_lock curr_lock(current_block->rw);
+                    
+                    // 直接查找，避免遍历整个anchors
+                    auto prev_anchor_it = prev_block->anchors.find(ref_key);
+                    auto curr_anchor_it = current_block->anchors.find(ref_key);
+                    
+                    // 快速存在性检查
+                    if (prev_anchor_it != prev_block->anchors.end() && 
+                        curr_anchor_it != current_block->anchors.end()) {
+                        
+                        const SegPtr prev_seg = prev_anchor_it->second;
+                        const SegPtr curr_seg = curr_anchor_it->second;
+                        
+                        // 快速重叠判断（内联计算，避免函数调用）
+                        const uint_t prev_end = prev_seg->start + prev_seg->length;
+                        const uint_t curr_start = curr_seg->start;
+                        
+                        // 发现重叠
+                        if (prev_end > curr_start) {
+                            // 处理合并
+                            // 确定重叠区间
+                            uint_t overlap_start = std::max(prev_seg->start, curr_seg->start);
+                            uint_t overlap_end = std::min(prev_seg->start + prev_seg->length, curr_seg->start + curr_seg->length);
+                            
+                            // 计算出区间：前缀区间，重叠区间，后缀区间（前缀或后缀不一定存在，但重叠区间一定存在）
+                            uint_t full_start = std::min(prev_seg->start, curr_seg->start);
+                            uint_t full_end = std::max(prev_seg->start + prev_seg->length, curr_seg->start + curr_seg->length);
+                            
+                            // 前缀区间：从合并范围开始到重叠开始
+                            uint_t prefix_start = full_start;
+                            uint_t prefix_end = overlap_start;
+                            bool has_prefix = prefix_start < prefix_end;
+                            
+                            // 后缀区间：从重叠结束到合并范围结束
+                            uint_t suffix_start = overlap_end;
+                            uint_t suffix_end = full_end;
+                            bool has_suffix = suffix_start < suffix_end;
+                            
+                            // 计算创建新block和新seg的参数，然后创建2-3个新的Block和Segment
+                            
+                            // 1. 创建前缀block和segment（如果存在）
+                            if (has_prefix) {
+                                BlockPtr prefix_block = Block::create(2);
+                                prefix_block->ref_chr = prev_block->ref_chr;
+                                
+                                SegPtr prefix_ref_seg = Segment::create(
+                                    prefix_start, 
+                                    prefix_end - prefix_start, 
+                                    Strand::FORWARD,  // ref总是正向
+                                    prev_seg->cigar, // ref没有cigar，所以直接使用prev的cigar
+                                    prev_seg->align_role, // 使用prev的align_role, 以防以后有secondary alignment
+                                    SegmentRole::SEGMENT, // 前缀是segment，所以是segment
+                                    prefix_block
+                                );
+                            }
+                            
+                            // 2. 创建重叠block和segment（必定存在）
+                            BlockPtr overlap_block = Block::create(2);
+                            overlap_block->ref_chr = prev_block->ref_chr;
+                            
+                            SegPtr overlap_ref_seg = Segment::create(
+                                overlap_start, 
+                                overlap_end - overlap_start, 
+                                Strand::FORWARD,  // ref总是正向
+                                prev_seg->cigar, // ref没有cigar，所以直接使用prev的cigar
+                                prev_seg->align_role, // 使用prev的align_role, 以防以后有secondary alignment
+                                SegmentRole::SEGMENT, // 重叠是segment，所以是segment
+                                overlap_block
+                            );
+                            
+                            // 3. 创建后缀block和segment（如果存在）
+                            if (has_suffix) {
+                                BlockPtr suffix_block = Block::create(2);
+                                suffix_block->ref_chr = prev_block->ref_chr;
+                                
+                                SegPtr suffix_ref_seg = Segment::create(
+                                    suffix_start, 
+                                    suffix_end - suffix_start, 
+                                    Strand::FORWARD,  // ref总是正向
+                                    prev_seg->cigar, // ref没有cigar，所以直接使用prev的cigar
+                                    prev_seg->align_role, // 使用prev的align_role, 以防以后有secondary alignment
+                                    SegmentRole::SEGMENT, // 后缀是segment，所以是segment
+                                    suffix_block
+                                );
+                            }
+
+                            // 准备开始处理两个query，首先处理prev_block，然后处理current_block
+                            // 1. 处理prev_block
+                            // 遍历prev_block非ref的anchors
+                            for (const auto& [species_chr, segment] : prev_block->anchors) {
+                                // 找到非ref的anchor
+                                if (species_chr.first != ref_name) {
+                                    std::string cigar_str;
+                                    for(CigarUnit cu : segment->cigar){
+                                        uint32_t cigar_len;
+                                        char op;
+                                        intToCigar(cu, op, cigar_len);
+                                        cigar_str += std::to_string(cigar_len) + op;
+                                    }
+                                    std::cout<<"cigar_str: "<<cigar_str<<std::endl;
+                                }
+                            }
+
+                            
+                        }
+                    }
+                }
+
+
+                prev_block = current_block;
+                prev = current;
+                // 移动到下一个segment - 使用原子操作保证线程安全
+                current = current->primary_path.next.load(std::memory_order_acquire);
+            }
+        }
+    }
+
+    /* ==============================================================
+     * 7. 高性能删除方法 (public API)
+     * ==============================================================*/
+    bool RaMeshMultiGenomeGraph::removeBlock(const BlockPtr& block) {
+        if (!block) return false;
+        
+        std::unique_lock graph_lock(rw);
+        
+        // 1. 从全局block池中移除
+        auto it = std::find_if(blocks.begin(), blocks.end(),
+            [&](const WeakBlock& wb) { 
+                auto locked = wb.lock();
+                return locked && locked == block; 
+            });
+        
+        if (it != blocks.end()) {
+            blocks.erase(it);
+        } else {
+            return false; // 未找到block
+        }
+        
+        // 2. 从每个物种的链表中移除相关segments
+        {
+            std::shared_lock block_lock(block->rw);
+            for (const auto& [species_chr, segment] : block->anchors) {
+                if (segment) {
+                    const SpeciesName& species = species_chr.first;
+                    const ChrName& chr = species_chr.second;
+                    
+                    auto species_it = species_graphs.find(species);
+                    if (species_it != species_graphs.end()) {
+                        auto chr_it = species_it->second.chr2end.find(chr);
+                        if (chr_it != species_it->second.chr2end.end()) {
+                            chr_it->second.removeSegment(segment);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 3. 清空block的anchors（segments会由GenomeEnd负责删除）
+        block->removeAllSegments();
+        
+        return true;
+    }
+    
+    bool RaMeshMultiGenomeGraph::removeBlockById(size_t block_index) {
+        std::unique_lock graph_lock(rw);
+        
+        if (block_index >= blocks.size()) return false;
+        
+        auto weak_block = blocks[block_index];
+        auto block = weak_block.lock();
+        
+        if (!block) {
+            // 清理过期的weak_ptr
+            blocks.erase(blocks.begin() + block_index);
+            return false;
+        }
+        
+        return removeBlock(block);
+    }
+    
+    void RaMeshMultiGenomeGraph::removeBlocksBatch(const std::vector<BlockPtr>& blocks_to_remove) {
+        if (blocks_to_remove.empty()) return;
+        
+        std::unique_lock graph_lock(rw);
+        
+        // 收集所有需要删除的segments，按物种-染色体分组
+        std::unordered_map<SpeciesName, 
+            std::unordered_map<ChrName, std::vector<SegPtr>>> segments_by_genome;
+        
+        for (const auto& block : blocks_to_remove) {
+            if (!block) continue;
+            
+            std::shared_lock block_lock(block->rw);
+            for (const auto& [species_chr, segment] : block->anchors) {
+                if (segment) {
+                    segments_by_genome[species_chr.first][species_chr.second].emplace_back(segment);
+                }
+            }
+        }
+        
+        // 批量删除segments
+        for (const auto& [species, chr_map] : segments_by_genome) {
+            auto species_it = species_graphs.find(species);
+            if (species_it != species_graphs.end()) {
+                for (const auto& [chr, segments] : chr_map) {
+                    auto chr_it = species_it->second.chr2end.find(chr);
+                    if (chr_it != species_it->second.chr2end.end()) {
+                        chr_it->second.removeBatch(segments);
+                    }
+                }
+            }
+        }
+        
+        // 从全局block池中移除
+        for (const auto& block : blocks_to_remove) {
+            auto it = std::find_if(blocks.begin(), blocks.end(),
+                [&](const WeakBlock& wb) { 
+                    auto locked = wb.lock();
+                    return locked && locked == block; 
+                });
+            
+            if (it != blocks.end()) {
+                blocks.erase(it);
+            }
+            
+            // 清空block的anchors
+            block->removeAllSegments();
+        }
+    }
+    
+    size_t RaMeshMultiGenomeGraph::removeExpiredBlocks() {
+        std::unique_lock graph_lock(rw);
+        
+        size_t removed_count = 0;
+        
+        // 移除所有过期的weak_ptr
+        blocks.erase(
+            std::remove_if(blocks.begin(), blocks.end(),
+                [&removed_count](const WeakBlock& wb) {
+                    if (wb.expired()) {
+                        ++removed_count;
+                        return true;
+                    }
+                    return false;
+                }),
+            blocks.end()
+        );
+        
+        return removed_count;
+    }
+    
+    void RaMeshMultiGenomeGraph::removeSpecies(const SpeciesName& species) {
+        std::unique_lock graph_lock(rw);
+        
+        // 1. 移除species_graphs中的条目
+        auto species_it = species_graphs.find(species);
+        if (species_it == species_graphs.end()) return;
+        
+        // 2. 收集包含该物种的所有blocks
+        std::vector<BlockPtr> blocks_to_remove;
+        
+        for (const auto& weak_block : blocks) {
+            auto block = weak_block.lock();
+            if (!block) continue;
+            
+            std::shared_lock block_lock(block->rw);
+            for (const auto& [species_chr, segment] : block->anchors) {
+                if (species_chr.first == species) {
+                    blocks_to_remove.emplace_back(block);
+                    break;
+                }
+            }
+        }
+        
+        // 3. 批量删除blocks
+        removeBlocksBatch(blocks_to_remove);
+        
+        // 4. 从species_graphs中移除
+        species_graphs.erase(species_it);
+    }
+    
+    void RaMeshMultiGenomeGraph::removeChromosome(const SpeciesName& species, const ChrName& chr) {
+        std::unique_lock graph_lock(rw);
+        
+        auto species_it = species_graphs.find(species);
+        if (species_it == species_graphs.end()) return;
+        
+        auto chr_it = species_it->second.chr2end.find(chr);
+        if (chr_it == species_it->second.chr2end.end()) return;
+        
+        // 1. 收集包含该染色体的所有blocks
+        std::vector<BlockPtr> blocks_to_update;
+        std::vector<BlockPtr> blocks_to_remove;
+        
+        for (const auto& weak_block : blocks) {
+            auto block = weak_block.lock();
+            if (!block) continue;
+            
+            std::shared_lock block_lock(block->rw);
+            SpeciesChrPair target_key{species, chr};
+            
+            if (block->anchors.find(target_key) != block->anchors.end()) {
+                if (block->anchors.size() == 1) {
+                    // 如果block只包含这一个染色体，删除整个block
+                    blocks_to_remove.emplace_back(block);
+                } else {
+                    // 否则只删除这个染色体的segment
+                    blocks_to_update.emplace_back(block);
+                }
+            }
+        }
+        
+        // 2. 清空该染色体的所有segments
+        chr_it->second.clearAllSegments();
+        
+        // 3. 更新相关blocks
+        for (const auto& block : blocks_to_update) {
+            block->removeSegment(species, chr);
+        }
+        
+        // 4. 删除只包含该染色体的blocks
+        removeBlocksBatch(blocks_to_remove);
+        
+        // 5. 从species_graphs中移除染色体
+        species_it->second.chr2end.erase(chr_it);
+    }
+    
+    void RaMeshMultiGenomeGraph::clearAllGraphs() {
+        std::unique_lock graph_lock(rw);
+        
+        // 1. 清空所有species的图
+        for (auto& [species, genome_graph] : species_graphs) {
+            std::unique_lock species_lock(genome_graph.rw);
+            for (auto& [chr, genome_end] : genome_graph.chr2end) {
+                genome_end.clearAllSegments();
+            }
+            genome_graph.chr2end.clear();
+        }
+        
+        // 2. 清空所有blocks
+        for (const auto& weak_block : blocks) {
+            auto block = weak_block.lock();
+            if (block) {
+                block->removeAllSegments();
+            }
+        }
+        blocks.clear();
+        
+        // 3. 清空species_graphs
+        species_graphs.clear();
+    }
+    
+    size_t RaMeshMultiGenomeGraph::compactBlockPool() {
+        std::unique_lock graph_lock(rw);
+        
+        size_t original_size = blocks.size();
+        size_t compacted = removeExpiredBlocks();
+        
+        // 可以在这里添加更多的内存优化逻辑
+        blocks.shrink_to_fit();
+        
+        return compacted;
+    }
+    
+    void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
+        std::shared_lock graph_lock(rw);
+        
+        // 优化每个物种图的采样表
+        for (auto& [species, genome_graph] : species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+            for (auto& [chr, genome_end] : genome_graph.chr2end) {
+                // 重建采样表以提高查询效率
+                std::vector<SegPtr> all_segments;
+                SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
+                
+                while (current && !current->isTail()) {
+                    all_segments.emplace_back(current);
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+                
+                if (!all_segments.empty()) {
+                    genome_end.updateSampling(all_segments);
+                }
+            }
+        }
+    }
+    
+    RaMeshMultiGenomeGraph::DeletionStats RaMeshMultiGenomeGraph::performMaintenance(bool full_gc) {
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
+        DeletionStats stats;
+        
+        // 1. 清理过期的blocks
+        stats.expired_blocks_cleaned = removeExpiredBlocks();
+        
+        if (full_gc) {
+            // 2. 压缩block池
+            stats.blocks_removed = compactBlockPool();
+            
+            // 3. 优化图结构
+            optimizeGraphStructure();
+            stats.sampling_updates = species_graphs.size(); // 简化统计
+        }
+        
+        auto end_time = std::chrono::high_resolution_clock::now();
+        stats.total_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+        
+        return stats;
+    }
 } // namespace RaMesh

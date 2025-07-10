@@ -60,8 +60,6 @@ public:
         uint_t min_span = 50
     );
 
-    void mergeMultipleGraphs(const SpeciesName& ref_name, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& shared_pool);
-
 private:
     // 辅助函数：处理基本区间
     static RaMesh::BlockPtr processElementaryInterval(
