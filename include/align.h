@@ -170,24 +170,41 @@ inline int auto_band(int qlen, int tlen,
     return (w + 15) / 16 * 16;                         // 向上取 16 的倍数
 }
 
+/// \brief 生成 KSW2 的对齐配置
+/// \param qlen        query 长度
+/// \param tlen        target / ref 长度
+/// \param rev_cigar   是否让 ksw 回溯输出反向 CIGAR（给二次对齐用）
+/// \param indel_rate  估计的插入/缺失率，用于自动带宽
+/// \param eqx_cigar   若为 true，输出 CIGAR 将含 '=' / 'X'；
+///                    否则匹配/错配都记为 'M'（默认）
+///
+/// 其余参数均按 minimap2 常用设置来。
+///
 inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
     bool rev_cigar = false,
-    double indel_rate = 0.05)
+    double indel_rate = 0.05,
+    bool eqx_cigar = false)      // ← 新增
 {
-    init_simd_mat();                // 确保矩阵已填
-    int flags = KSW_EZ_APPROX_MAX | KSW_EZ_APPROX_DROP | KSW_EZ_RIGHT;
-    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR;          // 需要时再加
+    init_simd_mat();                          // 确保 scoring matrix 已准备好
+
+    int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+        KSW_EZ_APPROX_DROP |          // 近似最大 drop
+        KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
+    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+
     return {
-        .mat = dna5_simd_mat,
+        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
         .alphabet_size = 5,
-        .gap_open = 8,
-        .gap_extend = 1,
+        .gap_open = 5,                                     // -8 -1 model
+        .gap_extend = 2,
         .end_bonus = 0,
         .zdrop = 100,
-        .band_width = auto_band(qlen, tlen, indel_rate),
+        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
         .flag = flags
     };
 }
+
 
 KSW2AlignConfig makeDefaultKSW2Config();
 

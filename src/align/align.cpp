@@ -114,45 +114,6 @@ Cigar_t globalAlignWFA2(const std::string& ref,
     return cigar;
 }
 
-// ---------- mini-MSA for one insertion block ----------
-static std::vector<std::string>
-alignInsertBlock(const std::vector<std::string>& ins_vec)
-{
-    size_t n = ins_vec.size();
-    size_t im = std::max_element(ins_vec.begin(), ins_vec.end(),
-        [](auto& a, auto& b) { return a.size() < b.size(); }) - ins_vec.begin();
-    const std::string& ref_ins = ins_vec[im];
-
-    std::vector<std::string> gapped(n);
-    gapped[im] = ref_ins;                    // 先放原串，后续可能带 gap
-
-    for (size_t i = 0; i < n; ++i) {
-        if (i == im) continue;
-        if (ins_vec[i].empty()) continue;
-
-        Cigar_t cg = globalAlignKSW2(ref_ins, ins_vec[i]);
-        auto [ga_ref, ga_qry] = buildAlignment(ref_ins, ins_vec[i], cg);
-
-        // 若第一次引入 gap，需同步更新 gapped[im]
-        if (ga_ref.size() > gapped[im].size())
-            gapped[im].swap(ga_ref);
-        else if (ga_ref != gapped[im])
-            // ga_ref 已带 gap，但长短相同；可直接用
-            gapped[im] = ga_ref;
-
-        gapped[i] = std::move(ga_qry);
-    }
-
-    // 把空插入也补成全 gap
-    size_t W = gapped[im].size();
-    for (size_t i = 0; i < n; ++i)
-        if (gapped[i].empty())
-            gapped[i].assign(W, '-');
-
-    return gapped;
-}
-
-
 /* ──────────── 合并成 MSA (就地修改 seqs) ──────────── */
 uint_t mergeAlignmentByRef(
     ChrName ref_name,
