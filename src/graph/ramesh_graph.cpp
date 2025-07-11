@@ -306,6 +306,9 @@ namespace RaMesh {
                 }
 
                 // 遍历链表检查完整性
+                if (species_name == "simHuman") {
+                    std::cout << "";
+                }
                 SegPtr current = genome_end.head;
                 SegPtr prev = nullptr;
                 size_t segment_count = 0;
@@ -958,26 +961,33 @@ namespace RaMesh {
                                 if (prefix_block) {
                                     blocks.emplace_back(WeakBlock(prefix_block));
                                     // 将prefix的Seg插入
-                                    prefix_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
+                                    
                                     prefix_ref_seg->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                     overlap_ref_seg->primary_path.prev.store(prefix_ref_seg, std::memory_order_release);
+
+                                    prefix_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
+									prev_prev->primary_path.next.store(prefix_ref_seg, std::memory_order_release);
                                 }
                                 else
                                 {
                                     overlap_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
-
+                                    prev_prev->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                 }
                                 blocks.emplace_back(WeakBlock(overlap_block));
 
                                 if (suffix_block) {
                                     blocks.emplace_back(WeakBlock(suffix_block));
-                                    suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    
                                     suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+									current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+
                                     overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                    suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
                                 else
                                 {
                                     overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+									current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
 
 
