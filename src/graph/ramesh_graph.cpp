@@ -91,6 +91,31 @@ namespace RaMesh {
         }
     }
 
+    RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
+        std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_map)
+    {
+        for (const auto& [sp, mgr_ptr] : seqpro_map) {
+            // 默认空列表，以便 mgr_ptr 为空时也能插入
+            std::vector<ChrName> chr_names;
+
+            if (mgr_ptr) {                         // shared_ptr 本身非空
+                chr_names = std::visit(
+                    [](const auto& up) -> std::vector<ChrName> {
+                        // up 是 std::unique_ptr<...>
+                        return up ? up->getSequenceNames()
+                            : std::vector<ChrName>{};
+                    },
+                    *mgr_ptr                      // 解引用 shared_ptr 得到 ManagerVariant
+                );
+            }
+
+            // sp → RaMeshSpeciesGraph 构造（sp, chr_names）
+            species_graphs.try_emplace(sp, sp, std::move(chr_names));
+        }
+    }
+
+
+
     /* =============================================================
      * 3.  Cluster insertion (public API)
      * ===========================================================*/
