@@ -65,23 +65,64 @@ namespace RaMesh {
         }
     }
     
-    void Segment::unlinkSegment(SegPtr segment) {
-        if (!segment || segment->isHead() || segment->isTail()) return;
-        
-        // 获取前驱和后继
-        SegPtr prev = segment->primary_path.prev.load(std::memory_order_acquire);
-        SegPtr next = segment->primary_path.next.load(std::memory_order_acquire);
-        
-        if (prev && next) {
-            // 原子地更新链表指针
-            prev->primary_path.next.store(next, std::memory_order_release);
-            next->primary_path.prev.store(prev, std::memory_order_release);
-            
-            // 清空被删除segment的指针
-            segment->primary_path.next.store(nullptr, std::memory_order_relaxed);
-            segment->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+    //void Segment::unlinkSegment(SegPtr segment) {
+    //    if (!segment || segment->isHead() || segment->isTail()) return;
+    //    
+    //    // 获取前驱和后继
+    //    SegPtr prev = segment->primary_path.prev.load(std::memory_order_acquire);
+    //    SegPtr next = segment->primary_path.next.load(std::memory_order_acquire);
+    //    
+    //    if (prev && next) {
+    //        // 原子地更新链表指针
+    //        prev->primary_path.next.store(next, std::memory_order_release);
+    //        next->primary_path.prev.store(prev, std::memory_order_release);
+    //        
+    //        // 清空被删除segment的指针
+    //        segment->primary_path.next.store(nullptr, std::memory_order_relaxed);
+    //        segment->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+    //    }
+    //}
+    void Segment::unlinkSegment(SegPtr seg)
+    {
+        if (!seg || seg->isHead() || seg->isTail()) return;
+
+        while (true)
+        {
+            SegPtr prev = seg->primary_path.prev.load(std::memory_order_acquire);
+            SegPtr next = seg->primary_path.next.load(std::memory_order_acquire);
+
+            /* 已经被别人摘掉 */
+            if (!prev || !next) return;
+
+            /* --- 第 1 步：CAS 把 prev->next 从 seg 改成 next --- */
+            SegPtr expect = seg;
+            if (!prev->primary_path.next.compare_exchange_weak(
+                expect, next,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
+            {
+                /* 失败说明 prev->next 已被改掉；重读指针重试 */
+                continue;
+            }
+
+            /* --- 第 2 步：CAS 把 next->prev 从 seg 改成 prev --- */
+            expect = seg;
+            while (!next->primary_path.prev.compare_exchange_weak(
+                expect, prev,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
+            {
+                if (expect != seg)
+                    break;          // 别的线程已改好，我们就接受它
+            }
+
+            /* --- 标记 seg 已脱链 --- */
+            seg->primary_path.next.store(nullptr, std::memory_order_release);
+            seg->primary_path.prev.store(nullptr, std::memory_order_release);
+            return;
         }
     }
+
     
     void Segment::deleteSegment(SegPtr segment) {
         if (!segment) return;
@@ -199,8 +240,13 @@ namespace RaMesh {
             lk.unlock();                             // 之后只读链表，不再访问 sample_vec
 
             // 2) 保证 hint 在目标区间左侧
-            while (!hint->isHead() && hint->start > range_start)
+            while (!hint->isHead() && hint->start > range_start) {
+                if (!hint->primary_path.prev.load(std::memory_order_acquire)) {
+                    std::cout << "";
+                }
                 hint = hint->primary_path.prev.load(std::memory_order_acquire);
+            }
+                
 
             SegPtr prev = hint;
             SegPtr curr = hint->primary_path.next.load(std::memory_order_acquire);
@@ -485,19 +531,40 @@ namespace RaMesh {
         return { ref_seg, qry_seg };
     }
     
-    void Block::removeAllSegments() {
-        std::unique_lock lk(rw);
-        
-        // 从所有链表中解除链接并清理anchors
-        for (auto& [species_chr, segment] : anchors) {
-            if (segment) {
-                Segment::unlinkSegment(segment);
-                segment->parent_block.reset();
-                delete segment;
-            }
+    //void Block::removeAllSegments() {
+    //    std::unique_lock lk(rw);
+    //    
+    //    // 从所有链表中解除链接并清理anchors
+    //    for (auto& [species_chr, segment] : anchors) {
+    //        if (segment) {
+    //            Segment::unlinkSegment(segment);
+    //            segment->parent_block.reset();
+    //            delete segment;
+    //        }
+    //    }
+    //    anchors.clear();
+    //}
+    void Block::removeAllSegments()
+    {
+        std::unique_lock lk(rw);                     // 独占 Block
+
+        std::vector<SegPtr> seg_list;
+        seg_list.reserve(anchors.size());
+
+        for (auto& [_, seg] : anchors)       // 只读，绝不修改 anchors
+            if (seg) seg_list.push_back(seg);
+
+        anchors.clear();                              // 现在可以一次性清空
+
+        /* 真正断链 + 释放在容器之外进行，
+           即使过程中触发再修改 anchors，也不会再有活迭代器。 */
+        for (SegPtr seg : seg_list) {
+            Segment::unlinkSegment(seg);
+            seg->parent_block.reset();
+            delete seg;
         }
-        anchors.clear();
     }
+
     
     void Block::removeSegmentsBySpecies(const SpeciesName& species) {
         std::unique_lock lk(rw);

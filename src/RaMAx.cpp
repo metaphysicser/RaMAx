@@ -708,7 +708,7 @@ int main(int argc, char **argv) {
     spdlog::info("============================================================");
     spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
 
-    graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
+    // graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
 
 
     // ------------------------------
