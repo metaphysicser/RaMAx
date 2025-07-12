@@ -1057,20 +1057,42 @@ namespace RaMesh {
 
                                 if (suffix_block) {
                                     blocks.emplace_back(WeakBlock(suffix_block));
-                                    
-                                    suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-									current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    SegPtr suffix_next = current_next;
+                                    if (current_next->isTail()) {
+                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
 
-                                    overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                    suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    }
+                                    else if(suffix_ref_seg->start > suffix_next->start)
+                                    {
+                                        while (suffix_ref_seg->start > suffix_next->start) {
+                                            suffix_next = suffix_next->primary_path.next.load(std::memory_order_release);
+                                        }
+                                        overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+
+                                        suffix_ref_seg->primary_path.prev.store(suffix_next->primary_path.prev.load(std::memory_order_release), std::memory_order_release);
+                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+
+                                        suffix_ref_seg->primary_path.next.store(suffix_next, std::memory_order_release);
+                                        suffix_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    }
+                                    else {
+                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+
+                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    }
+
                                 }
                                 else
                                 {
                                     overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
 									current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
-
-
 
                                 // 开始替换query的seg和block
                                 for (const auto &[species_chr, segment]: prev_block->anchors) {
@@ -1243,9 +1265,24 @@ namespace RaMesh {
 
                                         // 遍历该染色体的所有segments
                                         SegPtr current = genome_end.head;
+                                        current = current->primary_path.next.load(std::memory_order_acquire);
                                         while (current && current != genome_end.tail) {
                                             if (current->isSegment()) {
                                                 chr_info.segments.emplace_back(current);
+                                            }
+                                            // 检查链表结构是否正确
+                                            if (current->isHead()) {
+                                                current = current->primary_path.next.load(std::memory_order_acquire);
+                                                continue;
+                                            }
+                                            SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+                                            if(prev->isHead())
+                                            {
+                                                current = current->primary_path.next.load(std::memory_order_acquire);
+                                                continue;
+                                            }
+                                            if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+                                                std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
                                             }
                                             current = current->primary_path.next.load(std::memory_order_acquire);
                                         }
@@ -1270,33 +1307,6 @@ namespace RaMesh {
                 }
             }
         }
-        // 收集所有物种的segment详细信息
-        debug_all_species_segments.clear();
-        for (const auto& [species_name, genome_graph] : species_graphs) {
-            SpeciesDebugInfo species_info(species_name);
-            std::shared_lock genome_lock(genome_graph.rw);
-
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                ChromosomeDebugInfo chr_info(chr_name);
-                std::shared_lock end_lock(genome_end.rw);
-
-                // 遍历该染色体的所有segments
-                SegPtr current = genome_end.head;
-                while (current && current != genome_end.tail) {
-                    if (current->isSegment()) {
-                        chr_info.segments.emplace_back(current);
-                    }
-                    current = current->primary_path.next.load(std::memory_order_acquire);
-                }
-
-                species_info.chromosomes.push_back(std::move(chr_info));
-            }
-
-            debug_all_species_segments.push_back(std::move(species_info));
-        }
-        // std::cout<<"test";
-        // std::cout<<"test";
-        // std::cout<<"test";
     }
 
     /* ==============================================================
