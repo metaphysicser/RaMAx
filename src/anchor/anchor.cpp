@@ -311,6 +311,68 @@ groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
     return result;
 }
 
+// ------------------------------------------------------------------
+// 把 3D: [strand][queryRef][ref] 的聚簇重新组织成 1D: [ref]
+// ------------------------------------------------------------------
+ClusterVecPtrByRefPtr
+groupClustersToRefVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
+    ThreadPool& pool)
+{
+    // ---------- 1. 空输入快速返回 ----------
+    if (!src || src->empty()) {
+        return std::make_shared<ClusterVecPtrByRef>();
+    }
+
+    // ---------- 2. 探测参考染色体 (Ref) 数 ----------
+    size_t n_ref = 0;
+    for (const auto& strandVec : *src) {
+        for (const auto& queryVec : strandVec) {
+            if (!queryVec.empty()) {
+                n_ref = queryVec.size();   // 第一次遇到非空即足够
+                break;
+            }
+        }
+        if (n_ref) break;
+    }
+    if (n_ref == 0) {
+        return std::make_shared<ClusterVecPtrByRef>();   // 没有 Ref
+    }
+
+    // ---------- 3. 准备目标结构 ----------
+    auto dst = std::make_shared<ClusterVecPtrByRef>(n_ref, nullptr);
+
+    // ---------- 4. 为 “每个 Ref ⇨ 一条任务” ----------
+    std::vector<std::future<void>> futures;
+    futures.reserve(n_ref);
+
+    for (size_t ref_id = 0; ref_id < n_ref; ++ref_id) {
+        futures.emplace_back(
+            pool.enqueue([&, ref_id] {
+                auto combined = std::make_shared<MatchClusterVec>();
+
+                // 聚合：遍历所有 [strand][query]，把 ref_id 处的聚簇并入
+                for (const auto& strandVec : *src) {
+                    for (const auto& queryVec : strandVec) {
+                        if (ref_id < queryVec.size() && queryVec[ref_id]) {
+                            combined->insert(combined->end(),
+                                queryVec[ref_id]->begin(),
+                                queryVec[ref_id]->end());
+                        }
+                    }
+                }
+                // 无竞态：独占写入各自槽位
+                (*dst)[ref_id] = std::move(combined);
+                })
+        );
+    }
+
+    // ---------- 5. 等待全部任务完成 ----------
+    for (auto& fut : futures) fut.get();
+
+    return dst;
+}
+
+
 //--------------------------------------------------------------------
 // Anchor 验证功能实现
 //--------------------------------------------------------------------

@@ -456,9 +456,10 @@ namespace RaMesh {
     /* =============================================================
      * 6.  Merge multiple graphs (public API)
      * ===========================================================*/
-    void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, ThreadPool &shared_pool) {
+    void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
         std::shared_lock graph_lock(rw);
 
+        ThreadPool shared_pool(thread_num);
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
         // 改为遍历species_graphs来查找Ref
