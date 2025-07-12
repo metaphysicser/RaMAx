@@ -225,13 +225,14 @@ namespace RaMesh {
         // 图正确性验证函数
         bool verifyGraphCorrectness(bool verbose = false) const;
 
+        void mergeMultipleGraphs(const SpeciesName& ref_name, uint_t thread_num);
+
         std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs; // guard: rw
         std::vector<WeakBlock>                             blocks;         // guard: rw
         mutable std::shared_mutex                          rw;             // multi‑reader / single‑writer
 
         void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
 
-        void mergeMultipleGraphs(const SpeciesName& ref_name, ThreadPool& shared_pool);
         
         // ――― high-performance deletion methods ―――
         bool removeBlock(const BlockPtr& block);

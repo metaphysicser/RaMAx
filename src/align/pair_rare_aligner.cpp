@@ -426,7 +426,187 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	// *cluster_vec_ptr = std::move(kept);
 }
 
+/* ============================================================= *
+ *  把三维 clusters  ->  按 ref 的一维 clusters
+ *  并行对每个 ref 走 keepWithSplitGreedy，再写回三维结构
+ * ============================================================= */
+ /**
+  * @brief  全局 MatchClusterVec 上执行“两级 map + 最大堆贪婪拆分”过滤
+  *
+  * @param cluster_vec_ptr  所有 clusters 的 shared_ptr
+  * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
+  * @param min_span         最小跨度阈值
+  */
+void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span)
+{
+#ifdef _DEBUG_
+	using Clock = std::chrono::steady_clock;
+	using nsec_t = uint64_t;
+	static std::atomic<nsec_t> ns_producer{ 0 }, ns_extend{ 0 }, ns_insert{ 0 };
+	static std::atomic<uint64_t> cnt_submit{ 0 }, cnt_extend{ 0 }, cnt_insert{ 0 }, cnt_finish{ 0 };
 
+	static std::atomic<nsec_t> ns_check_overlap{ 0 }, ns_insert_interval{ 0 },
+		ns_clone_cluster{ 0 }, ns_enqueue_task{ 0 }, ns_store_kept{ 0 };
+
+	auto ns2ms = [](nsec_t ns) { return static_cast<double>(ns) / 1'000'000.0; };
+#endif
+
+	MatchClusterVecPtr cluster_vec_ptr = groupClustersToVec(cluster_ptr, pool, thread_num);
+
+	pool.waitAllTasksDone();
+
+	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
+
+	struct Node {
+		MatchCluster cl;
+		int_t        span;
+	};
+	auto cmp = [](const Node& a, const Node& b) { return a.span < b.span; };
+
+	std::vector<Node> heap;
+	heap.reserve(cluster_vec_ptr->size());
+
+	for (auto& cl : *cluster_vec_ptr) {
+		if (cl.empty()) continue;
+		int_t sc = clusterSpan(cl);
+		if (sc >= min_span)
+			heap.push_back({ std::move(cl), sc });
+	}
+	cluster_vec_ptr->clear();
+	std::make_heap(heap.begin(), heap.end(), cmp);
+
+	std::unordered_map<ChrName, IntervalMap> rMaps;
+	std::unordered_map<ChrName, IntervalMap> qMaps;
+
+	MatchClusterVec kept;
+	kept.reserve(heap.size());
+
+	while (!heap.empty()) {
+#ifdef _DEBUG_
+		auto t0 = Clock::now();
+#endif
+
+		std::pop_heap(heap.begin(), heap.end(), cmp);
+		Node cur = std::move(heap.back());
+		heap.pop_back();
+
+		if (cur.span < min_span || cur.cl.empty()) continue;
+
+		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
+		const ChrName& qChr = cur.cl.front().query_region.chr_name;
+
+		Strand strand = cur.cl.front().strand;
+		uint_t rb = start1(cur.cl.front());
+		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
+		uint_t qb = 0;
+		uint_t qe = 0;
+		if (strand == FORWARD) {
+			qb = start2(cur.cl.front());
+			qe = start2(cur.cl.back()) + len2(cur.cl.back());
+		}
+		else {
+			qb = start2(cur.cl.back());
+			qe = start2(cur.cl.front()) + len2(cur.cl.front());
+		}
+
+		int_t RL = 0, RR = 0, QL = 0, QR = 0;
+
+#ifdef _DEBUG_
+		auto t_chk = Clock::now();
+#endif
+		bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
+		bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
+#ifdef _DEBUG_
+		ns_check_overlap += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_chk).count();
+#endif
+
+		if (!ref_hit && !query_hit) {
+#ifdef _DEBUG_
+			auto t_ins = Clock::now();
+#endif
+			insertInterval(rMaps[refChr], rb, re);
+			insertInterval(qMaps[qChr], qb, qe);
+#ifdef _DEBUG_
+			ns_insert_interval += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_ins).count();
+#endif
+
+#ifdef _DEBUG_
+			auto t_clone = Clock::now();
+#endif
+			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
+#ifdef _DEBUG_
+			ns_clone_cluster += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_clone).count();
+#endif
+
+#ifdef _DEBUG_
+			auto t_enq = Clock::now();
+#endif
+			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
+				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+				});
+#ifdef _DEBUG_
+			ns_enqueue_task += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_enq).count();
+#endif
+
+#ifdef _DEBUG_
+			auto t_store = Clock::now();
+#endif
+			kept.emplace_back(cur.cl);
+#ifdef _DEBUG_
+			ns_store_kept += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_store).count();
+#endif
+
+#ifdef _DEBUG_
+			ns_producer += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
+			cnt_submit.fetch_add(1, std::memory_order_relaxed);
+#endif
+
+			continue;
+		}
+
+		for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR, query_hit, QL, QR)) {
+			int_t sc = clusterSpan(part);
+			if (sc >= min_span) {
+				heap.push_back({ part, sc });
+				std::push_heap(heap.begin(), heap.end(), cmp);
+			}
+		}
+	}
+
+	pool.waitAllTasksDone();
+
+#ifdef _DEBUG_
+	spdlog::debug("");
+	spdlog::debug("================================================================");
+	spdlog::debug("                  constructGraphByGreedy Performance            ");
+	spdlog::debug("================================================================");
+	spdlog::debug("Main Operations:");
+	spdlog::debug("  Producer (split/enqueue)  : {:>10.3f} ms", ns2ms(ns_producer.load()));
+	spdlog::debug("  extendClusterToAnchor     : {:>10.3f} ms ({} calls, avg {:.3f} ms)",
+		ns2ms(ns_extend.load()), cnt_extend.load(),
+		ns2ms(ns_extend.load()) / std::max<uint64_t>(1, cnt_extend));
+	spdlog::debug("  insertAnchorIntoGraph     : {:>10.3f} ms ({} calls, avg {:.3f} ms)",
+		ns2ms(ns_insert.load()), cnt_insert.load(),
+		ns2ms(ns_insert.load()) / std::max<uint64_t>(1, cnt_insert));
+	spdlog::debug("");
+	spdlog::debug("Task Statistics:");
+	spdlog::debug("  Tasks submitted           : {}", cnt_submit.load());
+	spdlog::debug("  Tasks finished            : {}", cnt_finish.load());
+	spdlog::debug("");
+	spdlog::debug("Producer Step Breakdown:");
+	spdlog::debug("  check overlap             : {:>10.3f} ms", ns2ms(ns_check_overlap));
+	spdlog::debug("  insertInterval            : {:>10.3f} ms", ns2ms(ns_insert_interval));
+	spdlog::debug("  clone cluster (shared)    : {:>10.3f} ms", ns2ms(ns_clone_cluster));
+	spdlog::debug("  enqueue task              : {:>10.3f} ms", ns2ms(ns_enqueue_task));
+	spdlog::debug("  store kept                : {:>10.3f} ms", ns2ms(ns_store_kept));
+	spdlog::debug("================================================================");
+	spdlog::debug("");
+#endif
+
+	// *cluster_vec_ptr = std::move(kept);
+}
 
 ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)
 {
@@ -459,192 +639,6 @@ ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(Spe
 
 	return cluster_ptr;
 
-}
-
-void PairRareAligner::constructGraphByDP(
-	SpeciesName                               query_name,
-	SeqPro::ManagerVariant& query_seqpro_manager,
-	ClusterVecPtrByStrandByQueryRefPtr        matrix_ptr,
-	RaMesh::RaMeshMultiGenomeGraph& graph,
-	uint_t                                    min_span)
-{
-#ifdef _DEBUG_
-	using Clock = std::chrono::steady_clock;
-	using nsec_t = uint64_t;
-	static std::atomic<nsec_t> ns_scan{ 0 }, ns_rebal{ 0 }, ns_enq{ 0 }, ns_ext{ 0 }, ns_ins{ 0 };
-	static std::atomic<uint64_t> cnt_clu{ 0 }, cnt_tasks{ 0 };
-	auto ns2ms = [](nsec_t ns) {return static_cast<double>(ns) / 1'000'000.0;};
-#endif
-	if (!matrix_ptr || matrix_ptr->empty()) return;
-	const size_t T = thread_num ? thread_num : 1;
-
-	/* ---------- 0. 轻量哈希 ---------- */
-	auto hash_qr = [](size_t q, size_t r) noexcept->size_t {
-		size_t h = q + 0x9e3779b97f4a7c15ull;
-		h = (h ^ (h >> 30)) * 0xbf58476d1ce4e5b9ull; h ^= (h >> 27);
-		h = (h * 0x94d049bb133111ebull) ^ (h >> 31);
-		return h ^ (r + (r << 6) + (r >> 2));
-		};
-
-	/* ---------- 1. 扫描+分桶 ---------- */
-#ifdef _DEBUG_
-	auto t0 = Clock::now();
-#endif
-	struct Bin {
-		std::vector<MatchClusterVecPtr> vecs;
-		size_t clusters = 0;
-	};
-	std::vector<Bin> bins(T);
-
-	for (size_t s = 0;s < matrix_ptr->size();++s) {
-		auto& qArr = (*matrix_ptr)[s];
-		for (size_t q = 0;q < qArr.size();++q) {
-			auto& rArr = qArr[q];
-			for (size_t r = 0;r < rArr.size();++r) {
-				auto& ptr = rArr[r];
-				if (!ptr || ptr->empty())continue;
-				size_t b = hash_qr(q, r) % T;
-				bins[b].vecs.push_back(ptr);
-				bins[b].clusters += ptr->size();
-			}
-		}
-	}
-#ifdef _DEBUG_
-	ns_scan += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
-#endif
-
-	/* ---------- 2. rebalance：最大桶按 cluster 数折半填空桶 ---------- */
-/* ---------- 2. rebalance：最大桶深度折半填空桶 ---------- */
-#ifdef _DEBUG_
-	auto t_reb0 = Clock::now();
-#endif
-	{
-		std::vector<size_t> empty;
-		for (size_t i = 0; i < bins.size(); ++i)
-			if (bins[i].clusters == 0) empty.push_back(i);
-
-		// 最大堆 (clusters, idx)
-		using Info = std::pair<size_t, size_t>;
-		auto cmp = [](const Info& a, const Info& b) { return a.first < b.first; };
-
-		auto build_heap = [&] {
-			std::priority_queue<Info, std::vector<Info>, decltype(cmp)> pq(cmp);
-			for (size_t i = 0; i < bins.size(); ++i)
-				if (bins[i].clusters > 1) pq.emplace(bins[i].clusters, i);
-			return pq;
-			};
-
-		auto pq = build_heap();
-
-		while (!empty.empty() && !pq.empty())
-		{
-			auto [clu, idx] = pq.top(); pq.pop();
-			if (clu <= 1) break;                         // 已无法再切
-			Bin& big = bins[idx];
-
-			// 期望搬走的一半 cluster
-			size_t target = clu / 2;
-			size_t moved = 0;
-			Bin newBin;
-
-			// ① 先按 pointer 搬
-			while (!big.vecs.empty() && moved + big.vecs.back()->size() <= target) {
-				auto ptr = std::move(big.vecs.back());
-				big.vecs.pop_back();
-				big.clusters -= ptr->size();
-				newBin.clusters += ptr->size();
-				newBin.vecs.push_back(std::move(ptr));
-				moved += newBin.vecs.back()->size();
-			}
-
-			// ② 若还缺，且 big 里至少有 1 个 vecPtr，可深度拆 vec 本身
-			if (moved < target && !big.vecs.empty()) {
-				// 取最后一个 vecPtr（最大概率大）
-				auto& src_ptr = big.vecs.back();
-				if (src_ptr->size() > 1) {
-					size_t need = target - moved;
-					size_t half = std::min(need, src_ptr->size() / 2);
-					auto split_it = src_ptr->end() - half;             // 从尾部切
-
-					auto new_ptr = std::make_shared<MatchClusterVec>(split_it, src_ptr->end());
-					src_ptr->erase(split_it, src_ptr->end());
-
-					newBin.vecs.push_back(new_ptr);
-					newBin.clusters += new_ptr->size();
-					big.clusters -= new_ptr->size();
-					moved += new_ptr->size();
-				}
-			}
-
-			// 把 newBin 填入空槽
-			if (newBin.clusters == 0) break;              // 防守：没切成功
-			size_t dst = empty.back(); empty.pop_back();
-			bins[dst] = std::move(newBin);
-
-			// 把分裂后的桶重新入堆
-			pq = build_heap();                            // 重新建堆保持最大性
-		}
-	}
-#ifdef _DEBUG_
-	ns_rebal += std::chrono::duration_cast<std::chrono::nanoseconds>(
-		Clock::now() - t_reb0).count();
-#endif
-
-
-	/* ---------- 3. 并行处理 ---------- */
-	ThreadPool pool(T);
-	for (auto& bin : bins) {
-		if (bin.clusters == 0) continue;
-#ifdef _DEBUG_
-		cnt_tasks.fetch_add(1, std::memory_order_relaxed);
-		auto t_en = Clock::now();
-#endif
-		pool.enqueue([this, &graph, &query_seqpro_manager, &query_name,
-			clusters = std::move(bin.vecs), min_span]() mutable
-			{
-				for (auto& vecPtr : clusters) {
-					if (!vecPtr) continue;
-					for (const auto& clu : *vecPtr) {
-						if (clu.empty() || clusterSpan(clu) < static_cast<int_t>(min_span)) continue;
-#ifdef _DEBUG_
-						cnt_clu.fetch_add(1, std::memory_order_relaxed);
-						auto tA = Clock::now();
-#endif
-						AnchorVec anchors = extendClusterToAnchor(clu, *ref_seqpro_manager, query_seqpro_manager);
-#ifdef _DEBUG_
-						auto tB = Clock::now();
-						ns_ext += std::chrono::duration_cast<std::chrono::nanoseconds>(tB - tA).count();
-#endif
-						graph.insertAnchorIntoGraph(clu.front().ref_region.chr_name, query_name, anchors);
-#ifdef _DEBUG_
-						auto tC = Clock::now();
-						ns_ins += std::chrono::duration_cast<std::chrono::nanoseconds>(tC - tB).count();
-#endif
-					}
-				}
-			});
-#ifdef _DEBUG_
-		ns_enq += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_en).count();
-#endif
-	}
-	pool.waitAllTasksDone();
-
-#ifdef _DEBUG_
-	spdlog::debug("\n========== DEBUG: constructGraphByDP ==========\n"
-		"scan + binning        : {:.3f} ms\n"
-		"rebalance split       : {:.3f} ms\n"
-		"enqueue tasks ({})    : {:.3f} ms\n"
-		"extendClusterToAnchor : {:.3f} ms ({} clusters, avg {:.3f} ms)\n"
-		"insertAnchorIntoGraph : {:.3f} ms ({} clusters, avg {:.3f} ms)\n"
-		"===========================================================\n",
-		ns2ms(ns_scan), ns2ms(ns_rebal),
-		cnt_tasks.load(), ns2ms(ns_enq),
-		ns2ms(ns_ext), cnt_clu.load(),
-		ns2ms(ns_ext) / std::max<uint64_t>(1, cnt_clu.load()),
-		ns2ms(ns_ins), cnt_clu.load(),
-		ns2ms(ns_ins) / std::max<uint64_t>(1, cnt_clu.load())
-	);
-#endif
 }
 
 

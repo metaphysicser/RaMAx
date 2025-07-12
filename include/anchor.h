@@ -181,6 +181,10 @@ MatchClusterVecPtr
 groupClustersToVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
     ThreadPool& pool, uint_t thread_num);
 
+ClusterVecPtrByRefPtr
+groupClustersToRefVec(const ClusterVecPtrByStrandByQueryRefPtr& src,
+    ThreadPool& pool);
+
 
 ClusterVecPtrByRefPtr
 groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src);
