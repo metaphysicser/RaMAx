@@ -162,3 +162,192 @@ buildAlignment(const std::string& ref_seq,
 	}
 	return { ref_aln, qry_aln };
 }
+
+/* ----------------------------------------------------------
+ *  分割 CIGAR 字符串：根据指定长度将 CIGAR 分为两部分
+ *  --------------------------------------------------------*/
+std::pair<Cigar_t, Cigar_t> splitCigar(const std::string& cigar_str, uint32_t target_length)
+{
+    Cigar_t first_part, second_part;
+    
+    if (cigar_str.empty()) {
+        return {first_part, second_part};
+    }
+    
+    if (target_length == 0) {
+        // 如果目标长度为0，第一部分为空，第二部分包含整个CIGAR
+        size_t pos = 0;
+        while (pos < cigar_str.size()) {
+            uint32_t op_length = 0;
+            while (pos < cigar_str.size() && std::isdigit(cigar_str[pos])) {
+                op_length = op_length * 10 + (cigar_str[pos] - '0');
+                pos++;
+            }
+            if (pos >= cigar_str.size()) break;
+            char op = cigar_str[pos++];
+            second_part.push_back(cigarToInt(op, op_length));
+        }
+        return {first_part, second_part};
+    }
+    
+    uint32_t current_length = 0;
+    size_t pos = 0;
+    
+    while (pos < cigar_str.size() && current_length < target_length) {
+        // 解析数字（长度）
+        uint32_t op_length = 0;
+        while (pos < cigar_str.size() && std::isdigit(cigar_str[pos])) {
+            op_length = op_length * 10 + (cigar_str[pos] - '0');
+            pos++;
+        }
+        
+        // 解析操作符
+        if (pos >= cigar_str.size()) break;
+        char op = cigar_str[pos++];
+        
+        // 计算此操作在参考序列上消耗的长度
+        uint32_t ref_consumed = 0;
+        if (op != 'I') {  // 插入操作不消耗参考序列长度
+            ref_consumed = op_length;
+        }
+        
+        // 检查是否需要分割这个操作
+        if (current_length + ref_consumed <= target_length) {
+            // 整个操作都属于第一部分
+            first_part.push_back(cigarToInt(op, op_length));
+            current_length += ref_consumed;
+        } else {
+            // 需要分割这个操作
+            uint32_t remaining_length = target_length - current_length;
+            
+            if (op == 'I') {
+                // 对于插入操作，如果已经达到目标长度，整个插入都放到第二部分
+                second_part.push_back(cigarToInt(op, op_length));
+            } else {
+                // 对于其他操作，需要分割
+                if (remaining_length > 0) {
+                    first_part.push_back(cigarToInt(op, remaining_length));
+                }
+                uint32_t leftover_length = op_length - remaining_length;
+                if (leftover_length > 0) {
+                    second_part.push_back(cigarToInt(op, leftover_length));
+                }
+            }
+            current_length = target_length;
+            break;
+        }
+    }
+    
+    // 将剩余的CIGAR操作都加入第二部分
+    while (pos < cigar_str.size()) {
+        // 解析数字（长度）
+        uint32_t op_length = 0;
+        while (pos < cigar_str.size() && std::isdigit(cigar_str[pos])) {
+            op_length = op_length * 10 + (cigar_str[pos] - '0');
+            pos++;
+        }
+        
+        // 解析操作符
+        if (pos >= cigar_str.size()) break;
+        char op = cigar_str[pos++];
+        
+        second_part.push_back(cigarToInt(op, op_length));
+    }
+    
+    return {first_part, second_part};
+}
+
+/* ----------------------------------------------------------
+ *  解析 CIGAR 字符串为 Cigar_t 向量
+ *  --------------------------------------------------------*/
+void parseCigarString(const std::string& cigar_str, Cigar_t& cigar)
+{
+    cigar.clear();
+    
+    if (cigar_str.empty()) return;
+    
+    size_t pos = 0;
+    while (pos < cigar_str.size()) {
+        // 解析数字（长度）
+        uint32_t op_length = 0;
+        while (pos < cigar_str.size() && std::isdigit(cigar_str[pos])) {
+            op_length = op_length * 10 + (cigar_str[pos] - '0');
+            pos++;
+        }
+        
+        // 解析操作符
+        if (pos >= cigar_str.size()) break;
+        char op = cigar_str[pos++];
+        
+        cigar.push_back(cigarToInt(op, op_length));
+    }
+}
+
+/* ----------------------------------------------------------
+ *  将 Cigar_t 转换为字符串格式
+ *  --------------------------------------------------------*/
+std::string cigarToString(const Cigar_t& cigar)
+{
+    std::string result;
+    for (CigarUnit unit : cigar) {
+        char op;
+        uint32_t len;
+        intToCigar(unit, op, len);
+        result += std::to_string(len) + op;
+    }
+    return result;
+}
+
+/* ----------------------------------------------------------
+ *  分割 CIGAR 字符串：返回 Cigar_t 和剩余字符串
+ *  --------------------------------------------------------*/
+std::pair<Cigar_t, std::string> splitCigarMixed(const std::string& cigar_str, uint32_t target_length)
+{
+    // 先使用原函数获取两个Cigar_t
+    auto [first_cigar, second_cigar] = splitCigar(cigar_str, target_length);
+    
+    // 将第二部分转换为字符串
+    std::string second_str = cigarToString(second_cigar);
+    
+    return {first_cigar, second_str};
+}
+
+/* ----------------------------------------------------------
+ *  计算 CIGAR 中 M 操作的总长度
+ *  --------------------------------------------------------*/
+uint32_t countMatchOperations(const Cigar_t& cigar)
+{
+    uint32_t total_match_length = 0;
+    
+    for (CigarUnit unit : cigar) {
+        char op;
+        uint32_t len;
+        intToCigar(unit, op, len);
+        
+        if (op == 'M') {
+            total_match_length += len;
+        }
+    }
+    
+    return total_match_length;
+}
+
+/* ----------------------------------------------------------
+ *  计算 CIGAR 中非 D 操作的总长度
+ *  --------------------------------------------------------*/
+uint32_t countNonDeletionOperations(const Cigar_t& cigar)
+{
+    uint32_t total_length = 0;
+    
+    for (CigarUnit unit : cigar) {
+        char op;
+        uint32_t len;
+        intToCigar(unit, op, len);
+        
+        if (op != 'D') {
+            total_length += len;
+        }
+    }
+    
+    return total_length;
+}

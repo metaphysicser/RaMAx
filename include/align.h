@@ -134,6 +134,50 @@ buildAlignment(const std::string& ref_seq,
     const std::string& qry_seq,
     const Cigar_t& cigar);
 
+// ------------------------------------------------------------------
+// 函数：splitCigar
+// 功能：根据指定长度将CIGAR字符串分割为两部分
+// 参数：cigar_str - 输入的CIGAR字符串，target_length - 目标长度
+// 返回：两个Cigar_t，第一个是指定长度的部分，第二个是剩余部分
+// ------------------------------------------------------------------
+std::pair<Cigar_t, Cigar_t> splitCigar(const std::string& cigar_str, uint32_t target_length);
+
+// ------------------------------------------------------------------
+// 函数：parseCigarString
+// 功能：将CIGAR字符串解析为Cigar_t向量
+// ------------------------------------------------------------------
+void parseCigarString(const std::string& cigar_str, Cigar_t& cigar);
+
+// ------------------------------------------------------------------
+// 函数：cigarToString
+// 功能：将Cigar_t向量转换为字符串格式
+// ------------------------------------------------------------------
+std::string cigarToString(const Cigar_t& cigar);
+
+// ------------------------------------------------------------------
+// 函数：splitCigarMixed
+// 功能：根据指定长度将CIGAR字符串分割，返回Cigar_t和字符串
+// 参数：cigar_str - 输入的CIGAR字符串，target_length - 目标长度
+// 返回：第一部分为Cigar_t格式，第二部分为字符串格式
+// ------------------------------------------------------------------
+std::pair<Cigar_t, std::string> splitCigarMixed(const std::string& cigar_str, uint32_t target_length);
+
+// ------------------------------------------------------------------
+// 函数：countMatchOperations
+// 功能：计算CIGAR中M操作的总长度
+// 参数：cigar - 输入的Cigar_t
+// 返回：M操作的总长度
+// ------------------------------------------------------------------
+uint32_t countMatchOperations(const Cigar_t& cigar);
+
+// ------------------------------------------------------------------
+// 函数：countNonDeletionOperations
+// 功能：计算CIGAR中非D操作的总长度
+// 参数：cigar - 输入的Cigar_t
+// 返回：非D操作的总长度
+// ------------------------------------------------------------------
+uint32_t countNonDeletionOperations(const Cigar_t& cigar);
+
 
 
 struct KSW2AlignConfig {

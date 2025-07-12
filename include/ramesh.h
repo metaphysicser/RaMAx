@@ -170,13 +170,15 @@ namespace RaMesh {
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
 
+        mutable std::shared_mutex rw;
+
+
     private:
         std::unique_ptr<Segment> head_holder;
         std::unique_ptr<Segment> tail_holder;
 
         std::vector<SegPtr> sample_vec;
 
-        mutable std::shared_mutex rw;
 
         static bool spliceRange(SegPtr prev, SegPtr next,
             SegPtr first, SegPtr last);
