@@ -167,6 +167,8 @@ namespace RaMesh {
         void removeBatch(const std::vector<SegPtr>& segments);
         void invalidateSampling(uint_t start, uint_t end);
 
+        void removeOverlap();
+
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
 

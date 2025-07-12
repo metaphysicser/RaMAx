@@ -361,6 +361,61 @@ namespace RaMesh {
         }
     }
 
+    /* -------------------------------------------------------------
+     *  移除同一染色体链表中的重叠 Segment
+     *  规则：两条 Segment 区间有任何交叠时，删除 length 较小者
+     * -------------------------------------------------------------*/
+    void RaMesh::GenomeEnd::removeOverlap()
+    {
+        std::unique_lock<std::shared_mutex> lk(rw);      // 独占写
+
+        uint_t min_pos = UINT32_MAX;
+        uint_t max_pos = 0;
+
+        if (!head || !tail) return;
+
+        SegPtr prev = head->primary_path.next.load(std::memory_order_acquire);
+        if (!prev || prev == tail) return;
+
+        SegPtr cur = prev->primary_path.next.load(std::memory_order_acquire);
+
+        while (cur && cur != tail)
+        {
+            uint_t prev_end = prev->start + prev->length;
+            uint_t cur_start = cur->start;
+
+            /* -------- 检测交叠 -------- */
+            if (prev_end > cur_start)
+            {
+                /* 选出要删除的较短段 */
+                SegPtr victim = (prev->length <= cur->length) ? prev : cur;
+                SegPtr keeper = (victim == prev) ? cur : prev;
+
+                uint_t v_beg = victim->start;
+                uint_t v_end = victim->start + victim->length;
+
+                min_pos = std::min(min_pos, v_beg);
+                max_pos = std::max(max_pos, v_end);
+                if(victim->parent_block)
+				    victim->parent_block->removeAllSegments(); // 从 block 中移除
+
+                cur = keeper->primary_path.next.load(std::memory_order_acquire);
+				prev = keeper;                // 继续比较 keeper 与新 cur
+                continue;                           // 重新比较 keeper 与新 cur
+            }
+
+            /* -------- 无交叠，正常前进 -------- */
+            prev = cur;
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+
+        // 更新采样表
+        if (min_pos != UINT32_MAX) {
+            invalidateSampling(min_pos, max_pos);
+        }
+    }
+
+
     /* =============================================================
      * 2. Block factories
      * ===========================================================*/
