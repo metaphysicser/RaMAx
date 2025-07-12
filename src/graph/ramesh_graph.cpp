@@ -306,9 +306,6 @@ namespace RaMesh {
                 }
 
                 // 遍历链表检查完整性
-                if (species_name == "simHuman") {
-                    std::cout << "";
-                }
                 SegPtr current = genome_end.head;
                 SegPtr prev = nullptr;
                 size_t segment_count = 0;
@@ -459,6 +456,79 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, ThreadPool &shared_pool) {
         std::shared_lock graph_lock(rw);
 
+        // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
+        struct SegmentDebugInfo {
+            uint_t start;
+            uint_t length;
+            std::string strand_str;
+            std::string seg_role_str;
+            std::string align_role_str;
+            size_t cigar_size;
+            std::string parent_block_ref_chr;
+            size_t parent_block_anchors_count;
+
+            SegmentDebugInfo(const SegPtr& seg) {
+                if (!seg) return;
+                start = seg->start;
+                length = seg->length;
+                strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
+                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT) ? "SEGMENT" :
+                              (seg->seg_role == SegmentRole::HEAD) ? "HEAD" : "TAIL";
+                align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
+                cigar_size = seg->cigar.size();
+
+                if (seg->parent_block) {
+                    parent_block_ref_chr = seg->parent_block->ref_chr;
+                    parent_block_anchors_count = seg->parent_block->anchors.size();
+                } else {
+                    parent_block_ref_chr = "null";
+                    parent_block_anchors_count = 0;
+                }
+            }
+        };
+
+        struct ChromosomeDebugInfo {
+            std::string chr_name;
+            std::vector<SegmentDebugInfo> segments;
+
+            ChromosomeDebugInfo(const std::string& name) : chr_name(name) {}
+        };
+
+        struct SpeciesDebugInfo {
+            std::string species_name;
+            std::vector<ChromosomeDebugInfo> chromosomes;
+
+            SpeciesDebugInfo(const std::string& name) : species_name(name) {}
+        };
+
+        std::vector<SpeciesDebugInfo> debug_all_species_segments;
+        debug_all_species_segments.reserve(species_graphs.size());
+
+        // 收集所有物种的segment详细信息
+        for (const auto& [species_name, genome_graph] : species_graphs) {
+            SpeciesDebugInfo species_info(species_name);
+            std::shared_lock genome_lock(genome_graph.rw);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                ChromosomeDebugInfo chr_info(chr_name);
+                std::shared_lock end_lock(genome_end.rw);
+
+                // 遍历该染色体的所有segments
+                SegPtr current = genome_end.head;
+                while (current && current != genome_end.tail) {
+                    if (current->isSegment()) {
+                        chr_info.segments.emplace_back(current);
+                    }
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                species_info.chromosomes.push_back(std::move(chr_info));
+            }
+
+            debug_all_species_segments.push_back(std::move(species_info));
+        }
+
+        
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
         // 改为遍历species_graphs来查找Ref
@@ -475,7 +545,7 @@ namespace RaMesh {
                 BlockPtr prev_block = prev->parent_block;
                 BlockPtr current_block = nullptr;
 
-                while (current && !current->isTail() && !prev->isHead()) {
+                while (current && !current->isTail()) {
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -1004,18 +1074,25 @@ namespace RaMesh {
                                         {
                                             if(species_chr_overlap.first == species_chr.first)
                                             {
+                                                bool query_has_prefix = false;
+                                                bool query_has_suffix = false;
                                                 if(has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
                                                         if(species_chr_prefix.first == species_chr.first)
                                                         {
+                                                            query_has_prefix = true;
                                                             qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
                                                             segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                             segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                             segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_prefix) {
+                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1028,12 +1105,17 @@ namespace RaMesh {
                                                     {
                                                         if(species_chr_suffix.first == species_chr.first)
                                                         {
+                                                            query_has_suffix = true;
                                                             segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
                                                             segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                             segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
                                                             qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_suffix) {
+                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1055,18 +1137,25 @@ namespace RaMesh {
                                         {
                                             if(species_chr_overlap.first == species_chr.first)
                                             {
+                                                bool query_has_prefix = false;
+                                                bool query_has_suffix = false;
                                                 if(has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
                                                         if(species_chr_prefix.first == species_chr.first)
                                                         {
+                                                            query_has_prefix = true;
                                                             qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
                                                             segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                             segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                             segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_prefix) {
+                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1079,12 +1168,17 @@ namespace RaMesh {
                                                     {
                                                         if(species_chr_suffix.first == species_chr.first)
                                                         {
+                                                            query_has_suffix = true;
                                                             segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
                                                             segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                             segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
                                                             qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_suffix) {
+                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1117,13 +1211,42 @@ namespace RaMesh {
                                   blocks.erase(curr_it);
                                 }
                                 // 替换current和prev
-                                // prev = has_prefix ? prefix_ref_seg : overlap_ref_seg;
                                 prev = overlap_ref_seg->primary_path.prev.load(std::memory_order_acquire);
+                                if (prev->isHead()) {
+                                    prev = overlap_ref_seg;
+                                }
                                 prev_block = prev->parent_block;
-                                // current = has_prefix ? overlap_ref_seg : suffix_ref_seg;
-                                current = overlap_ref_seg;
+                                current = prev->primary_path.next.load(std::memory_order_acquire);
                                 current_block = current->parent_block;
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
+
+
+                                // 收集所有物种的segment详细信息
+                                debug_all_species_segments.clear();
+                                for (const auto& [species_name, genome_graph] : species_graphs) {
+                                    SpeciesDebugInfo species_info(species_name);
+                                    std::shared_lock genome_lock(genome_graph.rw);
+
+                                    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                                        ChromosomeDebugInfo chr_info(chr_name);
+                                        std::shared_lock end_lock(genome_end.rw);
+
+                                        // 遍历该染色体的所有segments
+                                        SegPtr current = genome_end.head;
+                                        while (current && current != genome_end.tail) {
+                                            if (current->isSegment()) {
+                                                chr_info.segments.emplace_back(current);
+                                            }
+                                            current = current->primary_path.next.load(std::memory_order_acquire);
+                                        }
+
+                                        species_info.chromosomes.push_back(std::move(chr_info));
+                                    }
+
+                                    debug_all_species_segments.push_back(std::move(species_info));
+                                }
+
+
                                 continue;
                             }
                         }
