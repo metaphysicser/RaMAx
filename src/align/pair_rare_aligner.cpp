@@ -437,24 +437,8 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
   * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
   * @param min_span         最小跨度阈值
   */
-void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span)
+void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span)
 {
-#ifdef _DEBUG_
-	using Clock = std::chrono::steady_clock;
-	using nsec_t = uint64_t;
-	static std::atomic<nsec_t> ns_producer{ 0 }, ns_extend{ 0 }, ns_insert{ 0 };
-	static std::atomic<uint64_t> cnt_submit{ 0 }, cnt_extend{ 0 }, cnt_insert{ 0 }, cnt_finish{ 0 };
-
-	static std::atomic<nsec_t> ns_check_overlap{ 0 }, ns_insert_interval{ 0 },
-		ns_clone_cluster{ 0 }, ns_enqueue_task{ 0 }, ns_store_kept{ 0 };
-
-	auto ns2ms = [](nsec_t ns) { return static_cast<double>(ns) / 1'000'000.0; };
-#endif
-
-	MatchClusterVecPtr cluster_vec_ptr = groupClustersToVec(cluster_ptr, pool, thread_num);
-
-	pool.waitAllTasksDone();
-
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
 	struct Node {
@@ -482,9 +466,6 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 	kept.reserve(heap.size());
 
 	while (!heap.empty()) {
-#ifdef _DEBUG_
-		auto t0 = Clock::now();
-#endif
 
 		std::pop_heap(heap.begin(), heap.end(), cmp);
 		Node cur = std::move(heap.back());
@@ -511,57 +492,21 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 
 		int_t RL = 0, RR = 0, QL = 0, QR = 0;
 
-#ifdef _DEBUG_
-		auto t_chk = Clock::now();
-#endif
 		bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
 		bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
-#ifdef _DEBUG_
-		ns_check_overlap += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_chk).count();
-#endif
 
 		if (!ref_hit && !query_hit) {
-#ifdef _DEBUG_
-			auto t_ins = Clock::now();
-#endif
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
-#ifdef _DEBUG_
-			ns_insert_interval += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_ins).count();
-#endif
-
-#ifdef _DEBUG_
-			auto t_clone = Clock::now();
-#endif
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
-#ifdef _DEBUG_
-			ns_clone_cluster += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_clone).count();
-#endif
 
-#ifdef _DEBUG_
-			auto t_enq = Clock::now();
-#endif
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
 				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 				});
-#ifdef _DEBUG_
-			ns_enqueue_task += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_enq).count();
-#endif
 
-#ifdef _DEBUG_
-			auto t_store = Clock::now();
-#endif
 			kept.emplace_back(cur.cl);
-#ifdef _DEBUG_
-			ns_store_kept += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t_store).count();
-#endif
-
-#ifdef _DEBUG_
-			ns_producer += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count();
-			cnt_submit.fetch_add(1, std::memory_order_relaxed);
-#endif
 
 			continue;
 		}
@@ -574,38 +519,6 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			}
 		}
 	}
-
-	pool.waitAllTasksDone();
-
-#ifdef _DEBUG_
-	spdlog::debug("");
-	spdlog::debug("================================================================");
-	spdlog::debug("                  constructGraphByGreedy Performance            ");
-	spdlog::debug("================================================================");
-	spdlog::debug("Main Operations:");
-	spdlog::debug("  Producer (split/enqueue)  : {:>10.3f} ms", ns2ms(ns_producer.load()));
-	spdlog::debug("  extendClusterToAnchor     : {:>10.3f} ms ({} calls, avg {:.3f} ms)",
-		ns2ms(ns_extend.load()), cnt_extend.load(),
-		ns2ms(ns_extend.load()) / std::max<uint64_t>(1, cnt_extend));
-	spdlog::debug("  insertAnchorIntoGraph     : {:>10.3f} ms ({} calls, avg {:.3f} ms)",
-		ns2ms(ns_insert.load()), cnt_insert.load(),
-		ns2ms(ns_insert.load()) / std::max<uint64_t>(1, cnt_insert));
-	spdlog::debug("");
-	spdlog::debug("Task Statistics:");
-	spdlog::debug("  Tasks submitted           : {}", cnt_submit.load());
-	spdlog::debug("  Tasks finished            : {}", cnt_finish.load());
-	spdlog::debug("");
-	spdlog::debug("Producer Step Breakdown:");
-	spdlog::debug("  check overlap             : {:>10.3f} ms", ns2ms(ns_check_overlap));
-	spdlog::debug("  insertInterval            : {:>10.3f} ms", ns2ms(ns_insert_interval));
-	spdlog::debug("  clone cluster (shared)    : {:>10.3f} ms", ns2ms(ns_clone_cluster));
-	spdlog::debug("  enqueue task              : {:>10.3f} ms", ns2ms(ns_enqueue_task));
-	spdlog::debug("  store kept                : {:>10.3f} ms", ns2ms(ns_store_kept));
-	spdlog::debug("================================================================");
-	spdlog::debug("");
-#endif
-
-	// *cluster_vec_ptr = std::move(kept);
 }
 
 ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)

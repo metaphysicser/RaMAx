@@ -488,8 +488,11 @@ starAlignment(
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
-        constructMultipleGraphsByGreedy(
-           seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+        /*constructMultipleGraphsByGreedy(
+           seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);*/
+
+        constructMultipleGraphsByGreedyByRef(
+            seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
@@ -854,11 +857,64 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     }
 
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
-        species_cluster_map.size());
+        species_cluster_map.size()); 
+
+    ThreadPool pool(thread_num);
+    std::map<SpeciesName, ClusterVecPtrByRefPtr> result_map;
+    std::vector<std::future<void>> futures;
+
+    for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
+        // 为空跳过
+        if (!cluster_ptr_3d) continue;
+
+        futures.emplace_back(
+            pool.enqueue([&, species_name, cluster_ptr_3d]() {
+                try {
+                    // 生成该物种的按 Ref 分组聚簇
+                    ClusterVecPtrByRefPtr grouped_ref_clusters =
+                        groupClustersToRefVec(cluster_ptr_3d, pool);
+
+                    result_map[species_name] = std::move(grouped_ref_clusters);
+                    
+                    spdlog::info("[constructMultipleGraphsByGreedy] Finished clustering for species: {}", species_name);
+                }
+                catch (const std::exception& e) {
+                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}", species_name, e.what());
+                }
+                })
+        );
+    }
+
+    // 等待所有任务完成
+    for (auto& fut : futures) fut.get();
 
 
+    PairRareAligner pra(*this);
+    pra.ref_name = ref_name;
+    // 【修复】：设置ref_seqpro_manager，避免空指针
+    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
 
-    
+    for (auto& [species_name, cluster_ref_ptr] : result_map) {
+        for (auto& cluster_ptr : *cluster_ref_ptr) {
+
+            pool.enqueue([&, species_name, cluster_ptr]() {
+                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+                    graph, pool, min_span);
+                });
+        }
+    }
+    pool.waitAllTasksDone();
+
+    for (auto& [species_name, genome_graph] : graph.species_graphs) {
+        if (species_name == ref_name) continue;
+        for (auto& [chr_name, end] : genome_graph.chr2end) {
+            pool.enqueue([&]() {
+                end.removeOverlap();
+                });
+        }
+
+    }
+    pool.waitAllTasksDone();
 
     spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
 }
