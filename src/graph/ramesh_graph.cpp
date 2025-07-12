@@ -2,6 +2,7 @@
 //  File: ramesh_graph.cpp –  High‑level graph ops (v0.6‑alpha)
 // =============================================================
 #include "ramesh.h"
+#include <cstdint>
 #include <curl/curl.h>
 #include <iomanip>
 #include <shared_mutex>
@@ -584,13 +585,15 @@ namespace RaMesh {
                                 uint_t prefix_start = full_start;
                                 uint_t prefix_end = overlap_start;
                                 uint32_t prefix_len = prefix_end - prefix_start;
-                                bool has_prefix = prefix_start < prefix_end;
+                                bool prev_has_prefix = prev_seg->start < overlap_start;
+                                bool curr_has_prefix = curr_seg->start < overlap_start;
 
                                 // 后缀区间：从重叠结束到合并范围结束
                                 uint_t suffix_start = overlap_end;
                                 uint_t suffix_end = full_end;
                                 uint32_t suffix_len = suffix_end - suffix_start;
-                                bool has_suffix = suffix_start < suffix_end;
+                                bool prev_has_suffix = prev_seg->start + prev_seg->length > overlap_end;
+                                bool curr_has_suffix = curr_seg->start + curr_seg->length > overlap_end;
 
                                 // 计算创建新block和新seg的参数，然后创建2-3个新的Block和Segment
 
@@ -603,7 +606,7 @@ namespace RaMesh {
                                 SegPtr suffix_ref_seg = nullptr;
 
                                 // 1. 创建前缀block和segment（如果存在）
-                                if (has_prefix) {
+                                if (prev_has_prefix || curr_has_prefix) {
                                     prefix_block = Block::create(2);
                                     prefix_block->ref_chr = prev_block->ref_chr;
                                     prefix_ref_seg = Segment::create(
@@ -636,7 +639,7 @@ namespace RaMesh {
                                 overlap_block->anchors[ref_key] = overlap_ref_seg;
 
                                 // 3. 创建后缀block和segment（如果存在）
-                                if (has_suffix) {
+                                if (prev_has_suffix || curr_has_suffix) {
                                     suffix_block = Block::create(2);
                                     suffix_block->ref_chr = prev_block->ref_chr;
                                     suffix_ref_seg = Segment::create(
@@ -661,13 +664,15 @@ namespace RaMesh {
                                         if (segment->strand == Strand::FORWARD) {
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = prev_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = prev_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
-
+                                            uint32_t prefix_length = prev_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = prev_has_suffix ? overlap_length + suffix_len : 0;
                                             for (CigarUnit cu: segment->cigar) {
                                                 uint32_t cigar_len;
                                                 char op;
@@ -676,7 +681,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 修正累计长度判断
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -695,7 +700,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         // 累计长度
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
@@ -715,8 +720,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         // 累计长度
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
@@ -742,12 +746,15 @@ namespace RaMesh {
                                             // segment->strand == Strand::REVERSE
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = prev_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = prev_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = prev_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = prev_has_suffix ? overlap_length + suffix_len : 0;
 
                                             // CIGAR分割逻辑与正向链相同
                                             for (CigarUnit cu: segment->cigar) {
@@ -758,7 +765,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 分割判断逻辑相同
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -777,7 +784,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -794,8 +801,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -841,12 +847,15 @@ namespace RaMesh {
                                         if (segment->strand == Strand::FORWARD) {
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = curr_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = curr_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = curr_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = curr_has_suffix ? overlap_length + suffix_len : 0;
 
                                             for (CigarUnit cu: segment->cigar) {
                                                 uint32_t cigar_len;
@@ -856,7 +865,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 修正累计长度判断
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -875,7 +884,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -894,8 +903,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -925,12 +933,15 @@ namespace RaMesh {
                                             // segment->strand == Strand::REVERSE
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = curr_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = curr_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = curr_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = curr_has_suffix ? overlap_length + suffix_len : 0;
 
                                             // CIGAR分割逻辑与正向链相同
                                             for (CigarUnit cu: segment->cigar) {
@@ -941,7 +952,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 分割判断逻辑相同
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -960,7 +971,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -977,8 +988,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -1076,7 +1086,7 @@ namespace RaMesh {
                                             {
                                                 bool query_has_prefix = false;
                                                 bool query_has_suffix = false;
-                                                if(has_prefix)
+                                                if(prev_has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
@@ -1099,7 +1109,7 @@ namespace RaMesh {
                                                     qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                     segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                 }
-                                                if(has_suffix)
+                                                if(prev_has_suffix)
                                                 {
                                                     for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
                                                     {
@@ -1139,7 +1149,7 @@ namespace RaMesh {
                                             {
                                                 bool query_has_prefix = false;
                                                 bool query_has_suffix = false;
-                                                if(has_prefix)
+                                                if(curr_has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
@@ -1162,7 +1172,7 @@ namespace RaMesh {
                                                     qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                     segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                 }
-                                                if(has_suffix)
+                                                if(curr_has_suffix)
                                                 {
                                                     for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
                                                     {
@@ -1260,6 +1270,33 @@ namespace RaMesh {
                 }
             }
         }
+        // 收集所有物种的segment详细信息
+        debug_all_species_segments.clear();
+        for (const auto& [species_name, genome_graph] : species_graphs) {
+            SpeciesDebugInfo species_info(species_name);
+            std::shared_lock genome_lock(genome_graph.rw);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                ChromosomeDebugInfo chr_info(chr_name);
+                std::shared_lock end_lock(genome_end.rw);
+
+                // 遍历该染色体的所有segments
+                SegPtr current = genome_end.head;
+                while (current && current != genome_end.tail) {
+                    if (current->isSegment()) {
+                        chr_info.segments.emplace_back(current);
+                    }
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                species_info.chromosomes.push_back(std::move(chr_info));
+            }
+
+            debug_all_species_segments.push_back(std::move(species_info));
+        }
+        // std::cout<<"test";
+        // std::cout<<"test";
+        // std::cout<<"test";
     }
 
     /* ==============================================================
