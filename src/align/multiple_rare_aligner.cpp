@@ -892,6 +892,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
 
     // 等待所有任务完成
     for (auto& fut : futures) fut.get();
+	pool.waitAllTasksDone();
 
     ThreadPool pool2(1);
     PairRareAligner pra(*this);
@@ -902,25 +903,25 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     for (auto& [species_name, cluster_ref_ptr] : result_map) {
         for (auto& cluster_ptr : *cluster_ref_ptr) {
 
-            pool.enqueue([&, species_name, cluster_ptr]() {
+            pool2.enqueue([&, species_name, cluster_ptr]() {
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                     graph, pool2, min_span);
                 });
         }
     }
-    pool.waitAllTasksDone();
+    pool2.waitAllTasksDone();
 
     for (auto& [species_name, genome_graph] : graph.species_graphs) {
         if (species_name == ref_name) continue;
         for (auto& [chr_name, end] : genome_graph.chr2end) {
-            pool.enqueue([&]() {
+            pool2.enqueue([&]() {
                 end.removeOverlap();
                 });
             // end.removeOverlap();
         }
 
     }
-    pool.waitAllTasksDone();
+    pool2.waitAllTasksDone();
 
     spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
 }
