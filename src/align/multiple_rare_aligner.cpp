@@ -457,11 +457,12 @@ starAlignment(
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
-
+    uint_t count = 0;
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
-    //for (uint_t i = 0; i < 1; i++) {
+    //for (uint_t i = 0; i < 1; i++) { 
     for (uint_t i = 0; i < leaf_num; i++) {
+        //auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
@@ -514,6 +515,9 @@ starAlignment(
         catch (const std::exception& e) {
             spdlog::error("Failed to add mask intervals for {}: {}", ref_name, e.what());
         }
+        std::string s = std::to_string(count);
+        // multi_graph->exportToMaf("/mnt/d/Result/RaMAx/Alignathon/result/primate-small"+ s + ".maf", seqpro_managers, true, false);
+        count++;
     }
 
     // 在所有迭代完成后，进行最终的图正确性验证
@@ -521,6 +525,7 @@ starAlignment(
 
 
     return std::move(multi_graph);
+    //return std::move(std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers));
 
 }
 
@@ -888,7 +893,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     // 等待所有任务完成
     for (auto& fut : futures) fut.get();
 
-
+    ThreadPool pool2(1);
     PairRareAligner pra(*this);
     pra.ref_name = ref_name;
     // 【修复】：设置ref_seqpro_manager，避免空指针
@@ -899,7 +904,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
 
             pool.enqueue([&, species_name, cluster_ptr]() {
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                    graph, pool, min_span);
+                    graph, pool2, min_span);
                 });
         }
     }

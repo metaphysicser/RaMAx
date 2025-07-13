@@ -181,7 +181,6 @@ namespace RaMesh {
 
         std::vector<SegPtr> sample_vec;
 
-
         static bool spliceRange(SegPtr prev, SegPtr next,
             SegPtr first, SegPtr last);
 
@@ -226,6 +225,8 @@ namespace RaMesh {
         
         // 图正确性验证函数
         bool verifyGraphCorrectness(bool verbose = false) const;
+
+        void safeLink(SegPtr prev, SegPtr next);
 
         void mergeMultipleGraphs(const SpeciesName& ref_name, uint_t thread_num);
 
