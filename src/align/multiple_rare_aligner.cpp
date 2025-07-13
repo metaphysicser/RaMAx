@@ -864,7 +864,9 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
         species_cluster_map.size()); 
 
-    ThreadPool pool(thread_num);
+    uint_t t_num = 1;
+
+    ThreadPool pool(t_num);
     std::map<SpeciesName, ClusterVecPtrByRefPtr> result_map;
     std::vector<std::future<void>> futures;
 
@@ -877,7 +879,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 try {
                     // 生成该物种的按 Ref 分组聚簇
                     ClusterVecPtrByRefPtr grouped_ref_clusters =
-                        groupClustersToRefVec(cluster_ptr_3d, pool);
+                        groupClustersToRefVec(cluster_ptr_3d, pool, t_num);
 
                     result_map[species_name] = std::move(grouped_ref_clusters);
                     
@@ -894,7 +896,6 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     for (auto& fut : futures) fut.get();
 	pool.waitAllTasksDone();
 
-    ThreadPool pool2(1);
     PairRareAligner pra(*this);
     pra.ref_name = ref_name;
     // 【修复】：设置ref_seqpro_manager，避免空指针
@@ -903,25 +904,27 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     for (auto& [species_name, cluster_ref_ptr] : result_map) {
         for (auto& cluster_ptr : *cluster_ref_ptr) {
 
-            pool2.enqueue([&, species_name, cluster_ptr]() {
-                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                    graph, pool2, min_span);
-                });
+            //pool.enqueue([&, species_name, cluster_ptr]() {
+            //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+            //        graph, pool, min_span);
+            //    });
+            pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+                graph, pool, min_span);
         }
     }
-    pool2.waitAllTasksDone();
+    pool.waitAllTasksDone();
 
     for (auto& [species_name, genome_graph] : graph.species_graphs) {
         if (species_name == ref_name) continue;
         for (auto& [chr_name, end] : genome_graph.chr2end) {
-            pool2.enqueue([&]() {
-                end.removeOverlap();
-                });
-            // end.removeOverlap();
+            //pool.enqueue([&]() {
+            //    end.removeOverlap();
+            //    });
+            end.removeOverlap();
         }
 
     }
-    pool2.waitAllTasksDone();
+    pool.waitAllTasksDone();
 
     spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
 }
