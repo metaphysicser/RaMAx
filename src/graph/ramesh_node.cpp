@@ -308,45 +308,45 @@ namespace RaMesh {
         return true;
     }
     /// 并行版本
-    void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
-        uint_t beg, uint_t end) {
-        if (segs.empty()) return;
+    //void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
+    //    uint_t beg, uint_t end) {
+    //    if (segs.empty()) return;
 
-        for (;;) {
-            auto [prev, next] = findSurrounding(beg, end);
-            if (spliceRange(prev, next, segs.front(), segs.back()))
-                break;        // 成功才退出
-        }
-        updateSampling(segs); // 插入成功后修补采样表
+    //    for (;;) {
+    //        auto [prev, next] = findSurrounding(beg, end);
+    //        if (spliceRange(prev, next, segs.front(), segs.back()))
+    //            break;        // 成功才退出
+    //    }
+    //    updateSampling(segs); // 插入成功后修补采样表
 
-    }
+    //}
 
     // -------------------------------------------------------------
 //  GenomeEnd::spliceSegmentChain  –  serial-only version
 //  前提：调用线程独占访问该 GenomeEnd（没有其他线程同时插入/删除）。
 // -------------------------------------------------------------
-    //void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
-    //    uint_t beg,
-    //    uint_t end)
-    //{
-    //    if (segs.empty()) return;
+    void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
+        uint_t beg,
+        uint_t end)
+    {
+        if (segs.empty()) return;
 
-    //    // 1) 找到目标区间的前驱/后继（只读操作）
-    //    auto [prev, next] = findSurrounding(beg, end);
+        // 1) 找到目标区间的前驱/后继（只读操作）
+        auto [prev, next] = findSurrounding(beg, end);
 
-    //    // 2) 把内部已串好的链挂进来（无锁、无 CAS）
-    //    SegPtr first = segs.front();
-    //    SegPtr last = segs.back();
+        // 2) 把内部已串好的链挂进来（无锁、无 CAS）
+        SegPtr first = segs.front();
+        SegPtr last = segs.back();
 
-    //    first->primary_path.prev.store(prev, std::memory_order_relaxed);
-    //    last->primary_path.next.store(next, std::memory_order_relaxed);
+        first->primary_path.prev.store(prev, std::memory_order_relaxed);
+        last->primary_path.next.store(next, std::memory_order_relaxed);
 
-    //    prev->primary_path.next.store(first, std::memory_order_relaxed);
-    //    next->primary_path.prev.store(last, std::memory_order_relaxed);
+        prev->primary_path.next.store(first, std::memory_order_relaxed);
+        next->primary_path.prev.store(last, std::memory_order_relaxed);
 
-    //    // 3) 修补采样表（仍然复用现有实现）
-    //    updateSampling(segs);
-    //}
+        // 3) 修补采样表（仍然复用现有实现）
+        updateSampling(segs);
+    }
 
 
     void GenomeEnd::clearAllSegments() {
