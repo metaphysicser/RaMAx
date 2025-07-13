@@ -217,6 +217,7 @@ namespace RaMesh {
         uint_t qry_beg = anchor_vec.front().match.query_region.start;
         uint_t qry_end_pos = anchor_vec.back().match.query_region.start + anchor_vec.back().match.query_region.length;
 
+
         ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
     }
@@ -378,6 +379,10 @@ namespace RaMesh {
                     prev = current;
                     current = next_ptr;
 
+                    if (!current && !prev->isTail()) {
+                        spdlog::error(" There is NULL in segment ");
+                    }
+
                     // 防止死循环
                     if (segment_count > 10000000) {
                         if (verbose && detailed_errors_shown < max_detailed_errors) {
@@ -450,6 +455,24 @@ namespace RaMesh {
 
         return is_valid;
     }
+
+    // ✂ BEGIN: safeLink 实现
+    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next)
+    {
+        if (!prev || !next) return;
+
+        /* 1) 先写 next->prev  */
+        next->primary_path.prev.store(prev, std::memory_order_relaxed);
+
+        /* 2) 再 CAS prev->next  (确保无并发竞争) */
+        SegPtr exp = next->primary_path.next.load(std::memory_order_acquire); // 旧值
+        prev->primary_path.next.store(next, std::memory_order_release);
+
+        /* 3) 发布内存屏障，保证两侧对所有线程可见 */
+        std::atomic_thread_fence(std::memory_order_release);
+    }
+    // ✂ END
+
 
     /* =============================================================
      * 6.  Merge multiple graphs (public API)
@@ -1032,10 +1055,13 @@ namespace RaMesh {
                                 SegPtr prev_prev = prev->primary_path.prev.load(std::memory_order_acquire);
                                 SegPtr current_next = current->primary_path.next.load(std::memory_order_acquire);
                                 // 移除prev和current的前驱和后继
-                                prev->primary_path.prev.store(nullptr, std::memory_order_release);
+                                /*prev->primary_path.prev.store(nullptr, std::memory_order_release);
                                 prev->primary_path.next.store(nullptr, std::memory_order_release);
                                 current->primary_path.next.store(nullptr, std::memory_order_release);
-                                current->primary_path.prev.store(nullptr, std::memory_order_release);
+                                current->primary_path.prev.store(nullptr, std::memory_order_release);*/
+                                Segment::unlinkSegment(prev);
+                                Segment::unlinkSegment(current);
+
 
                                 // 将新blocks添加到全局池
                                 if (prefix_block) {
@@ -1276,7 +1302,7 @@ namespace RaMesh {
                                                 continue;
                                             }
                                             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-                                            if(prev->isHead())
+                                            if(prev && prev->isHead())
                                             {
                                                 current = current->primary_path.next.load(std::memory_order_acquire);
                                                 continue;
