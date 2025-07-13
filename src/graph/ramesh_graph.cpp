@@ -172,7 +172,7 @@ namespace RaMesh {
     /* =============================================================
  * 3.  Anchor insertion (public API)
  * ===========================================================*/
-    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+    void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
                                                        const AnchorVec &anchor_vec) {
         if (anchor_vec.empty()) return;
 
@@ -220,6 +220,41 @@ namespace RaMesh {
 
         ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
+    }
+
+    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+        const Anchor& anchor) {
+
+        // 1. Locate ends for reference & query chromosomes
+        const ChrName& ref_chr = anchor.match.ref_region.chr_name;
+        const ChrName& qry_chr = anchor.match.query_region.chr_name;
+
+        auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
+        auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];
+
+
+        BlockPtr blk = Block::create(2);
+        blk->ref_chr = ref_chr;
+
+         auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
+
+
+            // register to global pool
+        {
+            std::unique_lock pool_lock(rw);
+            blocks.emplace_back(WeakBlock(blk));
+        }
+        
+
+        // 4. Atomically splice into genome graph
+        uint_t ref_beg = anchor.match.ref_region.start;
+        uint_t ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
+        uint_t qry_beg = anchor.match.query_region.start;
+        uint_t qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
+
+
+        ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
+        qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
     }
 
     /* ==============================================================
@@ -1590,17 +1625,14 @@ namespace RaMesh {
             std::shared_lock species_lock(genome_graph.rw);
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率
-                std::vector<SegPtr> all_segments;
+
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
                 while (current && !current->isTail()) {
-                    all_segments.emplace_back(current);
+                    genome_end.setToSampling(current);
                     current = current->primary_path.next.load(std::memory_order_acquire);
                 }
 
-                if (!all_segments.empty()) {
-                    genome_end.updateSampling(all_segments);
-                }
             }
         }
     }

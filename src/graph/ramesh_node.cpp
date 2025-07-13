@@ -222,6 +222,21 @@ namespace RaMesh {
         if (need > sample_vec.size()) sample_vec.resize(need, nullptr);
     }
 
+    void GenomeEnd::setToSampling(SegPtr cur) {
+        std::unique_lock lk(rw);
+        std::size_t need = cur->start / kSampleStep;
+        if (need == 0) {
+            return;
+        }
+        if (need + 1 > sample_vec.size()) sample_vec.resize(need + 1, nullptr);
+        if (!sample_vec[need]) {
+            sample_vec[need] = cur; 
+        }else if (cur->start > sample_vec[need]->start) {
+            sample_vec[need] = cur;
+        }
+		
+    }
+
     void GenomeEnd::updateSampling(const std::vector<SegPtr>& segs) {
         if (segs.empty()) return;
         std::unique_lock lk(rw);      // ××× 写锁 —— 修改 sample_vec
@@ -238,10 +253,10 @@ namespace RaMesh {
         // 1) 读取采样表得到“最近前驱”的 hint
         std::shared_lock lk(rw);                 // 读锁即可
         std::size_t slot = range_start / kSampleStep;
-        SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
-            ? sample_vec[slot]
-            : head;
-       // SegPtr hint = head;
+        //SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
+        //    ? sample_vec[slot]
+        //    : head;
+       SegPtr hint = head;
         lk.unlock();                             // 之后只读链表，不再访问 sample_vec
 
             // 2) 保证 hint 在目标区间左侧
@@ -344,8 +359,43 @@ namespace RaMesh {
         prev->primary_path.next.store(first, std::memory_order_relaxed);
         next->primary_path.prev.store(last, std::memory_order_relaxed);
 
+        if (next == tail && next->primary_path.prev != last) {
+            std::cout << "";
+        }
+
         // 3) 修补采样表（仍然复用现有实现）
-        updateSampling(segs);
+        for (auto seg : segs) {
+            setToSampling(seg);
+        }
+        
+    }
+
+    void GenomeEnd::insertSegment(const SegPtr seg,
+        uint_t beg,
+        uint_t end)
+    {
+        if (!seg) return;
+
+        // 1) 找到目标区间的前驱/后继（只读操作）
+        auto [prev, next] = findSurrounding(beg, end);
+
+
+
+        seg->primary_path.prev.store(prev, std::memory_order_relaxed);
+        seg->primary_path.next.store(next, std::memory_order_relaxed);
+
+        prev->primary_path.next.store(seg, std::memory_order_relaxed);
+        next->primary_path.prev.store(seg, std::memory_order_relaxed);
+
+        if (next == tail && next->primary_path.prev != seg) {
+            std::cout << "";
+        }
+
+        // 3) 修补采样表（仍然复用现有实现）
+        
+        setToSampling(seg);
+        
+
     }
 
 

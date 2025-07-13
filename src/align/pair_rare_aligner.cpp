@@ -361,7 +361,7 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 #endif
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
 				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+				graph.insertAnchorVecIntoGraph(ref_name, query_name, anchor_vec);
 				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
 				});
 #ifdef _DEBUG_
@@ -499,24 +499,16 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
-
-			pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {
-				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-				const ChrName& ref_chr = anchor_vec.front().match.ref_region.chr_name;
-				const ChrName& qry_chr = anchor_vec.front().match.query_region.chr_name;
-
-				if (ref_chr.rfind(ref_name + ".", 0) != 0) {
-					// ref_chr 以 ref_name. 为前缀
-					std::cout << "";
-				}
-
-				if (qry_chr.rfind(query_name + ".", 0) != 0) {
-					// ref_chr 以 ref_name. 为前缀
-					std::cout << "";
-				}
-				graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
-				// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
-				});
+			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+			for (auto& anchor : anchor_vec) {
+				graph.insertAnchorIntoGraph(ref_name, query_name, anchor);
+			}
+			
+			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {
+			//	AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+			//	graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+			//	// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+			//	});
 
 			kept.emplace_back(cur.cl);
 
