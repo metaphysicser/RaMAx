@@ -159,6 +159,8 @@ namespace RaMesh {
         void spliceSegmentChain(const std::vector<SegPtr>& segments,
             uint_t beg, uint_t end);
 
+        void insertSegment(const SegPtr seg, uint_t beg, uint_t end);
+
         void clearAllSegments();
         
         // ――― deletion methods ―――
@@ -185,11 +187,15 @@ namespace RaMesh {
             SegPtr first, SegPtr last);
 
         void ensureSampleSize(uint_t pos);          // 自动扩容
+
+
+        
     
     public:
         void updateSampling(const std::vector<SegPtr>& segs); // 插入后修补
-        
-    private:
+
+        void setToSampling(SegPtr cur);
+
     };
 
     // ────────────────────────────────────────────────
@@ -218,8 +224,10 @@ namespace RaMesh {
         void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
             const MatchCluster& cluster);
 
-        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+        void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
 			const AnchorVec& anchor_vec);
+
+        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor);
 
         void debugPrint(bool show_detail) const;
         
