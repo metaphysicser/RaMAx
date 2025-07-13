@@ -500,6 +500,7 @@ starAlignment(
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
+        multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
@@ -517,7 +518,7 @@ starAlignment(
         }
         std::string s = std::to_string(count);
         // multi_graph->exportToMaf("/mnt/d/Result/RaMAx/Alignathon/result/primate-small"+ s + ".maf", seqpro_managers, true, false);
-        count++;
+        
     }
 
     // 在所有迭代完成后，进行最终的图正确性验证
@@ -862,7 +863,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     }
 
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
-        species_cluster_map.size()); 
+        species_cluster_map.size());
 
     uint_t t_num = 1;
 
@@ -882,7 +883,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                         groupClustersToRefVec(cluster_ptr_3d, pool, t_num);
 
                     result_map[species_name] = std::move(grouped_ref_clusters);
-                    
+
                     spdlog::info("[constructMultipleGraphsByGreedy] Finished clustering for species: {}", species_name);
                 }
                 catch (const std::exception& e) {
@@ -894,7 +895,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
 
     // 等待所有任务完成
     for (auto& fut : futures) fut.get();
-	pool.waitAllTasksDone();
+    pool.waitAllTasksDone();
 
     PairRareAligner pra(*this);
     pra.ref_name = ref_name;
@@ -908,23 +909,28 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
             //        graph, pool, min_span);
             //    });
-            pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                graph, pool, min_span);
+            for (auto& cluster : *cluster_ptr) {
+                const ChrName& ref_chr = cluster.front().ref_region.chr_name;
+                const ChrName& qry_chr = cluster.front().query_region.chr_name;
+
+                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+                    graph, pool, min_span);
+            }
         }
-    }
-    pool.waitAllTasksDone();
+        pool.waitAllTasksDone();
 
-    for (auto& [species_name, genome_graph] : graph.species_graphs) {
-        if (species_name == ref_name) continue;
-        for (auto& [chr_name, end] : genome_graph.chr2end) {
-            //pool.enqueue([&]() {
-            //    end.removeOverlap();
-            //    });
-            end.removeOverlap();
+        for (auto& [species_name, genome_graph] : graph.species_graphs) {
+            if (species_name == ref_name) continue;
+            for (auto& [chr_name, end] : genome_graph.chr2end) {
+                //pool.enqueue([&]() {
+                //    end.removeOverlap();
+                //    });
+                end.removeOverlap();
+            }
+
         }
+        pool.waitAllTasksDone();
 
+        spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
     }
-    pool.waitAllTasksDone();
-
-    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
 }
