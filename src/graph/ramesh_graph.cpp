@@ -883,16 +883,25 @@ namespace RaMesh {
 
                                             // 反向链坐标修正：从segment末端开始，向前计算
                                             uint_t segment_end = segment->start + segment->length;
-                                            if (suffix_qry_seg) {
-                                                suffix_qry_seg->start = segment_end - suffix_qry_seg->length;
-                                                segment_end = suffix_qry_seg->start;
-                                            }
-                                            if (overlap_qry_seg) {
-                                                overlap_qry_seg->start = segment_end - overlap_qry_seg->length;
-                                                segment_end = overlap_qry_seg->start;
-                                            }
+
+                                            // 使用一个临时变量来追踪当前段的末尾
+                                            auto current_segment_end = segment_end;
+
+                                            // 1. 首先处理前缀 (prefix)，如果它存在
                                             if (prefix_qry_seg) {
-                                                prefix_qry_seg->start = segment_end - prefix_qry_seg->length;
+                                                prefix_qry_seg->start = current_segment_end - prefix_qry_seg->length;
+                                                // 更新末尾位置，为下一个块做准备
+                                                current_segment_end = prefix_qry_seg->start;
+                                            }
+
+                                            // 2. 接着处理重叠 (overlap)
+                                            overlap_qry_seg->start = current_segment_end - overlap_qry_seg->length;
+                                            // 再次更新末尾位置
+                                            current_segment_end = overlap_qry_seg->start;
+
+                                            // 3. 最后处理后缀 (suffix)，如果它存在
+                                            if (suffix_qry_seg) {
+                                                suffix_qry_seg->start = current_segment_end - suffix_qry_seg->length;
                                             }
                                         }
                                     }
@@ -1070,16 +1079,25 @@ namespace RaMesh {
 
                                             // 反向链坐标修正：从segment末端开始，向前计算
                                             uint_t segment_end = segment->start + segment->length;
-                                            if (suffix_qry_seg) {
-                                                suffix_qry_seg->start = segment_end - suffix_qry_seg->length;
-                                                segment_end = suffix_qry_seg->start;
-                                            }
-                                            if (overlap_qry_seg) {
-                                                overlap_qry_seg->start = segment_end - overlap_qry_seg->length;
-                                                segment_end = overlap_qry_seg->start;
-                                            }
+
+                                            // 使用一个临时变量来追踪当前段的末尾
+                                            auto current_segment_end = segment_end;
+
+                                            // 1. 首先处理前缀 (prefix)，如果它存在
                                             if (prefix_qry_seg) {
-                                                prefix_qry_seg->start = segment_end - prefix_qry_seg->length;
+                                                prefix_qry_seg->start = current_segment_end - prefix_qry_seg->length;
+                                                // 更新末尾位置，为下一个块做准备
+                                                current_segment_end = prefix_qry_seg->start;
+                                            }
+
+                                            // 2. 接着处理重叠 (overlap)
+                                            overlap_qry_seg->start = current_segment_end - overlap_qry_seg->length;
+                                            // 再次更新末尾位置
+                                            current_segment_end = overlap_qry_seg->start;
+
+                                            // 3. 最后处理后缀 (suffix)，如果它存在
+                                            if (suffix_qry_seg) {
+                                                suffix_qry_seg->start = current_segment_end - suffix_qry_seg->length;
                                             }
                                         }
                                     }
