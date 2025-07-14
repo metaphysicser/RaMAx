@@ -229,7 +229,7 @@ namespace RaMesh {
             return;
         }
         if (need + 1 > sample_vec.size()) sample_vec.resize(need + 1, nullptr);
-        if (!sample_vec[need]) {
+        if (!sample_vec[need] || !sample_vec[need]->parent_block) {
             sample_vec[need] = cur; 
         }else if (cur->start > sample_vec[need]->start) {
             sample_vec[need] = cur;
@@ -253,22 +253,22 @@ namespace RaMesh {
         // 1) 读取采样表得到“最近前驱”的 hint
         std::shared_lock lk(rw);                 // 读锁即可
         std::size_t slot = range_start / kSampleStep;
-        //SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
-        //    ? sample_vec[slot]
-        //    : head;
-       SegPtr hint = head;
+        SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
+            ? sample_vec[slot]
+            : head;
+        // SegPtr hint = head;
         lk.unlock();                             // 之后只读链表，不再访问 sample_vec
 
-            // 2) 保证 hint 在目标区间左侧
-            while (!hint->isHead() && hint->start > range_start) {
-                SegPtr nxt = hint->primary_path.prev.load(std::memory_order_acquire);
-                if (!nxt) {                    // 保险：有人在并发删除
-                    hint = head;               // 回到链表起点重新来
-                    break;
-                }
-                hint = nxt;
+        // 2) 保证 hint 在目标区间左侧
+        while (!hint->isHead() && hint->start > range_start) {
+            SegPtr nxt = hint->primary_path.prev.load(std::memory_order_acquire);
+            if (!nxt) {                    // 保险：有人在并发删除
+                hint = head;               // 回到链表起点重新来
+                break;
             }
-                
+            hint = nxt;
+        }
+
 
             SegPtr prev = hint;
             SegPtr curr = hint->primary_path.next.load(std::memory_order_acquire);
@@ -379,17 +379,11 @@ namespace RaMesh {
         // 1) 找到目标区间的前驱/后继（只读操作）
         auto [prev, next] = findSurrounding(beg, end);
 
-
-
         seg->primary_path.prev.store(prev, std::memory_order_relaxed);
         seg->primary_path.next.store(next, std::memory_order_relaxed);
 
         prev->primary_path.next.store(seg, std::memory_order_relaxed);
         next->primary_path.prev.store(seg, std::memory_order_relaxed);
-
-        if (next == tail && next->primary_path.prev != seg) {
-            std::cout << "";
-        }
 
         // 3) 修补采样表（仍然复用现有实现）
         
@@ -521,8 +515,6 @@ namespace RaMesh {
     {
         std::unique_lock<std::shared_mutex> lk(rw);      // 独占写
 
-        uint_t min_pos = UINT32_MAX;
-        uint_t max_pos = 0;
 
         if (!head || !tail) return;
 
@@ -546,8 +538,6 @@ namespace RaMesh {
                 uint_t v_beg = victim->start;
                 uint_t v_end = victim->start + victim->length;
 
-                min_pos = std::min(min_pos, v_beg);
-                max_pos = std::max(max_pos, v_end);
                 if(victim->parent_block)
 				    victim->parent_block->removeAllSegments(); // 从 block 中移除
 
@@ -561,10 +551,6 @@ namespace RaMesh {
             cur = cur->primary_path.next.load(std::memory_order_acquire);
         }
 
-        // 更新采样表
-        if (min_pos != UINT32_MAX) {
-            invalidateSampling(min_pos, max_pos);
-        }
     }
 
 
