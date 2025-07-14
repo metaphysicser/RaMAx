@@ -604,7 +604,7 @@ namespace RaMesh {
                 BlockPtr prev_block = prev->parent_block;
                 BlockPtr current_block = nullptr;
 
-                while (current && !current->isTail()) {
+                while (current && !current->isTail() && current->cigar.size() == 0) {
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -1090,12 +1090,10 @@ namespace RaMesh {
                                 SegPtr prev_prev = prev->primary_path.prev.load(std::memory_order_acquire);
                                 SegPtr current_next = current->primary_path.next.load(std::memory_order_acquire);
                                 // 移除prev和current的前驱和后继
-                                /*prev->primary_path.prev.store(nullptr, std::memory_order_release);
+                                prev->primary_path.prev.store(nullptr, std::memory_order_release);
                                 prev->primary_path.next.store(nullptr, std::memory_order_release);
                                 current->primary_path.next.store(nullptr, std::memory_order_release);
-                                current->primary_path.prev.store(nullptr, std::memory_order_release);*/
-                                Segment::unlinkSegment(prev);
-                                Segment::unlinkSegment(current);
+                                current->primary_path.prev.store(nullptr, std::memory_order_release);
 
 
                                 // 将新blocks添加到全局池
@@ -1314,45 +1312,45 @@ namespace RaMesh {
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
 
 
-                                // 收集所有物种的segment详细信息
-                                debug_all_species_segments.clear();
-                                for (const auto& [species_name, genome_graph] : species_graphs) {
-                                    SpeciesDebugInfo species_info(species_name);
-                                    std::shared_lock genome_lock(genome_graph.rw);
-
-                                    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                                        ChromosomeDebugInfo chr_info(chr_name);
-                                        std::shared_lock end_lock(genome_end.rw);
-
-                                        // 遍历该染色体的所有segments
-                                        SegPtr current = genome_end.head;
-                                        current = current->primary_path.next.load(std::memory_order_acquire);
-                                        while (current && current != genome_end.tail) {
-                                            if (current->isSegment()) {
-                                                chr_info.segments.emplace_back(current);
-                                            }
-                                            // 检查链表结构是否正确
-                                            if (current->isHead()) {
-                                                current = current->primary_path.next.load(std::memory_order_acquire);
-                                                continue;
-                                            }
-                                            SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-                                            if(prev && prev->isHead())
-                                            {
-                                                current = current->primary_path.next.load(std::memory_order_acquire);
-                                                continue;
-                                            }
-                                            if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-                                                std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-                                            }
-                                            current = current->primary_path.next.load(std::memory_order_acquire);
-                                        }
-
-                                        species_info.chromosomes.push_back(std::move(chr_info));
-                                    }
-
-                                    debug_all_species_segments.push_back(std::move(species_info));
-                                }
+                                // // 收集所有物种的segment详细信息
+                                // debug_all_species_segments.clear();
+                                // for (const auto& [species_name, genome_graph] : species_graphs) {
+                                //     SpeciesDebugInfo species_info(species_name);
+                                //     std::shared_lock genome_lock(genome_graph.rw);
+                                //
+                                //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                                //         ChromosomeDebugInfo chr_info(chr_name);
+                                //         std::shared_lock end_lock(genome_end.rw);
+                                //
+                                //         // 遍历该染色体的所有segments
+                                //         SegPtr current = genome_end.head;
+                                //         current = current->primary_path.next.load(std::memory_order_acquire);
+                                //         while (current && current != genome_end.tail) {
+                                //             if (current->isSegment()) {
+                                //                 chr_info.segments.emplace_back(current);
+                                //             }
+                                //             // 检查链表结构是否正确
+                                //             if (current->isHead()) {
+                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
+                                //                 continue;
+                                //             }
+                                //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+                                //             if(prev && prev->isHead())
+                                //             {
+                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
+                                //                 continue;
+                                //             }
+                                //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+                                //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+                                //             }
+                                //             current = current->primary_path.next.load(std::memory_order_acquire);
+                                //         }
+                                //
+                                //         species_info.chromosomes.push_back(std::move(chr_info));
+                                //     }
+                                //
+                                //     debug_all_species_segments.push_back(std::move(species_info));
+                                // }
 
 
                                 continue;
@@ -1368,6 +1366,46 @@ namespace RaMesh {
                 }
             }
         }
+          // // 收集所有物种的segment详细信息
+          //                       debug_all_species_segments.clear();
+          //                       for (const auto& [species_name, genome_graph] : species_graphs) {
+          //                           SpeciesDebugInfo species_info(species_name);
+          //                           std::shared_lock genome_lock(genome_graph.rw);
+          //
+          //                           for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+          //                               ChromosomeDebugInfo chr_info(chr_name);
+          //                               std::shared_lock end_lock(genome_end.rw);
+          //
+          //                               // 遍历该染色体的所有segments
+          //                               SegPtr current = genome_end.head;
+          //                               current = current->primary_path.next.load(std::memory_order_acquire);
+          //                               while (current && current != genome_end.tail) {
+          //                                   if (current->isSegment()) {
+          //                                       chr_info.segments.emplace_back(current);
+          //                                   }
+          //                                   // 检查链表结构是否正确
+          //                                   if (current->isHead()) {
+          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
+          //                                       continue;
+          //                                   }
+          //                                   SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+          //                                   if(prev && prev->isHead())
+          //                                   {
+          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
+          //                                       continue;
+          //                                   }
+          //                                   if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+          //                                       std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+          //                                   }
+          //                                   current = current->primary_path.next.load(std::memory_order_acquire);
+          //                               }
+          //
+          //                               species_info.chromosomes.push_back(std::move(chr_info));
+          //                           }
+          //
+          //                           debug_all_species_segments.push_back(std::move(species_info));
+          //                       }
+
     }
 
     /* ==============================================================
