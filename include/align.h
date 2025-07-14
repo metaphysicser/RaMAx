@@ -287,7 +287,7 @@ struct InsertInfo {
         std::unordered_map<ChrName, Cigar_t> cigars;
         for (const auto& [key, s] : seqs) {
 			if (key == ref_name) continue;
-			cigars[key] = globalAlignKSW2(seqs[ref_name], s);
+			cigars[key] = globalAlignKSW2(s, seqs[ref_name]);
         }
         total_length = mergeAlignmentByRef(ref_name, seqs, cigars);
         aligned = true;

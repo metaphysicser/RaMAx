@@ -172,7 +172,6 @@ uint_t mergeAlignmentByRef(
         }
     }
 
-    uint_t offset = 0;
 	for (auto& [ref_pos, info] : insert_info) {
 		info.alignSeqs(); // 对齐所有插入序列
 		if (info.ref_name.empty()) continue; // 没有参考序列，跳过
@@ -187,12 +186,6 @@ uint_t mergeAlignmentByRef(
 		}
         total_aligned_length += info.total_length; // 更新总长度
 	}
-
-    for (auto& [chr, seq] : seqs) {
-        if (seq.size() != total_aligned_length) {
-            std::cout << "";
-        }
-    }
 
     return total_aligned_length;
 
