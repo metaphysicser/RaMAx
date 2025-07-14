@@ -457,12 +457,12 @@ starAlignment(
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
-    ThreadPool shared_pool(thread_num);
-
+    uint_t count = 0;
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
-    //for (uint_t i = 0; i < 1; i++) {
+    //for (uint_t i = 0; i < 1; i++) { 
     for (uint_t i = 0; i < leaf_num; i++) {
+        //auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
         // 使用工具函数构建缓存
         spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
         SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
@@ -485,20 +485,23 @@ starAlignment(
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
-			ref_name, species_fasta_manager_map, match_ptr, shared_pool
-		);
+			ref_name, species_fasta_manager_map, match_ptr);
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
-        constructMultipleGraphsByGreedy(
-           seqpro_managers, ref_name, *cluster_map, *multi_graph, shared_pool, min_span
-        );
+        //constructMultipleGraphsByGreedy(
+        //   seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+
+        constructMultipleGraphsByGreedyByRef(
+            seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+        multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
-        multi_graph->mergeMultipleGraphs(ref_name,shared_pool);
+        multi_graph->mergeMultipleGraphs(ref_name, thread_num);
+        multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
@@ -514,6 +517,9 @@ starAlignment(
         catch (const std::exception& e) {
             spdlog::error("Failed to add mask intervals for {}: {}", ref_name, e.what());
         }
+        std::string s = std::to_string(count);
+        // multi_graph->exportToMaf("/mnt/d/Result/RaMAx/Alignathon/result/primate-small"+ s + ".maf", seqpro_managers, true, false);
+        
     }
 
     // 在所有迭代完成后，进行最终的图正确性验证
@@ -521,6 +527,7 @@ starAlignment(
 
 
     return std::move(multi_graph);
+    //return std::move(std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers));
 
 }
 
@@ -618,13 +625,12 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesName                       ref_name,
     std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map,
-    SpeciesMatchVec3DPtrMapPtr        species_match_map,
-    ThreadPool&                       shared_pool)
+    SpeciesMatchVec3DPtrMapPtr        species_match_map)
 {
     if (!species_match_map || species_match_map->empty()) {
         return std::make_shared<SpeciesClusterMap>();
     }
-
+    ThreadPool shared_pool(thread_num);
     /*-------------- 预分配表 ----------------------------------------*/
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> unique_map;
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> repeat_map;
@@ -739,7 +745,6 @@ std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
     SpeciesName ref_name,
     const SpeciesClusterMap& species_cluster_map,
     RaMesh::RaMeshMultiGenomeGraph& graph,
-    ThreadPool& shared_pool,
     uint_t min_span)
 {
     if (species_cluster_map.empty()) {
@@ -749,6 +754,8 @@ std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
 
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
                 species_cluster_map.size());
+
+    ThreadPool shared_pool(thread_num);
 
     // 【修复】：添加互斥锁保护graph的并发访问
     std::mutex graph_mutex;
@@ -829,4 +836,102 @@ std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
     shared_pool.waitAllTasksDone();
 
     spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
+}
+
+
+/* ============================================================= *
+ *  多基因组比对类的成员函数：并行构建多个比对结果图，共用一个线程池
+ * ============================================================= */
+ /**
+  * @brief  并行构建多个比对结果图，基于贪婪算法处理多个物种的cluster数据
+  *
+  * @param ref_name             参考物种名称
+  * @param species_cluster_map  所有物种的cluster数据映射
+  * @param graph                多基因组图对象
+  * @param shared_pool          共享线程池
+  * @param min_span             最小跨度阈值
+  */
+void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
+    SpeciesName ref_name,
+    const SpeciesClusterMap& species_cluster_map,
+    RaMesh::RaMeshMultiGenomeGraph& graph,
+    uint_t min_span)
+{
+    if (species_cluster_map.empty()) {
+        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
+        return;
+    }
+
+    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
+        species_cluster_map.size());
+
+    uint_t t_num = 1;
+
+    ThreadPool pool(t_num);
+    std::map<SpeciesName, ClusterVecPtrByRefPtr> result_map;
+    std::vector<std::future<void>> futures;
+
+    for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
+        // 为空跳过
+        if (!cluster_ptr_3d) continue;
+
+        futures.emplace_back(
+            pool.enqueue([&, species_name, cluster_ptr_3d]() {
+                try {
+                    // 生成该物种的按 Ref 分组聚簇
+                    ClusterVecPtrByRefPtr grouped_ref_clusters =
+                        groupClustersToRefVec(cluster_ptr_3d, pool, t_num);
+
+                    result_map[species_name] = std::move(grouped_ref_clusters);
+
+                    spdlog::info("[constructMultipleGraphsByGreedy] Finished clustering for species: {}", species_name);
+                }
+                catch (const std::exception& e) {
+                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}", species_name, e.what());
+                }
+                })
+        );
+    }
+
+    // 等待所有任务完成
+    for (auto& fut : futures) fut.get();
+    pool.waitAllTasksDone();
+
+    PairRareAligner pra(*this);
+    pra.ref_name = ref_name;
+    // 【修复】：设置ref_seqpro_manager，避免空指针
+    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
+
+    for (auto& [species_name, cluster_ref_ptr] : result_map) {
+        for (auto& cluster_ptr : *cluster_ref_ptr) {
+
+            //pool.enqueue([&, species_name, cluster_ptr]() {
+            //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+            //        graph, pool, min_span);
+            //    });
+            for (auto& cluster : *cluster_ptr) {
+                const ChrName& ref_chr = cluster.front().ref_region.chr_name;
+                const ChrName& qry_chr = cluster.front().query_region.chr_name;
+
+                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+                    graph, pool, min_span);
+            }
+        }
+        pool.waitAllTasksDone();
+
+        for (auto& [species_name, genome_graph] : graph.species_graphs) {
+            if (species_name == ref_name) continue;
+            for (auto& [chr_name, end] : genome_graph.chr2end) {
+                //pool.enqueue([&]() {
+                //    end.removeOverlap();
+                //    });
+                end.removeOverlap();
+            }
+
+        }
+        pool.waitAllTasksDone();
+
+        spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
+    }
 }

@@ -57,31 +57,76 @@ namespace RaMesh {
         return t;
     }
 
+    //void Segment::linkChain(const std::vector<SegPtr>& segs)
+    //{
+    //    for (size_t i = 0; i + 1 < segs.size(); ++i) {
+    //        segs[i]->primary_path.next.store(segs[i + 1], std::memory_order_relaxed);
+    //        segs[i + 1]->primary_path.prev.store(segs[i], std::memory_order_release);
+    //    }
+    //}
     void Segment::linkChain(const std::vector<SegPtr>& segs)
     {
         for (size_t i = 0; i + 1 < segs.size(); ++i) {
-            segs[i]->primary_path.next.store(segs[i + 1], std::memory_order_relaxed);
+            segs[i]->primary_path.next.store(segs[i + 1], std::memory_order_release);
             segs[i + 1]->primary_path.prev.store(segs[i], std::memory_order_release);
         }
     }
+
     
-    void Segment::unlinkSegment(SegPtr segment) {
-        if (!segment || segment->isHead() || segment->isTail()) return;
-        
-        // 获取前驱和后继
-        SegPtr prev = segment->primary_path.prev.load(std::memory_order_acquire);
-        SegPtr next = segment->primary_path.next.load(std::memory_order_acquire);
-        
-        if (prev && next) {
-            // 原子地更新链表指针
-            prev->primary_path.next.store(next, std::memory_order_release);
-            next->primary_path.prev.store(prev, std::memory_order_release);
-            
-            // 清空被删除segment的指针
-            segment->primary_path.next.store(nullptr, std::memory_order_relaxed);
-            segment->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+    //void Segment::unlinkSegment(SegPtr segment) {
+    //    if (!segment || segment->isHead() || segment->isTail()) return;
+    //    
+    //    // 获取前驱和后继
+    //    SegPtr prev = segment->primary_path.prev.load(std::memory_order_acquire);
+    //    SegPtr next = segment->primary_path.next.load(std::memory_order_acquire);
+    //    
+    //    if (prev && next) {
+    //        // 原子地更新链表指针
+    //        prev->primary_path.next.store(next, std::memory_order_release);
+    //        next->primary_path.prev.store(prev, std::memory_order_release);
+    //        
+    //        // 清空被删除segment的指针
+    //        segment->primary_path.next.store(nullptr, std::memory_order_relaxed);
+    //        segment->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+    //    }
+    //}
+// 把  | prev ⇆ seg ⇆ next |  改成  | prev ⇆ next |
+    void Segment::unlinkSegment(SegPtr seg)
+    {
+        if (!seg || seg->isHead() || seg->isTail()) return;
+
+        while (true) {
+            SegPtr prev = seg->primary_path.prev.load(std::memory_order_acquire);
+            SegPtr next = seg->primary_path.next.load(std::memory_order_acquire);
+
+            // 已经被摘过
+            if (!prev || !next) return;
+
+            /* -- CAS  prev->next  -- */
+            SegPtr exp = seg;
+            if (!prev->primary_path.next.compare_exchange_weak(
+                exp, next,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
+                continue;                       // 失败：再读一遍重试
+
+            /* -- CAS  next->prev  -- */
+            exp = seg;
+            while (!next->primary_path.prev.compare_exchange_weak(
+                exp, prev,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
+            {
+                if (exp != seg) break;          // 别人已修好
+            }
+
+            //seg->primary_path.next.store(nullptr, std::memory_order_release);
+            //seg->primary_path.prev.store(nullptr, std::memory_order_release);
+            return;                             // 至此链表闭合
         }
     }
+
+
     
     void Segment::deleteSegment(SegPtr segment) {
         if (!segment) return;
@@ -177,6 +222,21 @@ namespace RaMesh {
         if (need > sample_vec.size()) sample_vec.resize(need, nullptr);
     }
 
+    void GenomeEnd::setToSampling(SegPtr cur) {
+        std::unique_lock lk(rw);
+        std::size_t need = cur->start / kSampleStep;
+        if (need == 0) {
+            return;
+        }
+        if (need + 1 > sample_vec.size()) sample_vec.resize(need + 1, nullptr);
+        if (!sample_vec[need]) {
+            sample_vec[need] = cur; 
+        }else if (cur->start > sample_vec[need]->start) {
+            sample_vec[need] = cur;
+        }
+		
+    }
+
     void GenomeEnd::updateSampling(const std::vector<SegPtr>& segs) {
         if (segs.empty()) return;
         std::unique_lock lk(rw);      // ××× 写锁 —— 修改 sample_vec
@@ -193,14 +253,22 @@ namespace RaMesh {
         // 1) 读取采样表得到“最近前驱”的 hint
         std::shared_lock lk(rw);                 // 读锁即可
         std::size_t slot = range_start / kSampleStep;
-        SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
-            ? sample_vec[slot]
-            : head;
-            lk.unlock();                             // 之后只读链表，不再访问 sample_vec
+        //SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
+        //    ? sample_vec[slot]
+        //    : head;
+       SegPtr hint = head;
+        lk.unlock();                             // 之后只读链表，不再访问 sample_vec
 
             // 2) 保证 hint 在目标区间左侧
-            while (!hint->isHead() && hint->start > range_start)
-                hint = hint->primary_path.prev.load(std::memory_order_acquire);
+            while (!hint->isHead() && hint->start > range_start) {
+                SegPtr nxt = hint->primary_path.prev.load(std::memory_order_acquire);
+                if (!nxt) {                    // 保险：有人在并发删除
+                    hint = head;               // 回到链表起点重新来
+                    break;
+                }
+                hint = nxt;
+            }
+                
 
             SegPtr prev = hint;
             SegPtr curr = hint->primary_path.next.load(std::memory_order_acquire);
@@ -213,39 +281,123 @@ namespace RaMesh {
             return { prev, curr ? curr : tail };
     }
 
+    // ramesh.cpp
+// ✂ BEGIN: spliceRange 回滚修补
+   // ramesh.cpp
+// -------  REPLACE spliceRange() 整个函数 -------
     bool GenomeEnd::spliceRange(SegPtr prev, SegPtr next,
         SegPtr first, SegPtr last)
     {
-        // Step‑0: stitch inside chain
-        // 使用 release 语义，保证链表完整性对其他线程可见
-        first->primary_path.prev.store(prev, std::memory_order_release);
-        last->primary_path.next.store(next, std::memory_order_release);
-        std::atomic_thread_fence(std::memory_order_release);
+        /* Step-0 : 先把链内指针接好（只写自己，不暴露给外部） */
+        first->primary_path.prev.store(prev, std::memory_order_relaxed);
+        last->primary_path.next.store(next, std::memory_order_relaxed);
 
-        // Step‑1: CAS prev‑>next
-        SegPtr expected = next;
+        /* Step-1 : CAS prev->next :  next  →  first */
         if (!prev->primary_path.next.compare_exchange_strong(
-            expected, first,
+            next, first,
             std::memory_order_acq_rel,
-            std::memory_order_acquire)) {
-            return false; // caller must retry
+            std::memory_order_acquire))
+        {
+            /* 失败——prev 已被别人改动，撤销刚才赋值 */
+            first->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+            last->primary_path.next.store(nullptr, std::memory_order_relaxed);
+            return false;                                  // 让 caller 重试
         }
 
-        // Step‑2: fix next‑>prev
-        next->primary_path.prev.store(last, std::memory_order_release);
+        /* Step-2 : CAS next->prev :  prev  →  last   */
+        SegPtr expect = prev;
+        if (!next->primary_path.prev.compare_exchange_strong(
+            expect, last,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire))
+        {
+            /* 第二步失败——需要 **回滚** 第一步，然后重试 */
+            prev->primary_path.next.store(next, std::memory_order_release);
+            first->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+            last->primary_path.next.store(nullptr, std::memory_order_relaxed);
+            return false;
+        }
+
+        /* Step-3 : 成功，发布内存栅栏，保证链完整性对外可见 */
+        std::atomic_thread_fence(std::memory_order_release);
         return true;
     }
+    /// 并行版本
+    //void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
+    //    uint_t beg, uint_t end) {
+    //    if (segs.empty()) return;
 
+    //    for (;;) {
+    //        auto [prev, next] = findSurrounding(beg, end);
+    //        if (spliceRange(prev, next, segs.front(), segs.back()))
+    //            break;        // 成功才退出
+    //    }
+    //    updateSampling(segs); // 插入成功后修补采样表
+
+    //}
+
+    // -------------------------------------------------------------
+//  GenomeEnd::spliceSegmentChain  –  serial-only version
+//  前提：调用线程独占访问该 GenomeEnd（没有其他线程同时插入/删除）。
+// -------------------------------------------------------------
     void GenomeEnd::spliceSegmentChain(const std::vector<SegPtr>& segs,
-        uint_t beg, uint_t end) {
+        uint_t beg,
+        uint_t end)
+    {
         if (segs.empty()) return;
-        for (;;) {
-            auto [prev, next] = findSurrounding(beg, end);
-            if (spliceRange(prev, next, segs.front(), segs.back()))
-                break;        // 成功才退出
+
+        // 1) 找到目标区间的前驱/后继（只读操作）
+        auto [prev, next] = findSurrounding(beg, end);
+
+        // 2) 把内部已串好的链挂进来（无锁、无 CAS）
+        SegPtr first = segs.front();
+        SegPtr last = segs.back();
+
+        first->primary_path.prev.store(prev, std::memory_order_relaxed);
+        last->primary_path.next.store(next, std::memory_order_relaxed);
+
+        prev->primary_path.next.store(first, std::memory_order_relaxed);
+        next->primary_path.prev.store(last, std::memory_order_relaxed);
+
+        if (next == tail && next->primary_path.prev != last) {
+            std::cout << "";
         }
-        updateSampling(segs); // 插入成功后修补采样表
+
+        // 3) 修补采样表（仍然复用现有实现）
+        for (auto seg : segs) {
+            setToSampling(seg);
+        }
+        
     }
+
+    void GenomeEnd::insertSegment(const SegPtr seg,
+        uint_t beg,
+        uint_t end)
+    {
+        if (!seg) return;
+
+        // 1) 找到目标区间的前驱/后继（只读操作）
+        auto [prev, next] = findSurrounding(beg, end);
+
+
+
+        seg->primary_path.prev.store(prev, std::memory_order_relaxed);
+        seg->primary_path.next.store(next, std::memory_order_relaxed);
+
+        prev->primary_path.next.store(seg, std::memory_order_relaxed);
+        next->primary_path.prev.store(seg, std::memory_order_relaxed);
+
+        if (next == tail && next->primary_path.prev != seg) {
+            std::cout << "";
+        }
+
+        // 3) 修补采样表（仍然复用现有实现）
+        
+        setToSampling(seg);
+        
+
+    }
+
 
     void GenomeEnd::clearAllSegments() {
         std::unique_lock lk(rw);
@@ -361,6 +513,61 @@ namespace RaMesh {
         }
     }
 
+    /* -------------------------------------------------------------
+     *  移除同一染色体链表中的重叠 Segment
+     *  规则：两条 Segment 区间有任何交叠时，删除 length 较小者
+     * -------------------------------------------------------------*/
+    void RaMesh::GenomeEnd::removeOverlap()
+    {
+        std::unique_lock<std::shared_mutex> lk(rw);      // 独占写
+
+        uint_t min_pos = UINT32_MAX;
+        uint_t max_pos = 0;
+
+        if (!head || !tail) return;
+
+        SegPtr prev = head->primary_path.next.load(std::memory_order_acquire);
+        if (!prev || prev == tail) return;
+
+        SegPtr cur = prev->primary_path.next.load(std::memory_order_acquire);
+
+        while (cur && cur != tail)
+        {
+            uint_t prev_end = prev->start + prev->length;
+            uint_t cur_start = cur->start;
+
+            /* -------- 检测交叠 -------- */
+            if (prev_end > cur_start)
+            {
+                /* 选出要删除的较短段 */
+                SegPtr victim = (prev->length <= cur->length) ? prev : cur;
+                SegPtr keeper = (victim == prev) ? cur : prev;
+
+                uint_t v_beg = victim->start;
+                uint_t v_end = victim->start + victim->length;
+
+                min_pos = std::min(min_pos, v_beg);
+                max_pos = std::max(max_pos, v_end);
+                if(victim->parent_block)
+				    victim->parent_block->removeAllSegments(); // 从 block 中移除
+
+                cur = keeper->primary_path.next.load(std::memory_order_acquire);
+				prev = keeper;                // 继续比较 keeper 与新 cur
+                continue;                           // 重新比较 keeper 与新 cur
+            }
+
+            /* -------- 无交叠，正常前进 -------- */
+            prev = cur;
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+
+        // 更新采样表
+        if (min_pos != UINT32_MAX) {
+            invalidateSampling(min_pos, max_pos);
+        }
+    }
+
+
     /* =============================================================
      * 2. Block factories
      * ===========================================================*/
@@ -430,19 +637,40 @@ namespace RaMesh {
         return { ref_seg, qry_seg };
     }
     
-    void Block::removeAllSegments() {
-        std::unique_lock lk(rw);
-        
-        // 从所有链表中解除链接并清理anchors
-        for (auto& [species_chr, segment] : anchors) {
-            if (segment) {
-                Segment::unlinkSegment(segment);
-                segment->parent_block.reset();
-                delete segment;
-            }
+    //void Block::removeAllSegments() {
+    //    std::unique_lock lk(rw);
+    //    
+    //    // 从所有链表中解除链接并清理anchors
+    //    for (auto& [species_chr, segment] : anchors) {
+    //        if (segment) {
+    //            Segment::unlinkSegment(segment);
+    //            segment->parent_block.reset();
+    //            delete segment;
+    //        }
+    //    }
+    //    anchors.clear();
+    //}
+    void Block::removeAllSegments()
+    {
+        std::unique_lock lk(rw);                     // 独占 Block
+
+        std::vector<SegPtr> seg_list;
+        seg_list.reserve(anchors.size());
+
+        for (auto& [_, seg] : anchors)       // 只读，绝不修改 anchors
+            if (seg) seg_list.push_back(seg);
+
+        anchors.clear();                              // 现在可以一次性清空
+
+        /* 真正断链 + 释放在容器之外进行，
+           即使过程中触发再修改 anchors，也不会再有活迭代器。 */
+        for (SegPtr seg : seg_list) {
+            Segment::unlinkSegment(seg);
+            seg->parent_block.reset();
+            delete seg;
         }
-        anchors.clear();
     }
+
     
     void Block::removeSegmentsBySpecies(const SpeciesName& species) {
         std::unique_lock lk(rw);

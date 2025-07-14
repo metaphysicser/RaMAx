@@ -159,6 +159,8 @@ namespace RaMesh {
         void spliceSegmentChain(const std::vector<SegPtr>& segments,
             uint_t beg, uint_t end);
 
+        void insertSegment(const SegPtr seg, uint_t beg, uint_t end);
+
         void clearAllSegments();
         
         // ――― deletion methods ―――
@@ -166,6 +168,8 @@ namespace RaMesh {
         bool removeSegmentRange(uint_t start, uint_t end);
         void removeBatch(const std::vector<SegPtr>& segments);
         void invalidateSampling(uint_t start, uint_t end);
+
+        void removeOverlap();
 
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
@@ -179,16 +183,19 @@ namespace RaMesh {
 
         std::vector<SegPtr> sample_vec;
 
-
         static bool spliceRange(SegPtr prev, SegPtr next,
             SegPtr first, SegPtr last);
 
         void ensureSampleSize(uint_t pos);          // 自动扩容
+
+
+        
     
     public:
         void updateSampling(const std::vector<SegPtr>& segs); // 插入后修补
-        
-    private:
+
+        void setToSampling(SegPtr cur);
+
     };
 
     // ────────────────────────────────────────────────
@@ -217,13 +224,19 @@ namespace RaMesh {
         void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
             const MatchCluster& cluster);
 
-        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+        void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
 			const AnchorVec& anchor_vec);
+
+        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor);
 
         void debugPrint(bool show_detail) const;
         
         // 图正确性验证函数
         bool verifyGraphCorrectness(bool verbose = false) const;
+
+        void safeLink(SegPtr prev, SegPtr next);
+
+        void mergeMultipleGraphs(const SpeciesName& ref_name, uint_t thread_num);
 
         std::unordered_map<SpeciesName, RaMeshGenomeGraph> species_graphs; // guard: rw
         std::vector<WeakBlock>                             blocks;         // guard: rw
@@ -231,7 +244,6 @@ namespace RaMesh {
 
         void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
 
-        void mergeMultipleGraphs(const SpeciesName& ref_name, ThreadPool& shared_pool);
         
         // ――― high-performance deletion methods ―――
         bool removeBlock(const BlockPtr& block);

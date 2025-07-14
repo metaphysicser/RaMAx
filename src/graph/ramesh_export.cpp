@@ -119,13 +119,13 @@ namespace RaMesh {
             if (refRec.sp != "simChimp") {
                 std::cout << "";
             }
-            // try {
-            //     mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
-            // }
-            // catch (const std::exception& e) {
-            //     spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
-            //     continue;
-            // }
+             try {
+                 mergeAlignmentByRef(ref_key, seqs, cigars);     // 就地修改 seqs
+             }
+             catch (const std::exception& e) {
+                 spdlog::warn("mergeAlignmentByRef failed: {}", e.what());
+                 continue;
+             }
 
             //---------------- 5. 写 MAF 块头 ----------------------
             ofs << "a score=0\n";

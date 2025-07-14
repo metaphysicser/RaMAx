@@ -2,6 +2,7 @@
 //  File: ramesh_graph.cpp –  High‑level graph ops (v0.6‑alpha)
 // =============================================================
 #include "ramesh.h"
+#include <cstdint>
 #include <curl/curl.h>
 #include <iomanip>
 #include <shared_mutex>
@@ -171,7 +172,7 @@ namespace RaMesh {
     /* =============================================================
  * 3.  Anchor insertion (public API)
  * ===========================================================*/
-    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+    void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
                                                        const AnchorVec &anchor_vec) {
         if (anchor_vec.empty()) return;
 
@@ -216,8 +217,44 @@ namespace RaMesh {
         uint_t qry_beg = anchor_vec.front().match.query_region.start;
         uint_t qry_end_pos = anchor_vec.back().match.query_region.start + anchor_vec.back().match.query_region.length;
 
+
         ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
+    }
+
+    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+        const Anchor& anchor) {
+
+        // 1. Locate ends for reference & query chromosomes
+        const ChrName& ref_chr = anchor.match.ref_region.chr_name;
+        const ChrName& qry_chr = anchor.match.query_region.chr_name;
+
+        auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
+        auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];
+
+
+        BlockPtr blk = Block::create(2);
+        blk->ref_chr = ref_chr;
+
+         auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
+
+
+            // register to global pool
+        {
+            std::unique_lock pool_lock(rw);
+            blocks.emplace_back(WeakBlock(blk));
+        }
+        
+
+        // 4. Atomically splice into genome graph
+        uint_t ref_beg = anchor.match.ref_region.start;
+        uint_t ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
+        uint_t qry_beg = anchor.match.query_region.start;
+        uint_t qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
+
+
+        ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
+        qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
     }
 
     /* ==============================================================
@@ -306,9 +343,6 @@ namespace RaMesh {
                 }
 
                 // 遍历链表检查完整性
-                if (species_name == "simHuman") {
-                    std::cout << "";
-                }
                 SegPtr current = genome_end.head;
                 SegPtr prev = nullptr;
                 size_t segment_count = 0;
@@ -379,6 +413,10 @@ namespace RaMesh {
 
                     prev = current;
                     current = next_ptr;
+
+                    if (!current && !prev->isTail()) {
+                        spdlog::error(" There is NULL in segment ");
+                    }
 
                     // 防止死循环
                     if (segment_count > 10000000) {
@@ -453,12 +491,103 @@ namespace RaMesh {
         return is_valid;
     }
 
+    // ✂ BEGIN: safeLink 实现
+    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next)
+    {
+        if (!prev || !next) return;
+
+        /* 1) 先写 next->prev  */
+        next->primary_path.prev.store(prev, std::memory_order_relaxed);
+
+        /* 2) 再 CAS prev->next  (确保无并发竞争) */
+        SegPtr exp = next->primary_path.next.load(std::memory_order_acquire); // 旧值
+        prev->primary_path.next.store(next, std::memory_order_release);
+
+        /* 3) 发布内存屏障，保证两侧对所有线程可见 */
+        std::atomic_thread_fence(std::memory_order_release);
+    }
+    // ✂ END
+
+
     /* =============================================================
      * 6.  Merge multiple graphs (public API)
      * ===========================================================*/
-    void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, ThreadPool &shared_pool) {
+    void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
         std::shared_lock graph_lock(rw);
 
+        // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
+        struct SegmentDebugInfo {
+            uint_t start;
+            uint_t length;
+            std::string strand_str;
+            std::string seg_role_str;
+            std::string align_role_str;
+            size_t cigar_size;
+            std::string parent_block_ref_chr;
+            size_t parent_block_anchors_count;
+
+            SegmentDebugInfo(const SegPtr& seg) {
+                if (!seg) return;
+                start = seg->start;
+                length = seg->length;
+                strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
+                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT) ? "SEGMENT" :
+                              (seg->seg_role == SegmentRole::HEAD) ? "HEAD" : "TAIL";
+                align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
+                cigar_size = seg->cigar.size();
+
+                if (seg->parent_block) {
+                    parent_block_ref_chr = seg->parent_block->ref_chr;
+                    parent_block_anchors_count = seg->parent_block->anchors.size();
+                } else {
+                    parent_block_ref_chr = "null";
+                    parent_block_anchors_count = 0;
+                }
+            }
+        };
+
+        struct ChromosomeDebugInfo {
+            std::string chr_name;
+            std::vector<SegmentDebugInfo> segments;
+
+            ChromosomeDebugInfo(const std::string& name) : chr_name(name) {}
+        };
+
+        struct SpeciesDebugInfo {
+            std::string species_name;
+            std::vector<ChromosomeDebugInfo> chromosomes;
+
+            SpeciesDebugInfo(const std::string& name) : species_name(name) {}
+        };
+
+        std::vector<SpeciesDebugInfo> debug_all_species_segments;
+        debug_all_species_segments.reserve(species_graphs.size());
+
+        // 收集所有物种的segment详细信息
+        for (const auto& [species_name, genome_graph] : species_graphs) {
+            SpeciesDebugInfo species_info(species_name);
+            std::shared_lock genome_lock(genome_graph.rw);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                ChromosomeDebugInfo chr_info(chr_name);
+                std::shared_lock end_lock(genome_end.rw);
+
+                // 遍历该染色体的所有segments
+                SegPtr current = genome_end.head;
+                while (current && current != genome_end.tail) {
+                    if (current->isSegment()) {
+                        chr_info.segments.emplace_back(current);
+                    }
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                species_info.chromosomes.push_back(std::move(chr_info));
+            }
+
+            debug_all_species_segments.push_back(std::move(species_info));
+        }
+
+        
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
         // 改为遍历species_graphs来查找Ref
@@ -475,7 +604,7 @@ namespace RaMesh {
                 BlockPtr prev_block = prev->parent_block;
                 BlockPtr current_block = nullptr;
 
-                while (current && !current->isTail() && !prev->isHead()) {
+                while (current && !current->isTail() && current->cigar.size() == 0) {
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -514,13 +643,15 @@ namespace RaMesh {
                                 uint_t prefix_start = full_start;
                                 uint_t prefix_end = overlap_start;
                                 uint32_t prefix_len = prefix_end - prefix_start;
-                                bool has_prefix = prefix_start < prefix_end;
+                                bool prev_has_prefix = prev_seg->start < overlap_start;
+                                bool curr_has_prefix = curr_seg->start < overlap_start;
 
                                 // 后缀区间：从重叠结束到合并范围结束
                                 uint_t suffix_start = overlap_end;
                                 uint_t suffix_end = full_end;
                                 uint32_t suffix_len = suffix_end - suffix_start;
-                                bool has_suffix = suffix_start < suffix_end;
+                                bool prev_has_suffix = prev_seg->start + prev_seg->length > overlap_end;
+                                bool curr_has_suffix = curr_seg->start + curr_seg->length > overlap_end;
 
                                 // 计算创建新block和新seg的参数，然后创建2-3个新的Block和Segment
 
@@ -533,7 +664,7 @@ namespace RaMesh {
                                 SegPtr suffix_ref_seg = nullptr;
 
                                 // 1. 创建前缀block和segment（如果存在）
-                                if (has_prefix) {
+                                if (prev_has_prefix || curr_has_prefix) {
                                     prefix_block = Block::create(2);
                                     prefix_block->ref_chr = prev_block->ref_chr;
                                     prefix_ref_seg = Segment::create(
@@ -566,7 +697,7 @@ namespace RaMesh {
                                 overlap_block->anchors[ref_key] = overlap_ref_seg;
 
                                 // 3. 创建后缀block和segment（如果存在）
-                                if (has_suffix) {
+                                if (prev_has_suffix || curr_has_suffix) {
                                     suffix_block = Block::create(2);
                                     suffix_block->ref_chr = prev_block->ref_chr;
                                     suffix_ref_seg = Segment::create(
@@ -591,13 +722,15 @@ namespace RaMesh {
                                         if (segment->strand == Strand::FORWARD) {
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = prev_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = prev_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
-
+                                            uint32_t prefix_length = prev_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = prev_has_suffix ? overlap_length + suffix_len : 0;
                                             for (CigarUnit cu: segment->cigar) {
                                                 uint32_t cigar_len;
                                                 char op;
@@ -606,7 +739,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 修正累计长度判断
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -625,7 +758,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         // 累计长度
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
@@ -645,8 +778,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         // 累计长度
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
@@ -672,12 +804,15 @@ namespace RaMesh {
                                             // segment->strand == Strand::REVERSE
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = prev_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = prev_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = prev_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = prev_has_suffix ? overlap_length + suffix_len : 0;
 
                                             // CIGAR分割逻辑与正向链相同
                                             for (CigarUnit cu: segment->cigar) {
@@ -688,7 +823,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 分割判断逻辑相同
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -707,7 +842,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -724,8 +859,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -771,12 +905,15 @@ namespace RaMesh {
                                         if (segment->strand == Strand::FORWARD) {
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = curr_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = curr_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = curr_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = curr_has_suffix ? overlap_length + suffix_len : 0;
 
                                             for (CigarUnit cu: segment->cigar) {
                                                 uint32_t cigar_len;
@@ -786,7 +923,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 修正累计长度判断
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -805,7 +942,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -824,8 +961,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -855,12 +991,15 @@ namespace RaMesh {
                                             // segment->strand == Strand::REVERSE
                                             std::string cigar_str;
                                             uint32_t sum = 0;
-                                            bool prefix_done = has_prefix ? false : true;
+                                            bool prefix_done = curr_has_prefix ? false : true;
                                             bool overlap_done = false;
-                                            bool suffix_done = has_suffix ? false : true;
+                                            bool suffix_done = curr_has_suffix ? false : true;
                                             SegPtr prefix_qry_seg = nullptr;
                                             SegPtr overlap_qry_seg = nullptr;
                                             SegPtr suffix_qry_seg = nullptr;
+                                            uint32_t prefix_length = curr_has_prefix ? prefix_len : 0;
+                                            uint32_t overlap_length = prefix_length + overlap_len;
+                                            uint32_t suffix_length = curr_has_suffix ? overlap_length + suffix_len : 0;
 
                                             // CIGAR分割逻辑与正向链相同
                                             for (CigarUnit cu: segment->cigar) {
@@ -871,7 +1010,7 @@ namespace RaMesh {
                                                 if (op != 'I') {
                                                     sum += cigar_len;
                                                     // 分割判断逻辑相同
-                                                    if (!prefix_done && sum >= prefix_len) {
+                                                    if (!prefix_done && sum >= prefix_length) {
                                                         prefix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
@@ -890,7 +1029,7 @@ namespace RaMesh {
                                                             prefix_block->anchors[species_chr] = prefix_qry_seg;
                                                         }
                                                     }
-                                                    if (prefix_done && !overlap_done && sum >= (prefix_len + overlap_len)) {
+                                                    if (prefix_done && !overlap_done && sum >= overlap_length) {
                                                         overlap_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
@@ -907,8 +1046,7 @@ namespace RaMesh {
                                                         // 将query segment注册到overlap_block
                                                         overlap_block->anchors[species_chr] = overlap_qry_seg;
                                                     }
-                                                    if (overlap_done && !suffix_done && sum >= (
-                                                            prefix_len + overlap_len + suffix_len)) {
+                                                    if (overlap_done && !suffix_done && sum >= suffix_length) {
                                                         suffix_done = true;
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
@@ -957,6 +1095,7 @@ namespace RaMesh {
                                 current->primary_path.next.store(nullptr, std::memory_order_release);
                                 current->primary_path.prev.store(nullptr, std::memory_order_release);
 
+
                                 // 将新blocks添加到全局池
                                 if (prefix_block) {
                                     blocks.emplace_back(WeakBlock(prefix_block));
@@ -977,20 +1116,42 @@ namespace RaMesh {
 
                                 if (suffix_block) {
                                     blocks.emplace_back(WeakBlock(suffix_block));
-                                    
-                                    suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-									current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    SegPtr suffix_next = current_next;
+                                    if (current_next->isTail()) {
+                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
 
-                                    overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                    suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    }
+                                    else if(suffix_ref_seg->start > suffix_next->start)
+                                    {
+                                        while (suffix_ref_seg->start > suffix_next->start) {
+                                            suffix_next = suffix_next->primary_path.next.load(std::memory_order_release);
+                                        }
+                                        overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+
+                                        suffix_ref_seg->primary_path.prev.store(suffix_next->primary_path.prev.load(std::memory_order_release), std::memory_order_release);
+                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+
+                                        suffix_ref_seg->primary_path.next.store(suffix_next, std::memory_order_release);
+                                        suffix_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    }
+                                    else {
+                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+
+                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    }
+
                                 }
                                 else
                                 {
                                     overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
 									current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
-
-
 
                                 // 开始替换query的seg和block
                                 for (const auto &[species_chr, segment]: prev_block->anchors) {
@@ -1004,12 +1165,15 @@ namespace RaMesh {
                                         {
                                             if(species_chr_overlap.first == species_chr.first)
                                             {
-                                                if(has_prefix)
+                                                bool query_has_prefix = false;
+                                                bool query_has_suffix = false;
+                                                if(prev_has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
                                                         if(species_chr_prefix.first == species_chr.first)
                                                         {
+                                                            query_has_prefix = true;
                                                             qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
                                                             segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                             segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
@@ -1017,23 +1181,32 @@ namespace RaMesh {
                                                             break;
                                                         }
                                                     }
+                                                    if (!query_has_prefix) {
+                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
+                                                    }
                                                 }
                                                 else{
                                                     qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                     segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                 }
-                                                if(has_suffix)
+                                                if(prev_has_suffix)
                                                 {
                                                     for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
                                                     {
                                                         if(species_chr_suffix.first == species_chr.first)
                                                         {
+                                                            query_has_suffix = true;
                                                             segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
                                                             segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                             segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
                                                             qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_suffix) {
+                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1055,12 +1228,15 @@ namespace RaMesh {
                                         {
                                             if(species_chr_overlap.first == species_chr.first)
                                             {
-                                                if(has_prefix)
+                                                bool query_has_prefix = false;
+                                                bool query_has_suffix = false;
+                                                if(curr_has_prefix)
                                                 {
                                                     for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
                                                     {
                                                         if(species_chr_prefix.first == species_chr.first)
                                                         {
+                                                            query_has_prefix = true;
                                                             qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
                                                             segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                             segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
@@ -1068,23 +1244,32 @@ namespace RaMesh {
                                                             break;
                                                         }
                                                     }
+                                                    if (!query_has_prefix) {
+                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
+                                                    }
                                                 }
                                                 else{
                                                     qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
                                                     segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
                                                 }
-                                                if(has_suffix)
+                                                if(curr_has_suffix)
                                                 {
                                                     for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
                                                     {
                                                         if(species_chr_suffix.first == species_chr.first)
                                                         {
+                                                            query_has_suffix = true;
                                                             segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
                                                             segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                             segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
                                                             qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
                                                             break;
                                                         }
+                                                    }
+                                                    if (!query_has_suffix) {
+                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
                                                     }
                                                 }
                                                 else{
@@ -1117,13 +1302,57 @@ namespace RaMesh {
                                   blocks.erase(curr_it);
                                 }
                                 // 替换current和prev
-                                // prev = has_prefix ? prefix_ref_seg : overlap_ref_seg;
                                 prev = overlap_ref_seg->primary_path.prev.load(std::memory_order_acquire);
+                                if (prev->isHead()) {
+                                    prev = overlap_ref_seg;
+                                }
                                 prev_block = prev->parent_block;
-                                // current = has_prefix ? overlap_ref_seg : suffix_ref_seg;
-                                current = overlap_ref_seg;
+                                current = prev->primary_path.next.load(std::memory_order_acquire);
                                 current_block = current->parent_block;
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
+
+
+                                // // 收集所有物种的segment详细信息
+                                // debug_all_species_segments.clear();
+                                // for (const auto& [species_name, genome_graph] : species_graphs) {
+                                //     SpeciesDebugInfo species_info(species_name);
+                                //     std::shared_lock genome_lock(genome_graph.rw);
+                                //
+                                //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                                //         ChromosomeDebugInfo chr_info(chr_name);
+                                //         std::shared_lock end_lock(genome_end.rw);
+                                //
+                                //         // 遍历该染色体的所有segments
+                                //         SegPtr current = genome_end.head;
+                                //         current = current->primary_path.next.load(std::memory_order_acquire);
+                                //         while (current && current != genome_end.tail) {
+                                //             if (current->isSegment()) {
+                                //                 chr_info.segments.emplace_back(current);
+                                //             }
+                                //             // 检查链表结构是否正确
+                                //             if (current->isHead()) {
+                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
+                                //                 continue;
+                                //             }
+                                //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+                                //             if(prev && prev->isHead())
+                                //             {
+                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
+                                //                 continue;
+                                //             }
+                                //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+                                //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+                                //             }
+                                //             current = current->primary_path.next.load(std::memory_order_acquire);
+                                //         }
+                                //
+                                //         species_info.chromosomes.push_back(std::move(chr_info));
+                                //     }
+                                //
+                                //     debug_all_species_segments.push_back(std::move(species_info));
+                                // }
+
+
                                 continue;
                             }
                         }
@@ -1137,6 +1366,46 @@ namespace RaMesh {
                 }
             }
         }
+          // // 收集所有物种的segment详细信息
+          //                       debug_all_species_segments.clear();
+          //                       for (const auto& [species_name, genome_graph] : species_graphs) {
+          //                           SpeciesDebugInfo species_info(species_name);
+          //                           std::shared_lock genome_lock(genome_graph.rw);
+          //
+          //                           for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+          //                               ChromosomeDebugInfo chr_info(chr_name);
+          //                               std::shared_lock end_lock(genome_end.rw);
+          //
+          //                               // 遍历该染色体的所有segments
+          //                               SegPtr current = genome_end.head;
+          //                               current = current->primary_path.next.load(std::memory_order_acquire);
+          //                               while (current && current != genome_end.tail) {
+          //                                   if (current->isSegment()) {
+          //                                       chr_info.segments.emplace_back(current);
+          //                                   }
+          //                                   // 检查链表结构是否正确
+          //                                   if (current->isHead()) {
+          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
+          //                                       continue;
+          //                                   }
+          //                                   SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+          //                                   if(prev && prev->isHead())
+          //                                   {
+          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
+          //                                       continue;
+          //                                   }
+          //                                   if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+          //                                       std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+          //                                   }
+          //                                   current = current->primary_path.next.load(std::memory_order_acquire);
+          //                               }
+          //
+          //                               species_info.chromosomes.push_back(std::move(chr_info));
+          //                           }
+          //
+          //                           debug_all_species_segments.push_back(std::move(species_info));
+          //                       }
+
     }
 
     /* ==============================================================
@@ -1394,17 +1663,14 @@ namespace RaMesh {
             std::shared_lock species_lock(genome_graph.rw);
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率
-                std::vector<SegPtr> all_segments;
+
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
                 while (current && !current->isTail()) {
-                    all_segments.emplace_back(current);
+                    genome_end.setToSampling(current);
                     current = current->primary_path.next.load(std::memory_order_acquire);
                 }
 
-                if (!all_segments.empty()) {
-                    genome_end.updateSampling(all_segments);
-                }
             }
         }
     }
