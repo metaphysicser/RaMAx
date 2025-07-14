@@ -791,7 +791,7 @@ int main(int argc, char **argv) {
             );
         } 
 
-        RaMesh::RaMeshMultiGenomeGraph graph;
+        RaMesh::RaMeshMultiGenomeGraph graph(seqpro_managers);
         
         spdlog::info("");
         spdlog::info("============================================================");
