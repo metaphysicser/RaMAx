@@ -40,19 +40,28 @@ find_program(MAKE_EXE NAMES make gmake REQUIRED)
 # ================= HAL tools =================
 # 只要 maf2hal / hal2fasta 缺失或过期，就重新 make -C hal
 add_custom_command(
+    OUTPUT ${SONLIB_DIR}/lib/sonLib.h
+    COMMAND ${MAKE_EXE} -C ${SONLIB_DIR} -j
+    WORKING_DIRECTORY ${SONLIB_DIR}
+    COMMENT "Building sonLib…"
+)
+
+add_custom_target(sonLib_build
+    DEPENDS ${SONLIB_DIR}/lib/sonLib.h
+)
+
+add_custom_command(
     OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
     COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j
     WORKING_DIRECTORY ${HAL_DIR}
-    COMMENT "Building HAL tools (this also builds sonLib)…"
+    COMMENT "Building HAL tools…"
 )
 
 add_custom_target(hal_tools
     DEPENDS ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
 )
 
-# 如果你之前脚本里还有一些地方依赖 sonLib_build，
-# 可以留一个“别名”空目标，保持兼容
-add_custom_target(sonLib_build DEPENDS hal_tools)
+add_dependencies(hal_tools sonLib_build)
 
 # 仅当刚刚重新生成时才复制到 bin
 add_custom_command(TARGET hal_tools POST_BUILD
@@ -159,7 +168,7 @@ function(configure_rama_target target)
 endfunction()
 
 # add_compile_definitions(KSW_CPU_DISPATCH)
-
+add_compile_options(-w)
 
 # ================= 创建两个可执行文件 =================
 add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
