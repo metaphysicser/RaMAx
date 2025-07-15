@@ -89,20 +89,21 @@ namespace RaMesh {
     }
 
     RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
-        std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_map)
-    {
-        for (const auto& [sp, mgr_ptr] : seqpro_map) {
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> &seqpro_map) {
+        for (const auto &[sp, mgr_ptr]: seqpro_map) {
             // 默认空列表，以便 mgr_ptr 为空时也能插入
             std::vector<ChrName> chr_names;
 
-            if (mgr_ptr) {                         // shared_ptr 本身非空
+            if (mgr_ptr) {
+                // shared_ptr 本身非空
                 chr_names = std::visit(
-                    [](const auto& up) -> std::vector<ChrName> {
+                    [](const auto &up) -> std::vector<ChrName> {
                         // up 是 std::unique_ptr<...>
-                        return up ? up->getSequenceNames()
-                            : std::vector<ChrName>{};
+                        return up
+                                   ? up->getSequenceNames()
+                                   : std::vector<ChrName>{};
                     },
-                    *mgr_ptr                      // 解引用 shared_ptr 得到 ManagerVariant
+                    *mgr_ptr // 解引用 shared_ptr 得到 ManagerVariant
                 );
             }
 
@@ -110,7 +111,6 @@ namespace RaMesh {
             species_graphs.try_emplace(sp, sp, std::move(chr_names));
         }
     }
-
 
 
     /* =============================================================
@@ -173,7 +173,7 @@ namespace RaMesh {
  * 3.  Anchor insertion (public API)
  * ===========================================================*/
     void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-                                                       const AnchorVec &anchor_vec) {
+                                                          const AnchorVec &anchor_vec) {
         if (anchor_vec.empty()) return;
 
         // 1. Locate ends for reference & query chromosomes
@@ -222,36 +222,63 @@ namespace RaMesh {
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
     }
 
-    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-        const Anchor& anchor) {
-
+    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name,
+                                                       const Anchor &anchor, bool isMultiple) {
         // 1. Locate ends for reference & query chromosomes
-        const ChrName& ref_chr = anchor.match.ref_region.chr_name;
-        const ChrName& qry_chr = anchor.match.query_region.chr_name;
+        const ChrName &ref_chr = anchor.match.ref_region.chr_name;
+        const ChrName &qry_chr = anchor.match.query_region.chr_name;
 
-        auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
-        auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];
+        auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
+        auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
 
 
         BlockPtr blk = Block::create(2);
         blk->ref_chr = ref_chr;
 
-         auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
+        auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
 
 
-            // register to global pool
+        // register to global pool
         {
             std::unique_lock pool_lock(rw);
             blocks.emplace_back(WeakBlock(blk));
         }
-        
+
+        uint_t ref_beg;
+        uint_t ref_end_pos;
+        uint_t qry_beg;
+        uint_t qry_end_pos;
 
         // 4. Atomically splice into genome graph
-        uint_t ref_beg = anchor.match.ref_region.start;
-        uint_t ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
-        uint_t qry_beg = anchor.match.query_region.start;
-        uint_t qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
-
+        if(isMultiple){
+            ref_beg = std::visit([&](auto& mgr) -> uint_t {
+                using T = std::decay_t<decltype(mgr)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgr->toOriginalPosition(anchor.match.ref_region.chr_name, anchor.match.ref_region.start);
+                } else {
+                    // 没有 toOriginalPosition，直接返回原始 start 或抛异常
+                    return anchor.match.ref_region.start;
+                }
+            }, ref_mgr);
+            ref_end_pos = ref_beg + anchor.match.ref_region.length;
+            qry_beg = std::visit([&](auto& mgr) -> uint_t {
+                using T = std::decay_t<decltype(mgr)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgr->toOriginalPosition(anchor.match.query_region.chr_name, anchor.match.query_region.start);
+                } else {
+                    return anchor.match.query_region.start;
+                }
+            }, qry_mgr);
+            qry_end_pos = qry_beg + anchor.match.query_region.length;
+        }
+        else{
+            ref_beg = anchor.match.ref_region.start;
+            ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
+            qry_beg = anchor.match.query_region.start;
+            qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
+        }
+        r_seg->start = ref_beg;
+        q_seg->start = qry_beg;
 
         ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
         qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
@@ -492,8 +519,7 @@ namespace RaMesh {
     }
 
     // ✂ BEGIN: safeLink 实现
-    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next)
-    {
+    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next) {
         if (!prev || !next) return;
 
         /* 1) 先写 next->prev  */
@@ -506,6 +532,7 @@ namespace RaMesh {
         /* 3) 发布内存屏障，保证两侧对所有线程可见 */
         std::atomic_thread_fence(std::memory_order_release);
     }
+
     // ✂ END
 
 
@@ -513,6 +540,7 @@ namespace RaMesh {
      * 6.  Merge multiple graphs (public API)
      * ===========================================================*/
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
+        size_t count =0;
         std::shared_lock graph_lock(rw);
 
         // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
@@ -526,13 +554,16 @@ namespace RaMesh {
             std::string parent_block_ref_chr;
             size_t parent_block_anchors_count;
 
-            SegmentDebugInfo(const SegPtr& seg) {
+            SegmentDebugInfo(const SegPtr &seg) {
                 if (!seg) return;
                 start = seg->start;
                 length = seg->length;
                 strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
-                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT) ? "SEGMENT" :
-                              (seg->seg_role == SegmentRole::HEAD) ? "HEAD" : "TAIL";
+                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
+                                   ? "SEGMENT"
+                                   : (seg->seg_role == SegmentRole::HEAD)
+                                         ? "HEAD"
+                                         : "TAIL";
                 align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
                 cigar_size = seg->cigar.size();
 
@@ -550,25 +581,27 @@ namespace RaMesh {
             std::string chr_name;
             std::vector<SegmentDebugInfo> segments;
 
-            ChromosomeDebugInfo(const std::string& name) : chr_name(name) {}
+            ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
+            }
         };
 
         struct SpeciesDebugInfo {
             std::string species_name;
             std::vector<ChromosomeDebugInfo> chromosomes;
 
-            SpeciesDebugInfo(const std::string& name) : species_name(name) {}
+            SpeciesDebugInfo(const std::string &name) : species_name(name) {
+            }
         };
 
         std::vector<SpeciesDebugInfo> debug_all_species_segments;
         debug_all_species_segments.reserve(species_graphs.size());
 
         // 收集所有物种的segment详细信息
-        for (const auto& [species_name, genome_graph] : species_graphs) {
+        for (const auto &[species_name, genome_graph]: species_graphs) {
             SpeciesDebugInfo species_info(species_name);
             std::shared_lock genome_lock(genome_graph.rw);
 
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
                 ChromosomeDebugInfo chr_info(chr_name);
                 std::shared_lock end_lock(genome_end.rw);
 
@@ -587,7 +620,7 @@ namespace RaMesh {
             debug_all_species_segments.push_back(std::move(species_info));
         }
 
-        
+
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
         // 改为遍历species_graphs来查找Ref
@@ -604,7 +637,7 @@ namespace RaMesh {
                 BlockPtr prev_block = prev->parent_block;
                 BlockPtr current_block = nullptr;
 
-                while (current && !current->isTail() && current->cigar.size() == 0) {
+                while (current && !current->isTail() ) {
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -1118,15 +1151,13 @@ namespace RaMesh {
                                 if (prefix_block) {
                                     blocks.emplace_back(WeakBlock(prefix_block));
                                     // 将prefix的Seg插入
-                                    
+
                                     prefix_ref_seg->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                     overlap_ref_seg->primary_path.prev.store(prefix_ref_seg, std::memory_order_release);
 
                                     prefix_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
-									prev_prev->primary_path.next.store(prefix_ref_seg, std::memory_order_release);
-                                }
-                                else
-                                {
+                                    prev_prev->primary_path.next.store(prefix_ref_seg, std::memory_order_release);
+                                } else {
                                     overlap_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
                                     prev_prev->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                 }
@@ -1136,39 +1167,47 @@ namespace RaMesh {
                                     blocks.emplace_back(WeakBlock(suffix_block));
                                     SegPtr suffix_next = current_next;
                                     if (current_next->isTail()) {
-                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.next.
+                                                store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.
+                                                store(suffix_ref_seg, std::memory_order_release);
 
-                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
-                                    }
-                                    else if(suffix_ref_seg->start > suffix_next->start)
-                                    {
+                                        overlap_ref_seg->primary_path.next.store(
+                                            suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
+                                    } else if (suffix_ref_seg->start > suffix_next->start) {
                                         while (suffix_ref_seg->start > suffix_next->start) {
-                                            suffix_next = suffix_next->primary_path.next.load(std::memory_order_release);
+                                            suffix_next = suffix_next->primary_path.next.
+                                                    load(std::memory_order_release);
                                         }
-                                        overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(
+                                            current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
 
-                                        suffix_ref_seg->primary_path.prev.store(suffix_next->primary_path.prev.load(std::memory_order_release), std::memory_order_release);
-                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            suffix_next->primary_path.prev.load(std::memory_order_release),
+                                            std::memory_order_release);
+                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.
+                                                next.store(suffix_ref_seg, std::memory_order_release);
 
                                         suffix_ref_seg->primary_path.next.store(suffix_next, std::memory_order_release);
                                         suffix_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
-                                    }
-                                    else {
-                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    } else {
+                                        suffix_ref_seg->primary_path.next.
+                                                store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.
+                                                store(suffix_ref_seg, std::memory_order_release);
 
-                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(
+                                            suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
                                     }
-
-                                }
-                                else
-                                {
+                                } else {
                                     overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-									current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
 
                                 // 开始替换query的seg和block
@@ -1179,57 +1218,131 @@ namespace RaMesh {
                                         segment->primary_path.prev.store(nullptr, std::memory_order_release);
                                         segment->primary_path.next.store(nullptr, std::memory_order_release);
                                         // 先找到一定存在的overlap_block
-                                        for(const auto &[species_chr_overlap, segment_overlap]: overlap_block->anchors)
-                                        {
-                                            if(species_chr_overlap.first == species_chr.first)
-                                            {
-                                                bool query_has_prefix = false;
-                                                bool query_has_suffix = false;
-                                                if(prev_has_prefix)
-                                                {
-                                                    for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
-                                                    {
-                                                        if(species_chr_prefix.first == species_chr.first)
-                                                        {
-                                                            query_has_prefix = true;
-                                                            qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
-                                                            segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                            segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                            segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
-                                                            break;
+                                        for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
+                                             anchors) {
+                                            if (species_chr_overlap.first == species_chr.first) {
+                                                if (segment->strand == Strand::FORWARD) {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (prev_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                break;
+                                                            }
                                                         }
-                                                    }
-                                                    if (!query_has_prefix) {
-                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                    }
-                                                }
-                                                else{
-                                                    qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                    segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                }
-                                                if(prev_has_suffix)
-                                                {
-                                                    for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
-                                                    {
-                                                        if(species_chr_suffix.first == species_chr.first)
-                                                        {
-                                                            query_has_suffix = true;
-                                                            segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
-                                                            segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
-                                                            segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
-                                                            qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
-                                                            break;
+                                                        if (!query_has_prefix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
                                                         }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
                                                     }
-                                                    if (!query_has_suffix) {
-                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                    if (prev_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
                                                     }
                                                 }
-                                                else{
-                                                    segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                    qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                // 如果是反向链就反着连
+                                                else {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (prev_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_suffix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
+
+                                                    }
+                                                    if (prev_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_prefix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                    }
                                                 }
                                             }
                                         }
@@ -1242,57 +1355,131 @@ namespace RaMesh {
                                         segment->primary_path.prev.store(nullptr, std::memory_order_release);
                                         segment->primary_path.next.store(nullptr, std::memory_order_release);
                                         // 先找到一定存在的overlap_block
-                                        for(const auto &[species_chr_overlap, segment_overlap]: overlap_block->anchors)
-                                        {
-                                            if(species_chr_overlap.first == species_chr.first)
-                                            {
-                                                bool query_has_prefix = false;
-                                                bool query_has_suffix = false;
-                                                if(curr_has_prefix)
-                                                {
-                                                    for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
-                                                    {
-                                                        if(species_chr_prefix.first == species_chr.first)
-                                                        {
-                                                            query_has_prefix = true;
-                                                            qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
-                                                            segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                            segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                            segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
-                                                            break;
+                                        for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
+                                             anchors) {
+                                            if (species_chr_overlap.first == species_chr.first) {
+                                                if (segment->strand == Strand::FORWARD) {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (curr_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                break;
+                                                            }
                                                         }
-                                                    }
-                                                    if (!query_has_prefix) {
-                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                    }
-                                                }
-                                                else{
-                                                    qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                    segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                }
-                                                if(curr_has_suffix)
-                                                {
-                                                    for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
-                                                    {
-                                                        if(species_chr_suffix.first == species_chr.first)
-                                                        {
-                                                            query_has_suffix = true;
-                                                            segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
-                                                            segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
-                                                            segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
-                                                            qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
-                                                            break;
+                                                        if (!query_has_prefix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
                                                         }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
                                                     }
-                                                    if (!query_has_suffix) {
-                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                    if (curr_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
                                                     }
                                                 }
-                                                else{
-                                                    segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                    qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                // 如果是反向链就反着连
+                                                else {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (curr_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_suffix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
+
+                                                    }
+                                                    if (curr_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_prefix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                    }
                                                 }
                                             }
                                         }
@@ -1303,21 +1490,21 @@ namespace RaMesh {
                                 auto prev_it = std::find_if(
                                     blocks.begin(), blocks.end(),
                                     [&](const WeakBlock &wb) {
-                                      auto locked = wb.lock();
-                                      return locked && locked == prev_block;
+                                        auto locked = wb.lock();
+                                        return locked && locked == prev_block;
                                     });
                                 if (prev_it != blocks.end()) {
-                                  blocks.erase(prev_it);
+                                    blocks.erase(prev_it);
                                 }
                                 // 移除current_block
                                 auto curr_it = std::find_if(
                                     blocks.begin(), blocks.end(),
                                     [&](const WeakBlock &wb) {
-                                      auto locked = wb.lock();
-                                      return locked && locked == current_block;
+                                        auto locked = wb.lock();
+                                        return locked && locked == current_block;
                                     });
                                 if (curr_it != blocks.end()) {
-                                  blocks.erase(curr_it);
+                                    blocks.erase(curr_it);
                                 }
                                 // 替换current和prev
                                 prev = overlap_ref_seg->primary_path.prev.load(std::memory_order_acquire);
@@ -1330,47 +1517,48 @@ namespace RaMesh {
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
 
 
-                                // // 收集所有物种的segment详细信息
-                                // debug_all_species_segments.clear();
-                                // for (const auto& [species_name, genome_graph] : species_graphs) {
-                                //     SpeciesDebugInfo species_info(species_name);
-                                //     std::shared_lock genome_lock(genome_graph.rw);
-                                //
-                                //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                                //         ChromosomeDebugInfo chr_info(chr_name);
-                                //         std::shared_lock end_lock(genome_end.rw);
-                                //
-                                //         // 遍历该染色体的所有segments
-                                //         SegPtr current = genome_end.head;
-                                //         current = current->primary_path.next.load(std::memory_order_acquire);
-                                //         while (current && current != genome_end.tail) {
-                                //             if (current->isSegment()) {
-                                //                 chr_info.segments.emplace_back(current);
-                                //             }
-                                //             // 检查链表结构是否正确
-                                //             if (current->isHead()) {
-                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
-                                //                 continue;
-                                //             }
-                                //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-                                //             if(prev && prev->isHead())
-                                //             {
-                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
-                                //                 continue;
-                                //             }
-                                //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-                                //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-                                //             }
-                                //             current = current->primary_path.next.load(std::memory_order_acquire);
-                                //         }
-                                //
-                                //         species_info.chromosomes.push_back(std::move(chr_info));
-                                //     }
-                                //
-                                //     debug_all_species_segments.push_back(std::move(species_info));
-                                // }
+                                // 收集所有物种的segment详细信息
+                                debug_all_species_segments.clear();
+                                for (const auto& [species_name, genome_graph] : species_graphs) {
+                                    SpeciesDebugInfo species_info(species_name);
+                                    std::shared_lock genome_lock(genome_graph.rw);
 
+                                    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                                        ChromosomeDebugInfo chr_info(chr_name);
+                                        std::shared_lock end_lock(genome_end.rw);
 
+                                        // 遍历该染色体的所有segments
+                                        SegPtr current = genome_end.head;
+                                        current = current->primary_path.next.load(std::memory_order_acquire);
+                                        while (current && current != genome_end.tail) {
+                                            if (current->isSegment()) {
+                                                chr_info.segments.emplace_back(current);
+                                            }
+                                            // 检查链表结构是否正确
+                                            if (current->isHead()) {
+                                                current = current->primary_path.next.load(std::memory_order_acquire);
+                                                continue;
+                                            }
+                                            SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+                                            if(prev && prev->isHead())
+                                            {
+                                                current = current->primary_path.next.load(std::memory_order_acquire);
+                                                continue;
+                                            }
+                                            if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+                                                std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+                                            }
+                                            current = current->primary_path.next.load(std::memory_order_acquire);
+                                        }
+
+                                        species_info.chromosomes.push_back(std::move(chr_info));
+                                    }
+
+                                    debug_all_species_segments.push_back(std::move(species_info));
+                                }
+
+count++;
+                                std::cout<<count<<std::endl;
                                 continue;
                             }
                         }
@@ -1384,46 +1572,44 @@ namespace RaMesh {
                 }
             }
         }
-          // // 收集所有物种的segment详细信息
-          //                       debug_all_species_segments.clear();
-          //                       for (const auto& [species_name, genome_graph] : species_graphs) {
-          //                           SpeciesDebugInfo species_info(species_name);
-          //                           std::shared_lock genome_lock(genome_graph.rw);
-          //
-          //                           for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-          //                               ChromosomeDebugInfo chr_info(chr_name);
-          //                               std::shared_lock end_lock(genome_end.rw);
-          //
-          //                               // 遍历该染色体的所有segments
-          //                               SegPtr current = genome_end.head;
-          //                               current = current->primary_path.next.load(std::memory_order_acquire);
-          //                               while (current && current != genome_end.tail) {
-          //                                   if (current->isSegment()) {
-          //                                       chr_info.segments.emplace_back(current);
-          //                                   }
-          //                                   // 检查链表结构是否正确
-          //                                   if (current->isHead()) {
-          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
-          //                                       continue;
-          //                                   }
-          //                                   SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-          //                                   if(prev && prev->isHead())
-          //                                   {
-          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
-          //                                       continue;
-          //                                   }
-          //                                   if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-          //                                       std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-          //                                   }
-          //                                   current = current->primary_path.next.load(std::memory_order_acquire);
-          //                               }
-          //
-          //                               species_info.chromosomes.push_back(std::move(chr_info));
-          //                           }
-          //
-          //                           debug_all_species_segments.push_back(std::move(species_info));
-          //                       }
-
+        // // 收集所有物种的segment详细信息
+        // debug_all_species_segments.clear();
+        // for (const auto &[species_name, genome_graph]: species_graphs) {
+        //     SpeciesDebugInfo species_info(species_name);
+        //     std::shared_lock genome_lock(genome_graph.rw);
+        //
+        //     for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+        //         ChromosomeDebugInfo chr_info(chr_name);
+        //         std::shared_lock end_lock(genome_end.rw);
+        //
+        //         // 遍历该染色体的所有segments
+        //         SegPtr current = genome_end.head;
+        //         current = current->primary_path.next.load(std::memory_order_acquire);
+        //         while (current && current != genome_end.tail) {
+        //             if (current->isSegment()) {
+        //                 chr_info.segments.emplace_back(current);
+        //             }
+        //             // 检查链表结构是否正确
+        //             if (current->isHead()) {
+        //                 current = current->primary_path.next.load(std::memory_order_acquire);
+        //                 continue;
+        //             }
+        //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+        //             if (prev && prev->isHead()) {
+        //                 current = current->primary_path.next.load(std::memory_order_acquire);
+        //                 continue;
+        //             }
+        //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+        //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+        //             }
+        //             current = current->primary_path.next.load(std::memory_order_acquire);
+        //         }
+        //
+        //         species_info.chromosomes.push_back(std::move(chr_info));
+        //     }
+        //
+        //     debug_all_species_segments.push_back(std::move(species_info));
+        // }
     }
 
     /* ==============================================================
@@ -1674,7 +1860,6 @@ namespace RaMesh {
     }
 
     void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
-        std::shared_lock graph_lock(rw);
 
         // 优化每个物种图的采样表
         for (auto &[species, genome_graph]: species_graphs) {
@@ -1689,7 +1874,6 @@ namespace RaMesh {
                     genome_end.setToSampling(current);
                     current = current->primary_path.next.load(std::memory_order_acquire);
                 }
-
             }
         }
     }

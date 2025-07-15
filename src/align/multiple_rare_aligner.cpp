@@ -481,6 +481,25 @@ starAlignment(
             ref_name, species_fasta_manager_map,
             ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
+        // // match的start都要转换为原始的start
+        // if (i > 0) {
+        //     for (auto& kv : *match_ptr) {
+        //         for (auto& mv2 : *kv.second) {
+        //             for (auto& mv1 : mv2) {
+        //                 for (auto& m : mv1) {
+        //                     if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
+        //                         auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
+        //                         m.query_region.start = mgr->toOriginalPosition(m.query_region.chr_name, m.query_region.start);
+        //                     }
+        //                     if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
+        //                         auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
+        //                         m.ref_region.start = mgr->toOriginalPosition(m.ref_region.chr_name, m.ref_region.start);
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
@@ -915,7 +934,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 const ChrName& qry_chr = cluster.front().query_region.chr_name;
 
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                    graph, pool, min_span);
+                    graph, pool, min_span, true);
             }
         }
         pool.waitAllTasksDone();

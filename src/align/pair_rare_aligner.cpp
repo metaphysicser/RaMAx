@@ -437,7 +437,7 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
   * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
   * @param min_span         最小跨度阈值
   */
-void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span)
+void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span, bool isMultiple)
 {
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
@@ -501,7 +501,7 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			for (auto& anchor : anchor_vec) {
-				graph.insertAnchorIntoGraph(ref_name, query_name, anchor);
+				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
 			}
 			
 			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {

@@ -226,7 +226,7 @@ namespace RaMesh {
         void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
 			const AnchorVec& anchor_vec);
 
-        void insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor);
+        void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
 
         void debugPrint(bool show_detail) const;
         
