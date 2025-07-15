@@ -177,7 +177,6 @@ namespace RaMesh {
         mutable std::shared_mutex rw;
 
 
-    private:
         std::unique_ptr<Segment> head_holder;
         std::unique_ptr<Segment> tail_holder;
 
