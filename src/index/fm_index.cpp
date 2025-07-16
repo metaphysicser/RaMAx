@@ -387,16 +387,17 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query, St
 
 // 中速模式：跳跃推进，减少重复匹配
 MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
-                                          Strand strand, bool allow_MEM,
-                                          uint_t query_offset,
-                                          uint_t min_anchor_length,
-                                          uint_t max_anchor_frequency,
-                                          sdsl::int_vector<0> &ref_global_cache,
-                                          SeqPro::Length sampling_interval) {
+    Strand strand, bool allow_MEM,
+    uint_t query_offset,
+    uint_t min_anchor_length,
+    uint_t max_anchor_frequency,
+    sdsl::int_vector<0>& ref_global_cache,
+    SeqPro::Length sampling_interval) {
     if (strand == FORWARD) {
         std::reverse(query.begin(), query.end());
-    } else {
-        for (char &ch: query) {
+    }
+    else {
+        for (char& ch : query) {
             ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
         }
     }
@@ -417,8 +418,9 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
             Region query_region;
             if (strand == FORWARD) {
                 query_region = Region(query_chr, query_length - match_length - total_length + query_offset,
-                                      match_length);
-            } else {
+                    match_length);
+            }
+            else {
                 query_region = Region(query_chr, total_length + query_offset, match_length);
             }
             MatchVec anchor_ptr_list;
@@ -438,10 +440,10 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query,
             }
             last_pos = ref_end_pos;
         }
-        total_length += min_anchor_length;
-    }
+        total_length += std::min(min_anchor_length, match_length);
 
-    return anchor_ptr_list_vec;
+        return anchor_ptr_list_vec;
+    }
 }
 
 // -------------------------------------------------------------
