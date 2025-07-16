@@ -156,25 +156,33 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
   }
 
   const auto &intervals = it->second;
-  Position original_pos = masked_pos;
+  Position origin_pos = masked_pos;
   Position accumulated_masked = 0;
-  size_t masked_intervals_count = 0;
+  Position accumulated_unmasked = 0;
+
+  Position unmasked_interval_count = 0;
+  Position unmasked_interval_start = 0;
+
+  Position cur_interval_length = 0;
 
   for (const auto &interval : intervals) {
-    Position interval_start_in_masked = interval.start - accumulated_masked;
-    
-    if (masked_pos < interval_start_in_masked) {
-      // 目标位置在当前区间之前
-      break;
-    }
-    // 累加跳过的遮蔽碱基
-    original_pos += interval.length();
-    accumulated_masked += interval.length();
-    masked_intervals_count++;
+      cur_interval_length = interval.length();
+      if (origin_pos < accumulated_unmasked) {
+          break;
+      }
+      accumulated_unmasked += interval.start - unmasked_interval_start + 1;
+      accumulated_masked += cur_interval_length;
+	  unmasked_interval_start = interval.end;
+      unmasked_interval_count++;
+  }
+  accumulated_masked -= cur_interval_length;
+  unmasked_interval_count -= 1;
+  if (intervals[0].start == 0) {
+      unmasked_interval_count -= 1;
   }
 
   // 返回时减去前面遮蔽区间的数量
-  return original_pos - masked_intervals_count;
+  return origin_pos + accumulated_masked - unmasked_interval_count;
 }
 
 Length MaskManager::getMaskedSequenceLength(SequenceId seq_id, Length original_length) const {
@@ -735,9 +743,6 @@ Length SequenceManager::getTotalLength() const {
 std::string SequenceManager::concatAllSequences(char separator) const {
   auto seq_names = getSequenceNames();
   auto result = concatSequences(seq_names, separator);
-  if(separator != '\0'){
-    result.push_back('\0');
-  }
   return result;
 }
 
@@ -750,10 +755,9 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\1') {
-      estimated_size += 1;
-    }
+    estimated_size += 1;
   }
+  estimated_size += 1;
   result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
@@ -761,15 +765,14 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
       Length length = getSequenceLength(seq_names[i]);
       std::string sequence = getSubSequence(seq_names[i], 0, length);
       result.append(sequence);
+     
+      result.push_back('\1');
       
-      if (separator != '\1' && i < seq_names.size() - 1) {
-        result.push_back(separator);
-      }
     } catch (const std::exception&) {
       // 忽略错误
     }
   }
-
+  result.push_back('\0');
   return result;
 }
 
@@ -1158,9 +1161,6 @@ std::string MaskedSequenceManager::concatAllSequences(char separator) const {
 std::string MaskedSequenceManager::concatAllSequencesSeparated(char separator) const {
   auto seq_names = getSequenceNames();
   auto result = concatSequencesSeparated(seq_names, separator);
-  if(separator != '\0'){
-    result.push_back('\0');
-  }
   return result;
 }
 
@@ -1201,25 +1201,21 @@ std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<st
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\1') {
-      estimated_size += 1;
-    }
+    estimated_size += 1;  
   }
+  estimated_size += 1;
   result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
-    try {
+    
       Length length = getSequenceLength(seq_names[i]);
       std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
       result.append(sequence);
       
-      if (separator != '\1' && i < seq_names.size() - 1) {
-        result.push_back(separator);
-      }
-    } catch (const std::exception&) {
-      // 忽略错误
-    }
+      // result.push_back('\1');
+      
   }
+  result.push_back('\0');
 
   return result;
 }

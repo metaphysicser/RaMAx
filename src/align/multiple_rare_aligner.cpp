@@ -479,31 +479,72 @@ starAlignment(
         spdlog::info("align multiple genome for {}", ref_name);
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
+            i > 0? FAST_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
         // match的start都要转换为原始的start
-        if (i > 0) {
+
+        auto subSeq = [&](const SeqPro::ManagerVariant& mv,
+            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+                return std::visit([&](auto& p) {
+                    using T = std::decay_t<decltype(p)>;
+                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                        return p->getSubSequence(chr, b, l);
+                    }
+                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                        return p->getOriginalManager().getSubSequence(chr, b, l);
+                    }
+                    }, mv);
+            };
+        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+            using PtrType = std::decay_t<decltype(manager_ptr)>;
+            if (!manager_ptr) {
+                throw std::runtime_error("Manager pointer is null inside variant.");
+            }
+            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                return manager_ptr->concatAllSequences('\1');
+            }
+            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+                return manager_ptr->concatAllSequencesSeparated('\1');
+            }
+            else {
+                throw std::runtime_error("Unhandled manager type in variant.");
+            }
+            }, *seqpro_managers[ref_name]);
+
+        if (true) {
             for (auto& kv : *match_ptr) {
                 for (auto& mv2 : *kv.second) {
                     for (auto& mv1 : mv2) {
                         for (auto& m : mv1) {
-                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
+          /*                  if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
                                 m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
-                            }
-                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
-                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
-                                if (mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start) == 817239) {
-                                    std::cout << 1 << std::endl;
+                            }*/
+                            //if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
+                            //    auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
+								std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
+								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+								std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
+                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
+								if (ref_seq != query_seq) {
+									spdlog::error("Ref and query sequences do not match for {}: {} vs {}",
+										ref_name, ref_seq, query_seq);
                                 }
-                                m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-
-                            }
+                                else {
+                                    std::cout << "";
+                                }
+							// }
+						
+ 
                         }
                     }
                 }
             }
         }
+
+
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
