@@ -479,7 +479,7 @@ starAlignment(
         spdlog::info("align multiple genome for {}", ref_name);
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
+            i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
 
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
