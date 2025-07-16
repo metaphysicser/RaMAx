@@ -162,7 +162,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
@@ -173,7 +173,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							Strand::FORWARD,
 							allow_MEM,
 							ck.start,
-							0,
+							min_anchor_length,
 							max_anchor_frequency,
 							ref_global_cache,
 							sampling_interval);
@@ -196,7 +196,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
