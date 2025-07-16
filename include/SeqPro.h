@@ -251,10 +251,10 @@ public:
 
   // === 序列拼接 ===
 
-  std::string concatAllSequences(char separator = '\0') const;
-  std::string concatSequences(const std::vector<std::string> &seq_names, char separator = '\0') const;
+  std::string concatAllSequences(char separator = '\1') const;
+  std::string concatSequences(const std::vector<std::string> &seq_names, char separator = '\1') const;
   void streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
-                      char separator = '\0', size_t buffer_size = 1024 * 1024) const;
+                      char separator = '\1', size_t buffer_size = 1024 * 1024) const;
 
   // === 批量操作 ===
 
@@ -371,10 +371,10 @@ public:
 
   // === 序列拼接（遮蔽后） ===
 
-  std::string concatAllSequences(char separator = '\0') const;
-  std::string concatSequences(const std::vector<std::string> &seq_names, char separator = '\0') const;
+  std::string concatAllSequences(char separator = '\1') const;
+  std::string concatSequences(const std::vector<std::string> &seq_names, char separator = '\1') const;
   void streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
-                      char separator = '\0', size_t buffer_size = 1024 * 1024) const;
+                      char separator = '\1', size_t buffer_size = 1024 * 1024) const;
 
   // === 批量操作 ===
 

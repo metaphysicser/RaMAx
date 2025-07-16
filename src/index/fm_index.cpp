@@ -25,7 +25,7 @@ bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\0');
+        return manager_ptr->concatAllSequences('\1');
     }, fasta_manager);
     size_t n = T.size() + 1;
     if (n == 0)
@@ -95,7 +95,7 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\0');
+        return manager_ptr->concatAllSequences('\1');
     }, fasta_manager);
     size_t n = T.size() + 1;
     if (n == 0)
