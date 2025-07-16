@@ -238,8 +238,8 @@ public:
 
   SpeciesName species_name;
   SeqPro::ManagerVariant& fasta_manager;
-  std::array<char, 6> alpha_set{'\0', 'A', 'C', 'G', 'N', 'T'};
-  std::array<char, 5> alpha_set_without_N{'\0', 'A', 'C', 'G', 'T'};
+  std::array<char, 7> alpha_set{'\0', '\1', 'A', 'C', 'G', 'N', 'T'};
+  std::array<char, 6> alpha_set_without_N{'\0', '\1', 'A', 'C', 'G', 'T'};
   SampledSA_t sampled_sa;
   WtHuff_t wt_bwt;
   std::array<uint_t, 256> count_array{};

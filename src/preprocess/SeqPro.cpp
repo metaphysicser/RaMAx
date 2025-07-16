@@ -1201,7 +1201,7 @@ std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<st
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    // estimated_size += 1;  
+    estimated_size += 1;  
   }
   estimated_size += 1;
   result.reserve(estimated_size);
