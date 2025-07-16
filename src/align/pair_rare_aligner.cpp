@@ -173,7 +173,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							Strand::FORWARD,
 							allow_MEM,
 							ck.start,
-							0,
+							min_anchor_length,
 							max_anchor_frequency,
 							ref_global_cache,
 							sampling_interval);

@@ -477,6 +477,7 @@ starAlignment(
         }
 
         spdlog::info("align multiple genome for {}", ref_name);
+        // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
             i > 0? FAST_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
@@ -520,10 +521,13 @@ starAlignment(
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
                                 m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
                             }*/
-                            //if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
-                            //    auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
+                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
+                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
 								std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
+                                if (m.ref_region.start < 5000) {
+                                    std::cout << "";
+                                }
+                                m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
 								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
 								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
 								std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
@@ -535,7 +539,7 @@ starAlignment(
                                 else {
                                     std::cout << "";
                                 }
-							// }
+							}
 						
  
                         }

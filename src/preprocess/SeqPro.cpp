@@ -154,36 +154,45 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
   if (it == mask_intervals_.end()) {
     return masked_pos;
   }
-
+  // TODO 性能可以优化
+  // TODO 考虑intetval首个不是0的情况
   const auto &intervals = it->second;
   Position origin_pos = masked_pos;
-  Position accumulated_masked = 0;
+  
   Position accumulated_unmasked = 0;
+  if (intervals.size() > 0 && intervals[0].start == 0) {
+      accumulated_unmasked = -1;
+  }
 
   Position unmasked_interval_count = 0;
-  Position unmasked_interval_start = 0;
 
-  Position cur_interval_length = 0;
+  Position last_unmasked_interval_end = 0;
+
+  Position cur_interval_len = 0;
+
 
   for (const auto &interval : intervals) {
-      cur_interval_length = interval.length();
+      cur_interval_len = interval.start - last_unmasked_interval_end + 1;
+      accumulated_unmasked += cur_interval_len;
       if (origin_pos < accumulated_unmasked) {
+          accumulated_unmasked -= cur_interval_len;
           break;
       }
-      accumulated_unmasked += interval.start - unmasked_interval_start + 1;
-      accumulated_masked += cur_interval_length;
-	  unmasked_interval_start = interval.end;
+      //accumulated_masked += cur_interval_length;
+	  last_unmasked_interval_end = interval.end;
       unmasked_interval_count++;
   }
-  accumulated_masked -= cur_interval_length;
+
   unmasked_interval_count -= 1;
   if (intervals[0].start == 0) {
       unmasked_interval_count -= 1;
   }
 
   // 返回时减去前面遮蔽区间的数量
-  return origin_pos + accumulated_masked - unmasked_interval_count;
+  return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
 }
+
+
 
 Length MaskManager::getMaskedSequenceLength(SequenceId seq_id, Length original_length) const {
   auto it = mask_intervals_.find(seq_id);

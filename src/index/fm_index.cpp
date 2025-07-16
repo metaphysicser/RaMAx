@@ -6,12 +6,24 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
                    uint_t sample_rate)
     : species_name(species_name), fasta_manager(fasta_manager) {
     this->sample_rate = sample_rate;
-    this->total_size = std::visit([](auto &&manager_ptr) -> size_t {
+    // TODO total_size 要优化
+    std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->getTotalLength();
-    }, fasta_manager);
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            return manager_ptr->concatAllSequences('\1');
+        }
+        else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            return manager_ptr->concatAllSequencesSeparated('\1');
+        }
+        else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
+        }, fasta_manager);
+    this->total_size = T.size();
+    
     // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
     if (total_size < sample_rate) {
         this->sample_rate = 1;
@@ -112,6 +124,7 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
         }
     }, fasta_manager);
     size_t n = T.size();
+    this->total_size = n;
     this->T = T;
     if (n == 0)
         return false;
@@ -121,7 +134,7 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
             std::cout << "";
         }
         if (T[i] == '\1') {
-            std::cout << "";
+            std::cout <<  "";
         }
     }
 
@@ -180,6 +193,7 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
         buildIndexUsingDivsufsort(thread);
     } else {
         if (fast_mode) {
+            // TODO 对齐divsufsort
             buildIndexUsingCaPS(thread);
         } else {
             buildIndexUsingBigBWT(output_path,
@@ -188,7 +202,7 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
     }
 
 
-    //// 构建 C 表（前缀计数）和字母转下标映射表
+    ////// 构建 C 表（前缀计数）和字母转下标映射表
     //size_t cumulative = 0;
     //char2idx.fill(0xFF);
     //count_array.fill(0);
@@ -222,7 +236,7 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
     //        count++;
     //    }
     //}
-    // ---------- 1. 判断是否需要把 'N' 纳入字母表 ----------
+    ///---------- 1. 判断是否需要把 'N' 纳入字母表 ----------
     bool has_ambiguous_bases = std::visit([](auto&& manager_ptr) -> bool {
         using PtrType = std::decay_t<decltype(manager_ptr)>;
         if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>)
@@ -717,7 +731,7 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
 
                     if (info) {
                         /*region_vec.emplace_back(info->name, local_pos, match_length);*/
-                        region_vec.emplace_back(info->name, local_pos, match_length);
+                        region_vec.emplace_back(info->name, ref_global_pos, match_length);
                     }
                 }
             }, fasta_manager);
