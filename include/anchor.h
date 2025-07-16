@@ -289,7 +289,48 @@ RegionVec preAllocateChunksBySequence(const SeqPro::ManagerVariant& seq_manager)
 RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
                                  uint_t chunk_size,
                                  uint_t overlap_size = 0,
-                                 uint_t min_chunk_size = 10000);
+                                 uint_t min_chunk_size = 10000,
+                                 bool isMultiple = false);
+
+/**
+ * @brief 常规的基于大小的分块辅助函数
+ * @param chunks 输出的分块结果
+ * @param seq_name 序列名称
+ * @param seq_length 序列长度
+ * @param chunk_size 分块大小
+ * @param overlap_size 重叠大小
+ * @param min_chunk_size 最小分块大小
+ */
+void normalSizeBasedChunking(RegionVec& chunks, const std::string& seq_name, 
+                           uint64_t seq_length, uint_t chunk_size, 
+                           uint_t overlap_size, uint_t min_chunk_size);
+
+/**
+ * @brief 基于遮蔽区间的预分割函数
+ * @param chunks 输出的分块结果
+ * @param seq_name 序列名称
+ * @param seq_length 序列长度
+ * @param masked_manager 遮蔽序列管理器
+ * @param chunk_size 分块大小
+ * @param overlap_size 重叠大小
+ */
+void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name, 
+                        uint64_t seq_length, 
+                        const SeqPro::MaskedSequenceManager& masked_manager,
+                        uint_t chunk_size, uint_t overlap_size);
+
+/**
+ * @brief 对非遮蔽区域进行分块
+ * @param chunks 输出的分块结果
+ * @param seq_name 序列名称
+ * @param region_start 区域起始位置
+ * @param region_end 区域结束位置
+ * @param chunk_size 分块大小
+ * @param overlap_size 重叠大小
+ */
+void chunkUnmaskedRegion(RegionVec& chunks, const std::string& seq_name,
+                       uint64_t region_start, uint64_t region_end,
+                       uint_t chunk_size, uint_t overlap_size);
 
 // ------------------------------------------------------------------
 // Cereal 序列化支持：用于将结构写入文件或从文件读取

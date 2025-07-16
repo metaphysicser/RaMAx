@@ -149,6 +149,34 @@ Position MaskManager::mapToOriginalPosition(SequenceId seq_id, Position masked_p
   return original_pos;
 }
 
+Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return masked_pos;
+  }
+
+  const auto &intervals = it->second;
+  Position original_pos = masked_pos;
+  Position accumulated_masked = 0;
+  size_t masked_intervals_count = 0;
+
+  for (const auto &interval : intervals) {
+    Position interval_start_in_masked = interval.start - accumulated_masked;
+    
+    if (masked_pos < interval_start_in_masked) {
+      // 目标位置在当前区间之前
+      break;
+    }
+    // 累加跳过的遮蔽碱基
+    original_pos += interval.length();
+    accumulated_masked += interval.length();
+    masked_intervals_count++;
+  }
+
+  // 返回时减去前面遮蔽区间的数量
+  return original_pos - masked_intervals_count;
+}
+
 Length MaskManager::getMaskedSequenceLength(SequenceId seq_id, Length original_length) const {
   auto it = mask_intervals_.find(seq_id);
   if (it == mask_intervals_.end()) {
@@ -706,8 +734,14 @@ Length SequenceManager::getTotalLength() const {
 
 std::string SequenceManager::concatAllSequences(char separator) const {
   auto seq_names = getSequenceNames();
-  return concatSequences(seq_names, separator);
+  auto result = concatSequences(seq_names, separator);
+  if(separator != '\0'){
+    result.push_back('\0');
+  }
+  return result;
 }
+
+
 
 std::string SequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
   std::string result;
@@ -716,7 +750,7 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\0') {
+    if (separator != '\1') {
       estimated_size += 1;
     }
   }
@@ -728,7 +762,7 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
       std::string sequence = getSubSequence(seq_names[i], 0, length);
       result.append(sequence);
       
-      if (separator != '\0' && i < seq_names.size() - 1) {
+      if (separator != '\1' && i < seq_names.size() - 1) {
         result.push_back(separator);
       }
     } catch (const std::exception&) {
@@ -738,6 +772,7 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
 
   return result;
 }
+
 
 void SequenceManager::streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
                                      char separator, size_t buffer_size) const {
@@ -987,6 +1022,18 @@ Position MaskedSequenceManager::toOriginalPosition(SequenceId seq_id, Position m
   return mask_manager_.mapToOriginalPosition(seq_id, masked_pos);
 }
 
+Position MaskedSequenceManager::toOriginalPositionSeparated(const std::string &seq_name, Position masked_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return toOriginalPositionSeparated(seq_id, masked_pos);
+}
+
+Position MaskedSequenceManager::toOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const {
+  return mask_manager_.mapToOriginalPositionSeparated(seq_id, masked_pos);
+}
+
 Position MaskedSequenceManager::toMaskedPosition(const std::string &seq_name, Position original_pos) const {
   SequenceId seq_id = getSequenceId(seq_name);
   if (seq_id == SequenceIndex::INVALID_ID) {
@@ -1101,7 +1148,20 @@ Length MaskedSequenceManager::getTotalMaskedBases() const {
 
 std::string MaskedSequenceManager::concatAllSequences(char separator) const {
   auto seq_names = getSequenceNames();
-  return concatSequences(seq_names, separator);
+  auto result = concatSequences(seq_names, separator);
+  if(separator != '\0'){
+    result.push_back('\0');
+  }
+  return result;
+}
+
+std::string MaskedSequenceManager::concatAllSequencesSeparated(char separator) const {
+  auto seq_names = getSequenceNames();
+  auto result = concatSequencesSeparated(seq_names, separator);
+  if(separator != '\0'){
+    result.push_back('\0');
+  }
+  return result;
 }
 
 std::string MaskedSequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
@@ -1111,7 +1171,7 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\0') {
+    if (separator != '\1') {
       estimated_size += 1;
     }
   }
@@ -1120,10 +1180,40 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   for (size_t i = 0; i < seq_names.size(); ++i) {
     try {
       Length length = getSequenceLength(seq_names[i]);
-      std::string sequence = getSubSequence(seq_names[i], 0, length);
+      std::string sequence = getSubSequence (seq_names[i], 0, length);
       result.append(sequence);
       
-      if (separator != '\0' && i < seq_names.size() - 1) {
+      if (separator != '\1' && i < seq_names.size() - 1) {
+        result.push_back(separator);
+      }
+    } catch (const std::exception&) {
+      // 忽略错误
+    }
+  }
+
+  return result;
+}
+
+std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
+  std::string result;
+  
+  // 预估大小
+  size_t estimated_size = 0;
+  for (const auto& seq_name : seq_names) {
+    estimated_size += getSequenceLength(seq_name);
+    if (separator != '\1') {
+      estimated_size += 1;
+    }
+  }
+  result.reserve(estimated_size);
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    try {
+      Length length = getSequenceLength(seq_names[i]);
+      std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+      result.append(sequence);
+      
+      if (separator != '\1' && i < seq_names.size() - 1) {
         result.push_back(separator);
       }
     } catch (const std::exception&) {

@@ -174,6 +174,7 @@ public:
 
   Position mapToMaskedPosition(SequenceId seq_id, Position original_pos) const;
   Position mapToOriginalPosition(SequenceId seq_id, Position masked_pos) const;
+  Position mapToOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const;
 
   Length getMaskedSequenceLength(SequenceId seq_id, Length original_length) const;
   std::vector<std::pair<Position, Position>> getValidRanges(SequenceId seq_id,
@@ -341,6 +342,8 @@ public:
   // 遮蔽坐标 -> 原始坐标
   Position toOriginalPosition(const std::string &seq_name, Position masked_pos) const;
   Position toOriginalPosition(SequenceId seq_id, Position masked_pos) const;
+  Position toOriginalPositionSeparated(const std::string &seq_name, Position masked_pos) const;
+  Position toOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const;
 
   // 原始坐标 -> 遮蔽坐标（如果在重复区域内返回INVALID_POSITION）
   static constexpr Position INVALID_POSITION = UINT64_MAX;
@@ -374,7 +377,9 @@ public:
   // === 序列拼接（遮蔽后） ===
 
   std::string concatAllSequences(char separator = '\1') const;
+  std::string concatAllSequencesSeparated(char separator = '\1') const;
   std::string concatSequences(const std::vector<std::string> &seq_names, char separator = '\1') const;
+  std::string concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator = '\1') const;
   void streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
                       char separator = '\1', size_t buffer_size = 1024 * 1024) const;
 

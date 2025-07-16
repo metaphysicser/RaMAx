@@ -627,11 +627,19 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     AnchorVec anchors;
     if (cluster.empty()) return anchors;
 
+    // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
     // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
     auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrName& chr, Coord_t b, Coord_t l)->std::string {
-            return std::visit([&](auto& p) { return p->getSubSequence(chr, b, l);}, mv);
-        };
+        const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+    return std::visit([&](auto& p) {
+        using T = std::decay_t<decltype(p)>;
+        if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+            return p->getSubSequence(chr, b, l);
+        } else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+            return p->getOriginalManager().getSubSequence(chr, b, l);
+        }
+    }, mv);
+};
 
     /* ===== 初始 anchor 状态 ===== */
     const Match& first = cluster.front();

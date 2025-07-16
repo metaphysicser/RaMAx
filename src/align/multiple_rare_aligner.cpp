@@ -489,14 +489,14 @@ starAlignment(
                         for (auto& m : mv1) {
                             if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
-                                m.query_region.start = mgr->toOriginalPosition(m.query_region.chr_name, m.query_region.start);
+                                m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
                             }
                             if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
-                                if (mgr->toOriginalPosition(m.ref_region.chr_name, m.ref_region.start) == 264275) {
+                                if (mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start) == 817239) {
                                     std::cout << 1 << std::endl;
                                 }
-                                m.ref_region.start = mgr->toOriginalPosition(m.ref_region.chr_name, m.ref_region.start);
+                                m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
 
                             }
                         }
@@ -504,7 +504,6 @@ starAlignment(
                 }
             }
         }
-
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(

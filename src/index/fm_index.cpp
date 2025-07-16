@@ -22,10 +22,17 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
 bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
     this->total_size += 1; // 加终止符
     std::string T = std::visit([](auto &&manager_ptr) -> std::string {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\1');
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            return manager_ptr->concatAllSequences('\1');
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            return manager_ptr->concatAllSequencesSeparated('\1');
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
     }, fasta_manager);
     size_t n = T.size() + 1;
     if (n == 0)
@@ -92,10 +99,17 @@ bool FM_Index::buildIndexUsingCaPSImpl(const std::string &T,
 bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
     this->total_size += 1;
     std::string T = std::visit([](auto &&manager_ptr) -> std::string {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\1');
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            return manager_ptr->concatAllSequences('\1');
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            return manager_ptr->concatAllSequencesSeparated('\1');
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
     }, fasta_manager);
     size_t n = T.size() + 1;
     if (n == 0)

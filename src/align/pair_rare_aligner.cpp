@@ -117,7 +117,15 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	}
 
 	/* ---------- 读取 FASTA 并分片 ---------- */
-	RegionVec chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size);
+	// 修改：使用新的预分割逻辑，支持多基因组模式
+	RegionVec chunks;
+	if (isMultiple) {
+		// 多基因组模式：使用遮蔽区间预分割
+		chunks = preAllocateChunksBySize(query_fasta_manager, chunk_size, overlap_size, 10000, true);
+	} else {
+		// 双基因组模式：使用普通分割
+		chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size, 1000, 10000);
+	}
 	// 智能分块策略：自动根据序列数量和长度选择最优的分块方式
 
 	/* ---------- ① 计时：搜索 Anchor ---------- */
@@ -148,14 +156,12 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = std::visit([&ck, isMultiple](auto&& manager_ptr) -> std::string {
+						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-								if(isMultiple){
-									return manager_ptr->getSubSequenceSeparated(ck.chr_name, ck.start, ck.length, '\2');
-								}
+								// 不再使用分隔符，因为chunks已经预分割了
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
@@ -184,14 +190,12 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = std::visit([&ck, isMultiple](auto&& manager_ptr) -> std::string {
+						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-								if(isMultiple){
-									return manager_ptr->getSubSequenceSeparated(ck.chr_name, ck.start, ck.length, '\2');
-								}
+								// 不再使用分隔符，因为chunks已经预分割了
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
