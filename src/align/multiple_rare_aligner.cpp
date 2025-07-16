@@ -615,7 +615,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
             sp,
             std::async(std::launch::async,
                 [&pra, prefix, &fm, search_mode, allow_MEM, &shared_pool, &ref_global_cache, sampling_interval]() -> MatchVec3DPtr {
-                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval);
+                    return pra.findQueryFileAnchor(prefix, *fm, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval, true);
                 })
         );
     }

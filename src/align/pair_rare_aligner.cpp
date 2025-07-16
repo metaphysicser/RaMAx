@@ -95,7 +95,8 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	bool allow_MEM,
 	ThreadPool& pool,
 	sdsl::int_vector<0>& ref_global_cache,
-	SeqPro::Length sampling_interval)
+	SeqPro::Length sampling_interval,
+	bool isMultiple)
 {
 	/* ---------- 1. 结果文件路径，与多基因组保持同一目录 ---------- */
 	FilePath result_dir = work_dir / RESULT_DIR
@@ -144,14 +145,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
+						std::string seq = std::visit([&ck, isMultiple](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+								if(isMultiple){
+									return manager_ptr->getSubSequenceSeparated(ck.chr_name, ck.start, ck.length, '\2');
+								}
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
@@ -177,14 +181,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				}));
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
-						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
+						std::string seq = std::visit([&ck, isMultiple](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+								if(isMultiple){
+									return manager_ptr->getSubSequenceSeparated(ck.chr_name, ck.start, ck.length, '\2');
+								}
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");

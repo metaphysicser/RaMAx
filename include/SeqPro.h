@@ -319,6 +319,8 @@ public:
   // 获取子序列（遮蔽坐标）
   std::string getSubSequence(const std::string &seq_name, Position start, Length length) const;
   std::string getSubSequence(SequenceId seq_id, Position start, Length length) const;
+  std::string getSubSequenceSeparated(const std::string &seq_name, Position start, Length length, char separator = '\1') const;
+  std::string getSubSequenceSeparated(SequenceId seq_id, Position start, Length length, char separator = '\1') const;
 
   // 全局坐标获取（遮蔽坐标）
   std::string getSubSequenceGlobal(Position global_start, Length length) const;

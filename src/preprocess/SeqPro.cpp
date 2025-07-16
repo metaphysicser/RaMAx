@@ -881,6 +881,39 @@ std::string MaskedSequenceManager::getSubSequence(SequenceId seq_id,
   return result;
 }
 
+std::string MaskedSequenceManager::getSubSequenceSeparated(const std::string &seq_name, Position start, Length length, char separator) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return getSubSequenceSeparated(seq_id, start, length, separator);
+}
+
+std::string MaskedSequenceManager::getSubSequenceSeparated(SequenceId seq_id, Position start, Length length, char separator) const {
+  // 验证遮蔽坐标
+  if (!isValidPosition(seq_id, start, length)) {
+    throw SequenceException("Invalid masked position");
+  }
+
+  // 转换为原始坐标并获取有效区间
+  Position original_start = toOriginalPosition(seq_id, start);
+  Position original_end = toOriginalPosition(seq_id, start + length - 1);
+  
+  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
+  
+  std::string result;
+  result.reserve(length);
+  
+  for (const auto &range : valid_ranges) {
+    Position range_length = range.second - range.first;
+    std::string segment = original_manager_->getSubSequence(seq_id, range.first, range_length);
+    result.append(segment);
+    result.push_back(separator);
+  }
+
+  return result;
+}
+
 std::string MaskedSequenceManager::getSubSequenceGlobal(Position global_start, Length length) const {
   ensureCacheValid();
 
