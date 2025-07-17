@@ -164,7 +164,6 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
       accumulated_unmasked = -1;
   }
 
-  Position unmasked_interval_count = 0;
 
   Position last_unmasked_interval_end = 0;
 
@@ -180,13 +179,8 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
       }
       //accumulated_masked += cur_interval_length;
 	  last_unmasked_interval_end = interval.end;
-      unmasked_interval_count++;
   }
 
-  unmasked_interval_count -= 1;
-  if (intervals[0].start == 0) {
-      unmasked_interval_count -= 1;
-  }
 
   // 返回时减去前面遮蔽区间的数量
   return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
