@@ -256,7 +256,7 @@ namespace RaMesh {
         
         // ――― garbage collection and maintenance ―――
         size_t compactBlockPool();
-        void optimizeGraphStructure();
+        void optimizeGraphStructure(ChrName ref_name, bool check_overlap);
         
         // ――― deletion statistics and diagnostics ―――
         struct DeletionStats {

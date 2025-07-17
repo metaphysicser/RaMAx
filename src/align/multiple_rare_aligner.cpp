@@ -561,14 +561,14 @@ starAlignment(
 
         constructMultipleGraphsByGreedyByRef(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
-        multi_graph->optimizeGraphStructure();
+        multi_graph->optimizeGraphStructure(ref_name, true);
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
-        multi_graph->optimizeGraphStructure();
+        multi_graph->optimizeGraphStructure(ref_name, false);
 
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);

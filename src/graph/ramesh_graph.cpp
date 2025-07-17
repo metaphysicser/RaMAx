@@ -1859,15 +1859,19 @@ count++;
         return compacted;
     }
 
-    void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
+    void RaMeshMultiGenomeGraph::optimizeGraphStructure(ChrName ref_name, bool check_overlap) {
 
         // 优化每个物种图的采样表
         for (auto &[species, genome_graph]: species_graphs) {
             std::shared_lock species_lock(genome_graph.rw);
 
+            
+
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率
                 genome_end.sample_vec.clear();
+                uint_t last_seg_end = 0;
+
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
                 while (current && !current->isTail()) {
