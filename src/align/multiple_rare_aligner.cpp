@@ -988,12 +988,12 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
         pool.waitAllTasksDone();
 
         for (auto& [species_name, genome_graph] : graph.species_graphs) {
-            if (species_name == ref_name) continue;
+            // if (species_name == ref_name) continue;
             for (auto& [chr_name, end] : genome_graph.chr2end) {
                 //pool.enqueue([&]() {
                 //    end.removeOverlap();
                 //    });
-                end.removeOverlap();
+                end.removeOverlap(species_name == ref_name);
             }
 
         }

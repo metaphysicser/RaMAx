@@ -1245,6 +1245,9 @@ namespace RaMesh {
                             if (prev_end > curr_start) {
                                 // 处理合并
                                 // 确定重叠区间
+                                if (prev_seg->cigar.size() != 0 || curr_seg->cigar.size() != 0) {
+                                    std::cout << "";
+                                }
                                 uint_t overlap_start = std::max(prev_seg->start, curr_seg->start);
                                 uint_t overlap_end = std::min(prev_seg->start + prev_seg->length,
                                                               curr_seg->start + curr_seg->length);
@@ -2450,6 +2453,8 @@ count++;
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率
                 genome_end.sample_vec.clear();
+                uint_t last_seg_end = 0;
+
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
                 while (current && !current->isTail()) {

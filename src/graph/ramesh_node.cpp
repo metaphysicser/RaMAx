@@ -511,7 +511,7 @@ namespace RaMesh {
      *  移除同一染色体链表中的重叠 Segment
      *  规则：两条 Segment 区间有任何交叠时，删除 length 较小者
      * -------------------------------------------------------------*/
-    void RaMesh::GenomeEnd::removeOverlap()
+    void RaMesh::GenomeEnd::removeOverlap(bool if_ref)
     {
         std::unique_lock<std::shared_mutex> lk(rw);      // 独占写
 
@@ -531,19 +531,24 @@ namespace RaMesh {
             /* -------- 检测交叠 -------- */
             if (prev_end > cur_start)
             {
-                /* 选出要删除的较短段 */
-                SegPtr victim = (prev->length <= cur->length) ? prev : cur;
-                SegPtr keeper = (victim == prev) ? cur : prev;
+                if (cur->start == 4786915) {
+                    std::cout << "";
+                }
+                if (!if_ref || (if_ref && (prev->cigar.size() > 0 || cur->cigar.size() > 0))) {
+                    /* 选出要删除的较短段 */
+                    SegPtr victim = (prev->length <= cur->length) ? prev : cur;
+                    SegPtr keeper = (victim == prev) ? cur : prev;
 
-                uint_t v_beg = victim->start;
-                uint_t v_end = victim->start + victim->length;
+                    uint_t v_beg = victim->start;
+                    uint_t v_end = victim->start + victim->length;
 
-                if(victim->parent_block)
-				    victim->parent_block->removeAllSegments(); // 从 block 中移除
+                    if (victim->parent_block)
+                        victim->parent_block->removeAllSegments(); // 从 block 中移除
 
-                cur = keeper->primary_path.next.load(std::memory_order_acquire);
-				prev = keeper;                // 继续比较 keeper 与新 cur
-                continue;                           // 重新比较 keeper 与新 cur
+                    cur = keeper->primary_path.next.load(std::memory_order_acquire);
+                    prev = keeper;                // 继续比较 keeper 与新 cur
+                    continue;                           // 重新比较 keeper 与新 cur
+                }
             }
 
             /* -------- 无交叠，正常前进 -------- */
