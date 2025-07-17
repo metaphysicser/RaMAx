@@ -1245,6 +1245,9 @@ namespace RaMesh {
                             if (prev_end > curr_start) {
                                 // 处理合并
                                 // 确定重叠区间
+                                if (prev_seg->cigar.size() != 0 || curr_seg->cigar.size() != 0) {
+                                    std::cout << "";
+                                }
                                 uint_t overlap_start = std::max(prev_seg->start, curr_seg->start);
                                 uint_t overlap_end = std::min(prev_seg->start + prev_seg->length,
                                                               curr_seg->start + curr_seg->length);
@@ -2441,13 +2444,11 @@ count++;
         return compacted;
     }
 
-    void RaMeshMultiGenomeGraph::optimizeGraphStructure(ChrName ref_name, bool check_overlap) {
+    void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
 
         // 优化每个物种图的采样表
         for (auto &[species, genome_graph]: species_graphs) {
             std::shared_lock species_lock(genome_graph.rw);
-
-            
 
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率

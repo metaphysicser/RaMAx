@@ -561,14 +561,14 @@ starAlignment(
 
         constructMultipleGraphsByGreedyByRef(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
-        multi_graph->optimizeGraphStructure(ref_name, true);
+        multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
-        multi_graph->optimizeGraphStructure(ref_name, false);
+        multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
@@ -988,12 +988,12 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
         pool.waitAllTasksDone();
 
         for (auto& [species_name, genome_graph] : graph.species_graphs) {
-            if (species_name == ref_name) continue;
+            // if (species_name == ref_name) continue;
             for (auto& [chr_name, end] : genome_graph.chr2end) {
                 //pool.enqueue([&]() {
                 //    end.removeOverlap();
                 //    });
-                end.removeOverlap();
+                end.removeOverlap(species_name == ref_name);
             }
 
         }

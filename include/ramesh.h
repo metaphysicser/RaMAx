@@ -169,7 +169,7 @@ namespace RaMesh {
         void removeBatch(const std::vector<SegPtr>& segments);
         void invalidateSampling(uint_t start, uint_t end);
 
-        void removeOverlap();
+        void removeOverlap(bool if_ref);
 
         SegPtr head{ nullptr };
         SegPtr tail{ nullptr };
@@ -340,7 +340,7 @@ namespace RaMesh {
         
         // ――― garbage collection and maintenance ―――
         size_t compactBlockPool();
-        void optimizeGraphStructure(ChrName ref_name, bool check_overlap);
+        void optimizeGraphStructure();
         
         // ――― deletion statistics and diagnostics ―――
         struct DeletionStats {
