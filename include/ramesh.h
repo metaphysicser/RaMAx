@@ -233,6 +233,90 @@ namespace RaMesh {
         // 图正确性验证函数
         bool verifyGraphCorrectness(bool verbose = false) const;
 
+        // ――― Enhanced verification system ―――
+        enum class VerificationType : uint32_t {
+            POINTER_VALIDITY = 1 << 0,      // 指针有效性
+            LINKED_LIST_INTEGRITY = 1 << 1, // 链表完整性
+            COORDINATE_OVERLAP = 1 << 2,     // 坐标重叠检测
+            COORDINATE_ORDERING = 1 << 3,    // 坐标排序检测
+            BLOCK_CONSISTENCY = 1 << 4,      // Block一致性
+            MEMORY_INTEGRITY = 1 << 5,       // 内存完整性
+            THREAD_SAFETY = 1 << 6,          // 线程安全
+            PERFORMANCE_ISSUES = 1 << 7      // 性能问题
+        };
+
+        enum class ErrorSeverity {
+            INFO,     // 信息性问题
+            WARNING,  // 警告
+            ERROR,    // 错误
+            CRITICAL  // 严重错误
+        };
+
+        struct VerificationError {
+            VerificationType type;
+            ErrorSeverity severity;
+            std::string species;
+            std::string chromosome;
+            size_t segment_index;
+            uint_t position;
+            std::string message;
+            std::string details;
+
+            VerificationError(VerificationType t, ErrorSeverity s, const std::string& sp,
+                            const std::string& chr, size_t idx, uint_t pos,
+                            const std::string& msg, const std::string& det)
+                : type(t), severity(s), species(sp), chromosome(chr),
+                  segment_index(idx), position(pos), message(msg), details(det) {}
+        };
+
+        struct VerificationOptions {
+            uint32_t enabled_checks = 0xFFFFFFFF;  // 默认启用所有检查
+            bool verbose = false;
+            size_t max_errors_per_type = 100000;   // 完整统计所有错误
+            size_t max_total_errors = 500000;      // 完整统计所有错误
+            size_t max_verbose_errors_per_type = 5; // 每种类型只显示前5条详细信息
+            bool stop_on_critical = false;
+            bool include_performance_checks = false;
+
+            VerificationOptions() {
+                // 默认启用所有基本检查
+                enable(VerificationType::POINTER_VALIDITY);
+                enable(VerificationType::LINKED_LIST_INTEGRITY);
+                enable(VerificationType::COORDINATE_OVERLAP);
+                enable(VerificationType::COORDINATE_ORDERING);
+                enable(VerificationType::BLOCK_CONSISTENCY);
+                enable(VerificationType::MEMORY_INTEGRITY);
+                enable(VerificationType::THREAD_SAFETY);
+            }
+
+            void enable(VerificationType type) {
+                enabled_checks |= static_cast<uint32_t>(type);
+            }
+
+            void disable(VerificationType type) {
+                enabled_checks &= ~static_cast<uint32_t>(type);
+            }
+
+            bool isEnabled(VerificationType type) const {
+                return (enabled_checks & static_cast<uint32_t>(type)) != 0;
+            }
+        };
+
+        struct VerificationResult {
+            std::vector<VerificationError> errors;
+            bool is_valid = true;
+            std::chrono::microseconds verification_time{0};
+
+            size_t getErrorCount(VerificationType type) const {
+                return std::count_if(errors.begin(), errors.end(),
+                    [type](const VerificationError& error) {
+                        return error.type == type;
+                    });
+            }
+        };
+
+        VerificationResult verifyGraphCorrectness(const VerificationOptions& options) const;
+
         void safeLink(SegPtr prev, SegPtr next);
 
         void mergeMultipleGraphs(const SpeciesName& ref_name, uint_t thread_num);
@@ -268,6 +352,26 @@ namespace RaMesh {
         };
         
         DeletionStats performMaintenance(bool full_gc = false);
+
+    private:
+        // ――― Enhanced verification helper methods ―――
+        void addVerificationError(VerificationResult& result, const VerificationOptions& options,
+                                VerificationType type, ErrorSeverity severity,
+                                const std::string& species, const std::string& chr,
+                                size_t segment_index, uint_t position,
+                                const std::string& message, const std::string& details) const;
+
+        bool shouldStopVerification(const VerificationResult& result, const VerificationOptions& options) const;
+        void logVerificationSummary(const VerificationResult& result, const VerificationOptions& options) const;
+
+        void verifyPointerValidity(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyLinkedListIntegrity(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyCoordinateOverlap(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyCoordinateOrdering(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyBlockConsistency(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyMemoryIntegrity(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyThreadSafety(VerificationResult& result, const VerificationOptions& options) const;
+        void verifyPerformanceIssues(VerificationResult& result, const VerificationOptions& options) const;
     };
 
 } // namespace RaMesh
