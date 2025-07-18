@@ -480,7 +480,7 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            i > 0? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
+            i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
 
         if (true) {
