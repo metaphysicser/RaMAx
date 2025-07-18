@@ -241,7 +241,7 @@ namespace RaMesh {
         GenomeEnd::findSurrounding(uint_t range_start, uint_t range_end) {
         // 1) 读取采样表得到“最近前驱”的 hint
         std::shared_lock lk(rw);                 // 读锁即可
-        std::size_t slot = range_start / kSampleStep;
+        std::size_t slot = std::max((range_start / kSampleStep) - 1, (uint_t)0);
         SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
             ? sample_vec[slot]
             : head;
@@ -365,8 +365,10 @@ namespace RaMesh {
     {
         if (!seg) return;
 
+
         // 1) 找到目标区间的前驱/后继（只读操作）
         auto [prev, next] = findSurrounding(beg, end);
+        // next = prev->primary_path.next.load(std::memory_order_acquire);
 
         seg->primary_path.prev.store(prev, std::memory_order_relaxed);
         seg->primary_path.next.store(next, std::memory_order_relaxed);
@@ -374,11 +376,7 @@ namespace RaMesh {
         prev->primary_path.next.store(seg, std::memory_order_relaxed);
         next->primary_path.prev.store(seg, std::memory_order_relaxed);
 
-        // 3) 修补采样表（仍然复用现有实现）
-        
         setToSampling(seg);
-        
-
     }
 
 

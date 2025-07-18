@@ -283,6 +283,7 @@ namespace RaMesh {
         r_seg->start = ref_beg;
         q_seg->start = qry_beg;
 
+
         ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
         qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
     }
