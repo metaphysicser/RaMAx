@@ -95,7 +95,8 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	bool allow_MEM,
 	ThreadPool& pool,
 	sdsl::int_vector<0>& ref_global_cache,
-	SeqPro::Length sampling_interval)
+	SeqPro::Length sampling_interval,
+	bool isMultiple)
 {
 	/* ---------- 1. 结果文件路径，与多基因组保持同一目录 ---------- */
 	FilePath result_dir = work_dir / RESULT_DIR
@@ -116,7 +117,15 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	}
 
 	/* ---------- 读取 FASTA 并分片 ---------- */
-	RegionVec chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size);
+	// 修改：使用新的预分割逻辑，支持多基因组模式
+	RegionVec chunks;
+	if (isMultiple) {
+		// 多基因组模式：使用遮蔽区间预分割
+		chunks = preAllocateChunksBySize(query_fasta_manager, chunk_size, overlap_size, 10000, true);
+	} else {
+		// 双基因组模式：使用普通分割
+		chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size, 1000, 10000);
+	}
 	// 智能分块策略：自动根据序列数量和长度选择最优的分块方式
 
 	/* ---------- ① 计时：搜索 Anchor ---------- */
@@ -144,7 +153,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -152,7 +161,8 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								// 不再使用分隔符，因为chunks已经预分割了
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
@@ -163,7 +173,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							Strand::FORWARD,
 							allow_MEM,
 							ck.start,
-							0,
+							min_anchor_length,
 							max_anchor_frequency,
 							ref_global_cache,
 							sampling_interval);
@@ -177,7 +187,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				}));
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -185,7 +195,8 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
 								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								// 不再使用分隔符，因为chunks已经预分割了
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
@@ -437,7 +448,7 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
   * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
   * @param min_span         最小跨度阈值
   */
-void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span)
+void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t min_span, bool isMultiple)
 {
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
@@ -501,7 +512,7 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			for (auto& anchor : anchor_vec) {
-				graph.insertAnchorIntoGraph(ref_name, query_name, anchor);
+				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
 			}
 			
 			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {

@@ -25,6 +25,7 @@ extern "C" {
 #include "divsufsort64.h"
 #include <cstdlib>
 #include <sstream>
+#include <variant>
 
 // -------------------------
 // 常量定义
@@ -237,14 +238,16 @@ public:
 
   SpeciesName species_name;
   SeqPro::ManagerVariant& fasta_manager;
-  std::array<char, 6> alpha_set{'\0', 'A', 'C', 'G', 'N', 'T'};
-  std::array<char, 5> alpha_set_without_N{'\0', 'A', 'C', 'G', 'T'};
+  std::array<char, 7> alpha_set{'\0', '\1', 'A', 'C', 'G', 'N', 'T'};
+  std::array<char, 6> alpha_set_without_N{'\0', '\1', 'A', 'C', 'G', 'T'};
   SampledSA_t sampled_sa;
   WtHuff_t wt_bwt;
   std::array<uint_t, 256> count_array{};
   uint_t sample_rate{32};
   uint_t total_size{0};
   std::array<uint8_t, 256> char2idx{};
+  std::string T;
+  // TODO 到时候删除T
   // uint_t kmer_size;
   // KmerTable_t kmer_table_left;
   // KmerTable_t kmer_table_right;

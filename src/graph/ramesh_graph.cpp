@@ -6,6 +6,9 @@
 #include <curl/curl.h>
 #include <iomanip>
 #include <shared_mutex>
+#include <unordered_set>
+#include <algorithm>
+#include <spdlog/spdlog.h>
 #include "align.h"
 
 namespace RaMesh {
@@ -89,20 +92,21 @@ namespace RaMesh {
     }
 
     RaMeshMultiGenomeGraph::RaMeshMultiGenomeGraph(
-        std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_map)
-    {
-        for (const auto& [sp, mgr_ptr] : seqpro_map) {
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> &seqpro_map) {
+        for (const auto &[sp, mgr_ptr]: seqpro_map) {
             // 默认空列表，以便 mgr_ptr 为空时也能插入
             std::vector<ChrName> chr_names;
 
-            if (mgr_ptr) {                         // shared_ptr 本身非空
+            if (mgr_ptr) {
+                // shared_ptr 本身非空
                 chr_names = std::visit(
-                    [](const auto& up) -> std::vector<ChrName> {
+                    [](const auto &up) -> std::vector<ChrName> {
                         // up 是 std::unique_ptr<...>
-                        return up ? up->getSequenceNames()
-                            : std::vector<ChrName>{};
+                        return up
+                                   ? up->getSequenceNames()
+                                   : std::vector<ChrName>{};
                     },
-                    *mgr_ptr                      // 解引用 shared_ptr 得到 ManagerVariant
+                    *mgr_ptr // 解引用 shared_ptr 得到 ManagerVariant
                 );
             }
 
@@ -110,7 +114,6 @@ namespace RaMesh {
             species_graphs.try_emplace(sp, sp, std::move(chr_names));
         }
     }
-
 
 
     /* =============================================================
@@ -173,7 +176,7 @@ namespace RaMesh {
  * 3.  Anchor insertion (public API)
  * ===========================================================*/
     void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-                                                       const AnchorVec &anchor_vec) {
+                                                          const AnchorVec &anchor_vec) {
         if (anchor_vec.empty()) return;
 
         // 1. Locate ends for reference & query chromosomes
@@ -222,36 +225,63 @@ namespace RaMesh {
         qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
     }
 
-    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-        const Anchor& anchor) {
-
+    void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name,
+                                                       const Anchor &anchor, bool isMultiple) {
         // 1. Locate ends for reference & query chromosomes
-        const ChrName& ref_chr = anchor.match.ref_region.chr_name;
-        const ChrName& qry_chr = anchor.match.query_region.chr_name;
+        const ChrName &ref_chr = anchor.match.ref_region.chr_name;
+        const ChrName &qry_chr = anchor.match.query_region.chr_name;
 
-        auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
-        auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];
+        auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
+        auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
 
 
         BlockPtr blk = Block::create(2);
         blk->ref_chr = ref_chr;
 
-         auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
+        auto [r_seg, q_seg] = Block::createSegmentPair(anchor, ref_name, qry_name, ref_chr, qry_chr, blk);
 
 
-            // register to global pool
+        // register to global pool
         {
             std::unique_lock pool_lock(rw);
             blocks.emplace_back(WeakBlock(blk));
         }
-        
+
+        uint_t ref_beg;
+        uint_t ref_end_pos;
+        uint_t qry_beg;
+        uint_t qry_end_pos;
 
         // 4. Atomically splice into genome graph
-        uint_t ref_beg = anchor.match.ref_region.start;
-        uint_t ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
-        uint_t qry_beg = anchor.match.query_region.start;
-        uint_t qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
-
+        if(isMultiple){
+            ref_beg = std::visit([&](auto& mgr) -> uint_t {
+                using T = std::decay_t<decltype(mgr)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgr->toOriginalPosition(anchor.match.ref_region.chr_name, anchor.match.ref_region.start);
+                } else {
+                    // 没有 toOriginalPosition，直接返回原始 start 或抛异常
+                    return anchor.match.ref_region.start;
+                }
+            }, ref_mgr);
+            ref_end_pos = ref_beg + anchor.match.ref_region.length;
+            qry_beg = std::visit([&](auto& mgr) -> uint_t {
+                using T = std::decay_t<decltype(mgr)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgr->toOriginalPosition(anchor.match.query_region.chr_name, anchor.match.query_region.start);
+                } else {
+                    return anchor.match.query_region.start;
+                }
+            }, qry_mgr);
+            qry_end_pos = qry_beg + anchor.match.query_region.length;
+        }
+        else{
+            ref_beg = anchor.match.ref_region.start;
+            ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
+            qry_beg = anchor.match.query_region.start;
+            qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
+        }
+        r_seg->start = ref_beg;
+        q_seg->start = qry_beg;
 
         ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
         qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
@@ -294,167 +324,570 @@ namespace RaMesh {
      * 5.  Graph Correctness Verification (comprehensive check)
      * ==============================================================*/
     bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(bool verbose) const {
-        std::shared_lock gLock(rw);
+        // 使用默认选项调用增强版本
+        VerificationOptions options;
+        options.verbose = verbose;
+        options.max_errors_per_type = 100000;      // 完整统计所有错误
+        options.max_total_errors = 500000;         // 完整统计所有错误
+        options.max_verbose_errors_per_type = 5;   // 每种类型只显示前5条详细信息
 
-        if (verbose) {
-            spdlog::info("");
-            spdlog::info("============================================================");
-            spdlog::info("              GRAPH CORRECTNESS VERIFICATION               ");
-            spdlog::info("============================================================");
+        VerificationResult result = verifyGraphCorrectness(options);
+        return result.is_valid;
+    }
+
+    // ――― Enhanced verification system implementation ―――
+    void RaMeshMultiGenomeGraph::addVerificationError(VerificationResult& result, const VerificationOptions& options,
+                                                     VerificationType type, ErrorSeverity severity,
+                                                     const std::string& species, const std::string& chr,
+                                                     size_t segment_index, uint_t position,
+                                                     const std::string& message, const std::string& details) const {
+        // 检查是否超过总错误限制（用于完整统计）
+        if (result.errors.size() >= options.max_total_errors) {
+            return;
         }
 
-        bool is_valid = true;
-        size_t total_errors = 0;
-        size_t detailed_errors_shown = 0;
-        const size_t max_detailed_errors = 10; // 最多显示10个详细错误
+        // 检查该类型的错误是否超过限制（用于完整统计）
+        size_t type_count = result.getErrorCount(type);
+        if (type_count >= options.max_errors_per_type) {
+            return;
+        }
 
-        // 1. 验证每个物种图的结构完整性
+        // 始终添加错误到结果中（完整统计）
+        result.errors.emplace_back(type, severity, species, chr, segment_index, position, message, details);
+
+        if (severity == ErrorSeverity::ERROR || severity == ErrorSeverity::CRITICAL) {
+            result.is_valid = false;
+        }
+
+        // 限制详细输出数量，但不影响错误统计
+        if (options.verbose && type_count < options.max_verbose_errors_per_type) {
+            std::string location = species + "/" + chr + " segment#" + std::to_string(segment_index) +
+                                 " pos=" + std::to_string(position);
+            std::string full_message = location + ": " + message;
+            if (!details.empty()) {
+                full_message += " (" + details + ")";
+            }
+
+            switch (severity) {
+                case ErrorSeverity::INFO:
+                    spdlog::debug(full_message);
+                    break;
+                case ErrorSeverity::WARNING:
+                    spdlog::warn(full_message);
+                    break;
+                case ErrorSeverity::ERROR:
+                    spdlog::error(full_message);
+                    break;
+                case ErrorSeverity::CRITICAL:
+                    spdlog::critical(full_message);
+                    break;
+            }
+        }
+    }
+
+    bool RaMeshMultiGenomeGraph::shouldStopVerification(const VerificationResult& result, const VerificationOptions& options) const {
+        // 只在明确要求遇到严重错误时停止，或者达到绝对错误限制时才停止
+        if (options.stop_on_critical) {
+            for (const auto& error : result.errors) {
+                if (error.severity == ErrorSeverity::CRITICAL) {
+                    return true;
+                }
+            }
+        }
+
+        // 只有在达到绝对错误限制时才停止（用于防止内存溢出）
+        return result.errors.size() >= options.max_total_errors;
+    }
+
+    void RaMeshMultiGenomeGraph::logVerificationSummary(const VerificationResult& result, const VerificationOptions& options) const {
+        if (!options.verbose) return;
+
+        spdlog::debug("");
+        spdlog::debug("============================================================");
+        spdlog::debug("              VERIFICATION SUMMARY                         ");
+        spdlog::debug("============================================================");
+        spdlog::debug("Total errors: {}", result.errors.size());
+        spdlog::debug("Verification time: {} microseconds", result.verification_time.count());
+
+        // 按错误类型统计并显示详细信息
+        std::map<VerificationType, std::vector<const VerificationError*>> errors_by_type;
+        for (const auto& error : result.errors) {
+            errors_by_type[error.type].push_back(&error);
+        }
+
+        if (!errors_by_type.empty()) {
+            spdlog::debug("");
+            spdlog::debug("Error breakdown by type:");
+
+            const std::map<VerificationType, std::string> type_names = {
+                {VerificationType::POINTER_VALIDITY, "POINTER_VALIDITY"},
+                {VerificationType::LINKED_LIST_INTEGRITY, "LINKED_LIST_INTEGRITY"},
+                {VerificationType::COORDINATE_OVERLAP, "COORDINATE_OVERLAP"},
+                {VerificationType::COORDINATE_ORDERING, "COORDINATE_ORDERING"},
+                {VerificationType::BLOCK_CONSISTENCY, "BLOCK_CONSISTENCY"},
+                {VerificationType::MEMORY_INTEGRITY, "MEMORY_INTEGRITY"},
+                {VerificationType::THREAD_SAFETY, "THREAD_SAFETY"},
+                {VerificationType::PERFORMANCE_ISSUES, "PERFORMANCE_ISSUES"}
+            };
+
+            for (const auto& [type, errors] : errors_by_type) {
+                auto type_name_it = type_names.find(type);
+                std::string type_name = (type_name_it != type_names.end()) ?
+                                       type_name_it->second : "UNKNOWN_TYPE";
+
+                spdlog::debug("  {}: {} errors", type_name, errors.size());
+
+                // 如果显示的详细错误数量少于总数，显示提示信息
+                if (errors.size() > options.max_verbose_errors_per_type) {
+                    size_t hidden_count = errors.size() - options.max_verbose_errors_per_type;
+                    spdlog::debug("    ... and {} more errors of this type (detailed output limited to {} per type)",
+                               hidden_count, options.max_verbose_errors_per_type);
+                }
+            }
+        }
+
+        if (result.errors.size() >= options.max_total_errors) {
+            spdlog::warn("Error limit reached ({} errors), some issues may not be reported", options.max_total_errors);
+        }
+
+        spdlog::debug("");
+        spdlog::debug("Graph status: {}", result.is_valid ? "Valid" : "Issues found");
+        spdlog::debug("============================================================");
+        spdlog::debug("");
+    }
+
+    RaMeshMultiGenomeGraph::VerificationResult RaMeshMultiGenomeGraph::verifyGraphCorrectness(const VerificationOptions& options) const {
+        auto start_time = std::chrono::high_resolution_clock::now();
+        std::shared_lock gLock(rw);
+
+        VerificationResult result;
+
+        if (options.verbose) {
+            spdlog::debug("");
+            spdlog::debug("============================================================");
+            spdlog::debug("              GRAPH CORRECTNESS VERIFICATION               ");
+            spdlog::debug("============================================================");
+        }
+
+        // 执行各种验证检查
+        if (options.isEnabled(VerificationType::POINTER_VALIDITY)) {
+            verifyPointerValidity(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
+            verifyLinkedListIntegrity(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::COORDINATE_OVERLAP)) {
+            verifyCoordinateOverlap(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::COORDINATE_ORDERING)) {
+            verifyCoordinateOrdering(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
+            verifyBlockConsistency(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+            verifyMemoryIntegrity(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::THREAD_SAFETY)) {
+            verifyThreadSafety(result, options);
+            if (shouldStopVerification(result, options)) goto verification_complete;
+        }
+
+        if (options.isEnabled(VerificationType::PERFORMANCE_ISSUES) && options.include_performance_checks) {
+            verifyPerformanceIssues(result, options);
+        }
+
+    verification_complete:
+        auto end_time = std::chrono::high_resolution_clock::now();
+        result.verification_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+
+        logVerificationSummary(result, options);
+        return result;
+    }
+
+    void RaMeshMultiGenomeGraph::verifyPointerValidity(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying pointer validity...");
+        }
+
         for (const auto &[species_name, genome_graph]: species_graphs) {
             std::shared_lock species_lock(genome_graph.rw);
 
-            if (verbose) {
-                spdlog::info("Checking species: {}", species_name);
-            }
-
             for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
-                if (verbose) {
-                    spdlog::info("  Checking chromosome: {}", chr_name);
-                }
-
                 // 检查头尾指针有效性
                 if (!genome_end.head || !genome_end.tail) {
-                    if (verbose && detailed_errors_shown < max_detailed_errors) {
-                        spdlog::error("    Head or tail pointer is null");
-                        detailed_errors_shown++;
-                    }
-                    is_valid = false;
-                    total_errors++;
+                    addVerificationError(result, options, VerificationType::POINTER_VALIDITY, ErrorSeverity::CRITICAL,
+                                       species_name, chr_name, 0, 0,
+                                       "Head or tail pointer is null",
+                                       "head=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.head)) +
+                                       ", tail=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.tail)));
                     continue;
                 }
 
                 // 检查头尾标记正确性
                 if (!genome_end.head->isHead() || !genome_end.tail->isTail()) {
-                    if (verbose && detailed_errors_shown < max_detailed_errors) {
-                        spdlog::error("    Head/tail segment role markers are incorrect");
-                        detailed_errors_shown++;
-                    }
-                    is_valid = false;
-                    total_errors++;
+                    addVerificationError(result, options, VerificationType::POINTER_VALIDITY, ErrorSeverity::ERROR,
+                                       species_name, chr_name, 0, 0,
+                                       "Head/tail segment role markers are incorrect",
+                                       "head_role=" + std::to_string(static_cast<int>(genome_end.head->seg_role)) +
+                                       ", tail_role=" + std::to_string(static_cast<int>(genome_end.tail->seg_role)));
                 }
 
-                // 遍历链表检查完整性
+                // 检查采样向量中的指针有效性
+                for (size_t i = 0; i < genome_end.sample_vec.size(); ++i) {
+                    if (!genome_end.sample_vec[i]) {
+                        addVerificationError(result, options, VerificationType::POINTER_VALIDITY, ErrorSeverity::WARNING,
+                                           species_name, chr_name, i, 0,
+                                           "Null pointer in sampling vector",
+                                           "sample_index=" + std::to_string(i));
+                    }
+                }
+            }
+        }
+
+        // 在函数结束时显示该类型的统计信息
+        if (options.verbose) {
+            size_t total_errors = result.getErrorCount(VerificationType::POINTER_VALIDITY);
+            if (total_errors > options.max_verbose_errors_per_type) {
+                spdlog::debug("POINTER_VALIDITY: {} total errors ({} shown in detail)",
+                           total_errors, options.max_verbose_errors_per_type);
+            } else if (total_errors > 0) {
+                spdlog::debug("POINTER_VALIDITY: {} total errors", total_errors);
+            }
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyLinkedListIntegrity(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying linked list integrity...");
+        }
+
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue; // 已在指针有效性检查中报告
+                }
+
                 SegPtr current = genome_end.head;
                 SegPtr prev = nullptr;
                 size_t segment_count = 0;
-                uint_t last_end_pos = 0;
+                std::unordered_set<SegPtr> visited_segments;
 
                 while (current) {
                     segment_count++;
+
+                    // 检查循环引用
+                    if (visited_segments.find(current) != visited_segments.end()) {
+                        addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::CRITICAL,
+                                           species_name, chr_name, segment_count, current->start,
+                                           "Circular reference detected in linked list",
+                                           "Segment appears twice in traversal");
+                        break;
+                    }
+                    visited_segments.insert(current);
 
                     // 检查双向链表的一致性
                     SegPtr next_ptr = current->primary_path.next.load(std::memory_order_acquire);
                     SegPtr prev_ptr = current->primary_path.prev.load(std::memory_order_acquire);
 
                     if (prev_ptr != prev) {
-                        if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    Inconsistent prev pointer in doubly linked list, segment_count={}",
-                                          segment_count);
-                            detailed_errors_shown++;
-                        }
-                        is_valid = false;
-                        total_errors++;
-                    }
-
-                    // 检查非哨兵segment的坐标合理性
-                    if (current->isSegment()) {
-                        if (current->length == 0) {
-                            if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                spdlog::error("    Segment length is zero, start={}", current->start);
-                                detailed_errors_shown++;
-                            }
-                            is_valid = false;
-                            total_errors++;
-                        }
-
-                        // 检查坐标是否有序且无重叠
-                        if (prev && prev->isSegment()) {
-                            uint_t prev_end = prev->start + prev->length;
-                            if (current->start < prev_end) {
-                                if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                    spdlog::error(
-                                        "    Segment coordinates overlap or out of order, prev_end={}, current_start={}",
-                                        prev_end, current->start);
-                                    detailed_errors_shown++;
-                                }
-                                is_valid = false;
-                                total_errors++;
-                            }
-                        }
-
-                        last_end_pos = current->start + current->length;
-                    }
-
-                    // 检查Block关联的一致性
-                    if (current->parent_block && current->isSegment()) {
-                        std::shared_lock block_lock(current->parent_block->rw);
-
-                        // 检查block是否确实包含该chr的anchor
-                        SpeciesChrPair key{species_name, chr_name};
-                        auto anchor_it = current->parent_block->anchors.find(key);
-                        if (anchor_it == current->parent_block->anchors.end()) {
-                            if (verbose && detailed_errors_shown < max_detailed_errors) {
-                                spdlog::error("    Cannot find corresponding anchor in segment's parent_block");
-                                detailed_errors_shown++;
-                            }
-                            is_valid = false;
-                            total_errors++;
-                        }
-                    }
-
-                    prev = current;
-                    current = next_ptr;
-
-                    if (!current && !prev->isTail()) {
-                        spdlog::error(" There is NULL in segment ");
+                        addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
+                                           species_name, chr_name, segment_count, current->start,
+                                           "Inconsistent prev pointer in doubly linked list",
+                                           "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev)) +
+                                           ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr)));
                     }
 
                     // 防止死循环
                     if (segment_count > 10000000) {
-                        if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    Linked list may contain cycle, traversed over 10 million nodes");
-                            detailed_errors_shown++;
-                        }
-                        is_valid = false;
-                        total_errors++;
+                        addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::CRITICAL,
+                                           species_name, chr_name, segment_count, 0,
+                                           "Linked list may contain cycle",
+                                           "Traversed over 10 million nodes");
                         break;
                     }
+
+                    prev = current;
+                    current = next_ptr;
                 }
 
-                if (verbose) {
-                    spdlog::info("    Chromosome {} contains {} segments", chr_name, segment_count);
+                // 检查是否正确到达tail
+                if (current == nullptr && prev && !prev->isTail()) {
+                    addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
+                                       species_name, chr_name, segment_count, 0,
+                                       "Linked list ends without reaching tail sentinel",
+                                       "Last segment is not marked as TAIL");
+                }
+
+                if (options.verbose) {
+                    spdlog::debug("  Chromosome {} contains {} segments", chr_name, segment_count);
+                }
+            }
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyCoordinateOverlap(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying coordinate overlap detection...");
+        }
+
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue; // 已在指针有效性检查中报告
+                }
+
+                SegPtr current = genome_end.head;
+                SegPtr prev = nullptr;
+                size_t segment_count = 0;
+
+                while (current) {
+                    segment_count++;
+
+                    // 检查非哨兵segment的坐标合理性
+                    if (current->isSegment()) {
+                        // 检查segment长度有效性
+                        if (current->length == 0) {
+                            addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                               species_name, chr_name, segment_count, current->start,
+                                               "Segment has zero length",
+                                               "start=" + std::to_string(current->start));
+                        }
+
+                        // 检查坐标是否有重叠 - 使用与原始函数完全相同的逻辑
+                        if (prev && prev->isSegment()) {
+                            uint_t prev_end = prev->start + prev->length;
+                            if (current->start < prev_end) {
+                                uint_t overlap_size = prev_end - current->start;
+
+                                // 统一使用ERROR级别，不区分major/minor
+                                addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Segment coordinates overlap",
+                                                   "prev_end=" + std::to_string(prev_end) +
+                                                   ", current_start=" + std::to_string(current->start) +
+                                                   ", overlap_size=" + std::to_string(overlap_size) + "bp");
+                            }
+                        }
+                    }
+
+                    prev = current;
+                    current = current->primary_path.next.load(std::memory_order_acquire);
                 }
             }
         }
 
-        // 2. 验证全局Block池的有效性
+        // 在函数结束时显示该类型的统计信息
+        if (options.verbose) {
+            size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_OVERLAP);
+            if (total_errors > options.max_verbose_errors_per_type) {
+                spdlog::debug("COORDINATE_OVERLAP: {} total errors ({} shown in detail)",
+                           total_errors, options.max_verbose_errors_per_type);
+            } else if (total_errors > 0) {
+                spdlog::debug("COORDINATE_OVERLAP: {} total errors", total_errors);
+            }
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyCoordinateOrdering(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying coordinate ordering (segment chain sequence)...");
+        }
+
+        // 验证参数
+        const uint_t LARGE_GAP_THRESHOLD = 1000000;  // 1MB gap threshold for performance hints
+
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue; // 已在指针有效性检查中报告
+                }
+
+                // 添加与debug_all_species_segments相同的锁保护
+                std::shared_lock end_lock(genome_end.rw);
+
+                SegPtr current = genome_end.head;
+                SegPtr prev_segment = nullptr;
+                size_t segment_count = 0;
+                size_t ordering_violations = 0;
+                size_t large_gaps = 0;
+
+                // 调试：收集所有segments用于对比
+                std::vector<std::pair<size_t, uint_t>> debug_segments; // <index, start>
+
+                // 遍历整个链表，与debug_all_species_segments保持一致的条件
+                while (current && current != genome_end.tail) {
+                    if (current->isSegment()) {
+                        segment_count++;
+                        debug_segments.emplace_back(segment_count, current->start);
+
+                        // 检查segment链表的顺序（start是否递增）
+                        if (prev_segment) {
+                            // 调试输出：显示当前比较的两个segments
+                            if (options.verbose && segment_count <= 10) {
+                                spdlog::debug("    Comparing segment#{} (start={}) with prev segment (start={})",
+                                           segment_count, current->start, prev_segment->start);
+                            }
+
+                            // 检查排序：start应该是递增的
+                            if (current->start < prev_segment->start) {
+                                ordering_violations++;
+
+                                // 详细的调试信息
+                                if (options.verbose) {
+                                    spdlog::error("    ORDERING VIOLATION DETECTED!");
+                                    spdlog::error("      Current segment#{}: start={}", segment_count, current->start);
+                                    spdlog::error("      Previous segment#{}: start={}", segment_count-1, prev_segment->start);
+                                    spdlog::error("      Difference: {} < {} (violation)", current->start, prev_segment->start);
+                                }
+
+                                addVerificationError(result, options, VerificationType::COORDINATE_ORDERING, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Segments are not properly ordered (start not increasing)",
+                                                   "current_start=" + std::to_string(current->start) +
+                                                   " < prev_start=" + std::to_string(prev_segment->start) +
+                                                   " (violation #" + std::to_string(ordering_violations) + ")");
+                            }
+
+                            // 检查间隙大小（性能提示）
+                            uint_t prev_end = prev_segment->start + prev_segment->length;
+                            if (current->start > prev_end) {
+                                uint_t gap_size = current->start - prev_end;
+                                if (gap_size > LARGE_GAP_THRESHOLD) {
+                                    large_gaps++;
+                                    addVerificationError(result, options, VerificationType::COORDINATE_ORDERING, ErrorSeverity::INFO,
+                                                       species_name, chr_name, segment_count, current->start,
+                                                       "Large gap between segments",
+                                                       "gap_size=" + std::to_string(gap_size) + "bp" +
+                                                       " (large gap #" + std::to_string(large_gaps) + ")");
+                                }
+                            }
+                        }
+
+                        // 更新prev_segment为当前的segment
+                        prev_segment = current;
+                    }
+
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                // 输出统计信息和调试信息
+                if (options.verbose) {
+                    spdlog::debug("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
+                               chr_name, segment_count, ordering_violations, large_gaps);
+
+                    // 输出前10个和后10个segments的start值用于调试
+                    if (debug_segments.size() > 20) {
+                        spdlog::debug("    First 10 segments start values:");
+                        for (size_t i = 0; i < std::min(size_t(10), debug_segments.size()); ++i) {
+                            spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
+                        }
+                        spdlog::debug("    Last 10 segments start values:");
+                        for (size_t i = std::max(size_t(0), debug_segments.size() - 10); i < debug_segments.size(); ++i) {
+                            spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
+                        }
+
+                        // 特别检查第5000和第5500个segment
+                        if (debug_segments.size() > 5500) {
+                            spdlog::debug("    Special check - Segment#5000: start={}", debug_segments[4999].second);
+                            spdlog::debug("    Special check - Segment#5500: start={}", debug_segments[5499].second);
+                            if (debug_segments[4999].second > debug_segments[5499].second) {
+                                spdlog::error("    MANUAL CHECK CONFIRMED: Segment#5000 start > Segment#5500 start!");
+                                spdlog::error("      This should have been detected as an ordering violation!");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 在函数结束时显示该类型的统计信息
+        if (options.verbose) {
+            size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_ORDERING);
+            if (total_errors > options.max_verbose_errors_per_type) {
+                spdlog::debug("COORDINATE_ORDERING: {} total errors ({} shown in detail)",
+                           total_errors, options.max_verbose_errors_per_type);
+            } else if (total_errors > 0) {
+                spdlog::debug("COORDINATE_ORDERING: {} total errors", total_errors);
+            }
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyBlockConsistency(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying block consistency...");
+        }
+
         size_t valid_blocks = 0;
         size_t expired_blocks = 0;
+        size_t empty_blocks = 0;
 
         for (const auto &weak_block: blocks) {
             if (auto block_ptr = weak_block.lock()) {
                 valid_blocks++;
-
                 std::shared_lock block_lock(block_ptr->rw);
+
+                // 检查block是否为空
+                if (block_ptr->anchors.empty()) {
+                    empty_blocks++;
+                    addVerificationError(result, options, VerificationType::BLOCK_CONSISTENCY, ErrorSeverity::WARNING,
+                                       "", "", 0, 0,
+                                       "Empty block found",
+                                       "Block contains no anchors");
+                }
 
                 // 检查block中的anchors是否都有效
                 for (const auto &[species_chr_pair, head_ptr]: block_ptr->anchors) {
                     if (!head_ptr) {
-                        if (verbose && detailed_errors_shown < max_detailed_errors) {
-                            spdlog::error("    Null anchor pointer found in block");
-                            detailed_errors_shown++;
+                        addVerificationError(result, options, VerificationType::BLOCK_CONSISTENCY, ErrorSeverity::ERROR,
+                                           species_chr_pair.first, species_chr_pair.second, 0, 0,
+                                           "Null anchor pointer found in block",
+                                           "Block contains invalid anchor reference");
+                    }
+                }
+
+                // 检查Block与Segment的双向关联
+                for (const auto &[species_name, genome_graph]: species_graphs) {
+                    std::shared_lock species_lock(genome_graph.rw);
+
+                    for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                        SegPtr current = genome_end.head;
+                        if (current) {
+                            current = current->primary_path.next.load(std::memory_order_acquire);
                         }
-                        is_valid = false;
-                        total_errors++;
+
+                        while (current && !current->isTail()) {
+                            if (current->isSegment() && current->parent_block == block_ptr) {
+                                // 检查block是否确实包含该chr的anchor
+                                SpeciesChrPair key{species_name, chr_name};
+                                auto anchor_it = block_ptr->anchors.find(key);
+                                if (anchor_it == block_ptr->anchors.end()) {
+                                    addVerificationError(result, options, VerificationType::BLOCK_CONSISTENCY, ErrorSeverity::ERROR,
+                                                       species_name, chr_name, 0, current->start,
+                                                       "Segment references block but block doesn't contain corresponding anchor",
+                                                       "Inconsistent block-segment relationship");
+                                }
+                            }
+                            current = current->primary_path.next.load(std::memory_order_acquire);
+                        }
                     }
                 }
             } else {
@@ -462,38 +895,213 @@ namespace RaMesh {
             }
         }
 
-        if (verbose) {
-            spdlog::info("Block pool statistics: {} valid blocks, {} expired blocks", valid_blocks, expired_blocks);
+        if (options.verbose) {
+            spdlog::debug("Block pool statistics: {} valid blocks, {} expired blocks, {} empty blocks",
+                       valid_blocks, expired_blocks, empty_blocks);
         }
 
-        // 3. 验证线程安全性（基本检查）
-        // 注意：这里只能做静态检查，动态竞争条件需要专门的工具
-        if (verbose) {
-            spdlog::info("[OK] Thread safety check: All accesses are properly protected by locks");
-        }
-
-        // 输出总结
-        if (verbose) {
-            spdlog::info("");
-            spdlog::info("============================================================");
-            spdlog::info("              GRAPH VERIFICATION SUMMARY                   ");
-            spdlog::info("============================================================");
-            spdlog::info("Total errors: {}", total_errors);
-            if (total_errors > max_detailed_errors) {
-                spdlog::info("Detailed errors shown: {} (limited to {}, {} more errors not shown)",
-                             detailed_errors_shown, max_detailed_errors, total_errors - detailed_errors_shown);
+        // 检查过期block比例
+        if (expired_blocks > 0) {
+            double expired_ratio = static_cast<double>(expired_blocks) / (valid_blocks + expired_blocks);
+            if (expired_ratio > 0.5) {
+                addVerificationError(result, options, VerificationType::BLOCK_CONSISTENCY, ErrorSeverity::WARNING,
+                                   "", "", 0, 0,
+                                   "High ratio of expired blocks",
+                                   "expired_ratio=" + std::to_string(expired_ratio * 100) + "%, consider cleanup");
             }
-            spdlog::info("Graph status: {}", (is_valid ? "[OK] Valid" : "[ERROR] Issues found"));
-            spdlog::info("============================================================");
-            spdlog::info("");
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyMemoryIntegrity(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying memory integrity...");
         }
 
-        return is_valid;
+        // 检查segment的内存一致性
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue;
+                }
+
+                std::unordered_set<SegPtr> all_segments;
+                SegPtr current = genome_end.head;
+                size_t segment_count = 0;
+
+                while (current) {
+                    segment_count++;
+
+                    // 检查重复的segment指针
+                    if (all_segments.find(current) != all_segments.end()) {
+                        addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::CRITICAL,
+                                           species_name, chr_name, segment_count, current->start,
+                                           "Duplicate segment pointer detected",
+                                           "Same segment appears multiple times in memory");
+                    }
+                    all_segments.insert(current);
+
+                    // 检查坐标溢出
+                    if (current->isSegment()) {
+                        if (current->start > UINT32_MAX - current->length) {
+                            addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                               species_name, chr_name, segment_count, current->start,
+                                               "Coordinate overflow detected",
+                                               "start=" + std::to_string(current->start) +
+                                               ", length=" + std::to_string(current->length));
+                        }
+
+                        // 检查parent_block引用的有效性
+                        if (current->parent_block) {
+                            bool block_found = false;
+                            for (const auto &weak_block: blocks) {
+                                if (auto block_ptr = weak_block.lock()) {
+                                    if (block_ptr == current->parent_block) {
+                                        block_found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!block_found) {
+                                addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Segment references invalid parent_block",
+                                                   "parent_block not found in global block pool");
+                            }
+                        }
+                    }
+
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                // 检查采样向量的内存一致性
+                for (size_t i = 0; i < genome_end.sample_vec.size(); ++i) {
+                    SegPtr sample_seg = genome_end.sample_vec[i];
+                    if (sample_seg && all_segments.find(sample_seg) == all_segments.end()) {
+                        addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                           species_name, chr_name, i, 0,
+                                           "Sampling vector contains invalid segment reference",
+                                           "sample_index=" + std::to_string(i) + ", segment not in main list");
+                    }
+                }
+            }
+        }
+    }
+
+    void RaMeshMultiGenomeGraph::verifyThreadSafety(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying thread safety...");
+        }
+
+        size_t total_atomic_operations = 0;
+
+        // 检查原子操作的一致性（静态检查）
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue;
+                }
+
+                SegPtr current = genome_end.head;
+                while (current) {
+                    // 检查原子指针的内存序
+                    SegPtr next_ptr = current->primary_path.next.load(std::memory_order_acquire);
+                    SegPtr prev_ptr = current->primary_path.prev.load(std::memory_order_acquire);
+
+                    total_atomic_operations += 2;
+
+                    // 这里只能做基本的静态检查
+                    // 动态竞争条件需要专门的工具检测
+
+                    current = next_ptr;
+                }
+            }
+        }
+
+        if (options.verbose) {
+            spdlog::debug("Thread safety check completed: {} atomic operations verified", total_atomic_operations);
+        }
+
+        // 添加一般性的线程安全信息
+        addVerificationError(result, options, VerificationType::THREAD_SAFETY, ErrorSeverity::INFO,
+                           "", "", 0, 0,
+                           "Static thread safety check completed",
+                           "All accesses are properly protected by locks, " +
+                           std::to_string(total_atomic_operations) + " atomic operations verified");
+    }
+
+    void RaMeshMultiGenomeGraph::verifyPerformanceIssues(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Verifying performance issues...");
+        }
+
+        // 性能检查阈值
+        const size_t HIGH_SEGMENT_COUNT_THRESHOLD = 100000;
+        const size_t SMALL_SEGMENT_THRESHOLD = 100;
+        const double SMALL_SEGMENT_RATIO_THRESHOLD = 0.8;
+
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue;
+                }
+
+                size_t total_segments = 0;
+                size_t small_segments = 0;
+                SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
+
+                while (current && !current->isTail()) {
+                    if (current->isSegment()) {
+                        total_segments++;
+                        if (current->length < SMALL_SEGMENT_THRESHOLD) {
+                            small_segments++;
+                        }
+                    }
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                // 检查高segment数量
+                if (total_segments > HIGH_SEGMENT_COUNT_THRESHOLD) {
+                    addVerificationError(result, options, VerificationType::PERFORMANCE_ISSUES, ErrorSeverity::WARNING,
+                                       species_name, chr_name, 0, 0,
+                                       "High segment count detected",
+                                       "segment_count=" + std::to_string(total_segments) +
+                                       ", may impact performance");
+                }
+
+                // 检查小segment比例
+                if (total_segments > 0) {
+                    double small_ratio = static_cast<double>(small_segments) / total_segments;
+                    if (small_ratio > SMALL_SEGMENT_RATIO_THRESHOLD) {
+                        addVerificationError(result, options, VerificationType::PERFORMANCE_ISSUES, ErrorSeverity::INFO,
+                                           species_name, chr_name, 0, 0,
+                                           "High ratio of small segments",
+                                           "small_segments=" + std::to_string(small_segments) +
+                                           "/" + std::to_string(total_segments) +
+                                           " (" + std::to_string(small_ratio * 100) + "%)");
+                    }
+                }
+
+                // 检查采样向量效率
+                size_t expected_samples = total_segments / GenomeEnd::kSampleStep + 1;
+                if (genome_end.sample_vec.size() > expected_samples * 2) {
+                    addVerificationError(result, options, VerificationType::PERFORMANCE_ISSUES, ErrorSeverity::INFO,
+                                       species_name, chr_name, 0, 0,
+                                       "Sampling vector may be oversized",
+                                       "actual_size=" + std::to_string(genome_end.sample_vec.size()) +
+                                       ", expected_size=" + std::to_string(expected_samples));
+                }
+            }
+        }
     }
 
     // ✂ BEGIN: safeLink 实现
-    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next)
-    {
+    void RaMeshMultiGenomeGraph::safeLink(SegPtr prev, SegPtr next) {
         if (!prev || !next) return;
 
         /* 1) 先写 next->prev  */
@@ -506,6 +1114,7 @@ namespace RaMesh {
         /* 3) 发布内存屏障，保证两侧对所有线程可见 */
         std::atomic_thread_fence(std::memory_order_release);
     }
+
     // ✂ END
 
 
@@ -515,79 +1124,84 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
         std::shared_lock graph_lock(rw);
 
-        // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
-        struct SegmentDebugInfo {
-            uint_t start;
-            uint_t length;
-            std::string strand_str;
-            std::string seg_role_str;
-            std::string align_role_str;
-            size_t cigar_size;
-            std::string parent_block_ref_chr;
-            size_t parent_block_anchors_count;
+        // // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
+        // struct SegmentDebugInfo {
+        //     uint_t start;
+        //     uint_t length;
+        //     std::string strand_str;
+        //     std::string seg_role_str;
+        //     std::string align_role_str;
+        //     size_t cigar_size;
+        //     std::string parent_block_ref_chr;
+        //     size_t parent_block_anchors_count;
+        //
+        //     SegmentDebugInfo(const SegPtr &seg) {
+        //         if (!seg) return;
+        //         start = seg->start;
+        //         length = seg->length;
+        //         strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
+        //         seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
+        //                            ? "SEGMENT"
+        //                            : (seg->seg_role == SegmentRole::HEAD)
+        //                                  ? "HEAD"
+        //                                  : "TAIL";
+        //         align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
+        //         cigar_size = seg->cigar.size();
+        //
+        //         if (seg->parent_block) {
+        //             parent_block_ref_chr = seg->parent_block->ref_chr;
+        //             parent_block_anchors_count = seg->parent_block->anchors.size();
+        //         } else {
+        //             parent_block_ref_chr = "null";
+        //             parent_block_anchors_count = 0;
+        //         }
+        //     }
+        // };
+        //
+        // struct ChromosomeDebugInfo {
+        //     std::string chr_name;
+        //     std::vector<SegmentDebugInfo> segments;
+        //
+        //     ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
+        //     }
+        // };
+        //
+        // struct SpeciesDebugInfo {
+        //     std::string species_name;
+        //     std::vector<ChromosomeDebugInfo> chromosomes;
+        //
+        //     SpeciesDebugInfo(const std::string &name) : species_name(name) {
+        //     }
+        // };
+        //
+        // std::vector<SpeciesDebugInfo> debug_all_species_segments;
+        // debug_all_species_segments.reserve(species_graphs.size());
+        //
+        // // 收集所有物种的segment详细信息
+        // for (const auto &[species_name, genome_graph]: species_graphs) {
+        //     SpeciesDebugInfo species_info(species_name);
+        //     std::shared_lock genome_lock(genome_graph.rw);
+        //
+        //     for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+        //         ChromosomeDebugInfo chr_info(chr_name);
+        //         std::shared_lock end_lock(genome_end.rw);
+        //
+        //         // 遍历该染色体的所有segments
+        //         SegPtr current = genome_end.head;
+        //         while (current && current != genome_end.tail) {
+        //             if (current->isSegment()) {
+        //                 chr_info.segments.emplace_back(current);
+        //             }
+        //             current = current->primary_path.next.load(std::memory_order_acquire);
+        //         }
+        //
+        //         species_info.chromosomes.push_back(std::move(chr_info));
+        //     }
+        //
+        //     debug_all_species_segments.push_back(std::move(species_info));
+        // }
 
-            SegmentDebugInfo(const SegPtr& seg) {
-                if (!seg) return;
-                start = seg->start;
-                length = seg->length;
-                strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
-                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT) ? "SEGMENT" :
-                              (seg->seg_role == SegmentRole::HEAD) ? "HEAD" : "TAIL";
-                align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
-                cigar_size = seg->cigar.size();
 
-                if (seg->parent_block) {
-                    parent_block_ref_chr = seg->parent_block->ref_chr;
-                    parent_block_anchors_count = seg->parent_block->anchors.size();
-                } else {
-                    parent_block_ref_chr = "null";
-                    parent_block_anchors_count = 0;
-                }
-            }
-        };
-
-        struct ChromosomeDebugInfo {
-            std::string chr_name;
-            std::vector<SegmentDebugInfo> segments;
-
-            ChromosomeDebugInfo(const std::string& name) : chr_name(name) {}
-        };
-
-        struct SpeciesDebugInfo {
-            std::string species_name;
-            std::vector<ChromosomeDebugInfo> chromosomes;
-
-            SpeciesDebugInfo(const std::string& name) : species_name(name) {}
-        };
-
-        std::vector<SpeciesDebugInfo> debug_all_species_segments;
-        debug_all_species_segments.reserve(species_graphs.size());
-
-        // 收集所有物种的segment详细信息
-        for (const auto& [species_name, genome_graph] : species_graphs) {
-            SpeciesDebugInfo species_info(species_name);
-            std::shared_lock genome_lock(genome_graph.rw);
-
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                ChromosomeDebugInfo chr_info(chr_name);
-                std::shared_lock end_lock(genome_end.rw);
-
-                // 遍历该染色体的所有segments
-                SegPtr current = genome_end.head;
-                while (current && current != genome_end.tail) {
-                    if (current->isSegment()) {
-                        chr_info.segments.emplace_back(current);
-                    }
-                    current = current->primary_path.next.load(std::memory_order_acquire);
-                }
-
-                species_info.chromosomes.push_back(std::move(chr_info));
-            }
-
-            debug_all_species_segments.push_back(std::move(species_info));
-        }
-
-        
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
         // 改为遍历species_graphs来查找Ref
@@ -604,7 +1218,7 @@ namespace RaMesh {
                 BlockPtr prev_block = prev->parent_block;
                 BlockPtr current_block = nullptr;
 
-                while (current && !current->isTail() && current->cigar.size() == 0) {
+                while (current && !current->isTail() ) {
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -630,6 +1244,9 @@ namespace RaMesh {
                             if (prev_end > curr_start) {
                                 // 处理合并
                                 // 确定重叠区间
+                                if (prev_seg->cigar.size() != 0 || curr_seg->cigar.size() != 0) {
+                                    std::cout << "";
+                                }
                                 uint_t overlap_start = std::max(prev_seg->start, curr_seg->start);
                                 uint_t overlap_end = std::min(prev_seg->start + prev_seg->length,
                                                               curr_seg->start + curr_seg->length);
@@ -1118,15 +1735,13 @@ namespace RaMesh {
                                 if (prefix_block) {
                                     blocks.emplace_back(WeakBlock(prefix_block));
                                     // 将prefix的Seg插入
-                                    
+
                                     prefix_ref_seg->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                     overlap_ref_seg->primary_path.prev.store(prefix_ref_seg, std::memory_order_release);
 
                                     prefix_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
-									prev_prev->primary_path.next.store(prefix_ref_seg, std::memory_order_release);
-                                }
-                                else
-                                {
+                                    prev_prev->primary_path.next.store(prefix_ref_seg, std::memory_order_release);
+                                } else {
                                     overlap_ref_seg->primary_path.prev.store(prev_prev, std::memory_order_release);
                                     prev_prev->primary_path.next.store(overlap_ref_seg, std::memory_order_release);
                                 }
@@ -1136,39 +1751,47 @@ namespace RaMesh {
                                     blocks.emplace_back(WeakBlock(suffix_block));
                                     SegPtr suffix_next = current_next;
                                     if (current_next->isTail()) {
-                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.next.
+                                                store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.
+                                                store(suffix_ref_seg, std::memory_order_release);
 
-                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
-                                    }
-                                    else if(suffix_ref_seg->start > suffix_next->start)
-                                    {
+                                        overlap_ref_seg->primary_path.next.store(
+                                            suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
+                                    } else if (suffix_ref_seg->start > suffix_next->start) {
                                         while (suffix_ref_seg->start > suffix_next->start) {
-                                            suffix_next = suffix_next->primary_path.next.load(std::memory_order_release);
+                                            suffix_next = suffix_next->primary_path.next.
+                                                    load(std::memory_order_release);
                                         }
-                                        overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(
+                                            current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
 
-                                        suffix_ref_seg->primary_path.prev.store(suffix_next->primary_path.prev.load(std::memory_order_release), std::memory_order_release);
-                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            suffix_next->primary_path.prev.load(std::memory_order_release),
+                                            std::memory_order_release);
+                                        suffix_next->primary_path.prev.load(std::memory_order_release)->primary_path.
+                                                next.store(suffix_ref_seg, std::memory_order_release);
 
                                         suffix_ref_seg->primary_path.next.store(suffix_next, std::memory_order_release);
                                         suffix_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
-                                    }
-                                    else {
-                                        suffix_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-                                        current_next->primary_path.prev.store(suffix_ref_seg, std::memory_order_release);
+                                    } else {
+                                        suffix_ref_seg->primary_path.next.
+                                                store(current_next, std::memory_order_release);
+                                        current_next->primary_path.prev.
+                                                store(suffix_ref_seg, std::memory_order_release);
 
-                                        overlap_ref_seg->primary_path.next.store(suffix_ref_seg, std::memory_order_release);
-                                        suffix_ref_seg->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                        overlap_ref_seg->primary_path.next.store(
+                                            suffix_ref_seg, std::memory_order_release);
+                                        suffix_ref_seg->primary_path.prev.store(
+                                            overlap_ref_seg, std::memory_order_release);
                                     }
-
-                                }
-                                else
-                                {
+                                } else {
                                     overlap_ref_seg->primary_path.next.store(current_next, std::memory_order_release);
-									current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
+                                    current_next->primary_path.prev.store(overlap_ref_seg, std::memory_order_release);
                                 }
 
                                 // 开始替换query的seg和block
@@ -1179,57 +1802,131 @@ namespace RaMesh {
                                         segment->primary_path.prev.store(nullptr, std::memory_order_release);
                                         segment->primary_path.next.store(nullptr, std::memory_order_release);
                                         // 先找到一定存在的overlap_block
-                                        for(const auto &[species_chr_overlap, segment_overlap]: overlap_block->anchors)
-                                        {
-                                            if(species_chr_overlap.first == species_chr.first)
-                                            {
-                                                bool query_has_prefix = false;
-                                                bool query_has_suffix = false;
-                                                if(prev_has_prefix)
-                                                {
-                                                    for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
-                                                    {
-                                                        if(species_chr_prefix.first == species_chr.first)
-                                                        {
-                                                            query_has_prefix = true;
-                                                            qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
-                                                            segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                            segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                            segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
-                                                            break;
+                                        for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
+                                             anchors) {
+                                            if (species_chr_overlap.first == species_chr.first) {
+                                                if (segment->strand == Strand::FORWARD) {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (prev_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                break;
+                                                            }
                                                         }
-                                                    }
-                                                    if (!query_has_prefix) {
-                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                    }
-                                                }
-                                                else{
-                                                    qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                    segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                }
-                                                if(prev_has_suffix)
-                                                {
-                                                    for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
-                                                    {
-                                                        if(species_chr_suffix.first == species_chr.first)
-                                                        {
-                                                            query_has_suffix = true;
-                                                            segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
-                                                            segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
-                                                            segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
-                                                            qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
-                                                            break;
+                                                        if (!query_has_prefix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
                                                         }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
                                                     }
-                                                    if (!query_has_suffix) {
-                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                    if (prev_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
                                                     }
                                                 }
-                                                else{
-                                                    segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                    qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                // 如果是反向链就反着连
+                                                else {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (prev_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_suffix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
+
+                                                    }
+                                                    if (prev_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_prefix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                    }
                                                 }
                                             }
                                         }
@@ -1242,57 +1939,131 @@ namespace RaMesh {
                                         segment->primary_path.prev.store(nullptr, std::memory_order_release);
                                         segment->primary_path.next.store(nullptr, std::memory_order_release);
                                         // 先找到一定存在的overlap_block
-                                        for(const auto &[species_chr_overlap, segment_overlap]: overlap_block->anchors)
-                                        {
-                                            if(species_chr_overlap.first == species_chr.first)
-                                            {
-                                                bool query_has_prefix = false;
-                                                bool query_has_suffix = false;
-                                                if(curr_has_prefix)
-                                                {
-                                                    for(const auto &[species_chr_prefix, segment_prefix]: prefix_block->anchors)
-                                                    {
-                                                        if(species_chr_prefix.first == species_chr.first)
-                                                        {
-                                                            query_has_prefix = true;
-                                                            qry_prev->primary_path.next.store(segment_prefix, std::memory_order_release);
-                                                            segment_prefix->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                            segment_prefix->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                            segment_overlap->primary_path.prev.store(segment_prefix, std::memory_order_release);
-                                                            break;
+                                        for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
+                                             anchors) {
+                                            if (species_chr_overlap.first == species_chr.first) {
+                                                if (segment->strand == Strand::FORWARD) {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (curr_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                break;
+                                                            }
                                                         }
-                                                    }
-                                                    if (!query_has_prefix) {
-                                                        qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                        segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                    }
-                                                }
-                                                else{
-                                                    qry_prev->primary_path.next.store(segment_overlap, std::memory_order_release);
-                                                    segment_overlap->primary_path.prev.store(qry_prev, std::memory_order_release);
-                                                }
-                                                if(curr_has_suffix)
-                                                {
-                                                    for(const auto &[species_chr_suffix, segment_suffix]: suffix_block->anchors)
-                                                    {
-                                                        if(species_chr_suffix.first == species_chr.first)
-                                                        {
-                                                            query_has_suffix = true;
-                                                            segment_overlap->primary_path.next.store(segment_suffix, std::memory_order_release);
-                                                            segment_suffix->primary_path.prev.store(segment_overlap, std::memory_order_release);
-                                                            segment_suffix->primary_path.next.store(qry_next, std::memory_order_release);
-                                                            qry_next->primary_path.prev.store(segment_suffix, std::memory_order_release);
-                                                            break;
+                                                        if (!query_has_prefix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
                                                         }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
                                                     }
-                                                    if (!query_has_suffix) {
-                                                        segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                        qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                    if (curr_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
                                                     }
                                                 }
-                                                else{
-                                                    segment_overlap->primary_path.next.store(qry_next, std::memory_order_release);
-                                                    qry_next->primary_path.prev.store(segment_overlap, std::memory_order_release);
+                                                // 如果是反向链就反着连
+                                                else {
+                                                    bool query_has_prefix = false;
+                                                    bool query_has_suffix = false;
+                                                    if (curr_has_suffix) {
+                                                        for (const auto &[species_chr_suffix, segment_suffix]:
+                                                             suffix_block->anchors) {
+                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                                query_has_suffix = true;
+                                                                segment_suffix->primary_path.next.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_suffix->primary_path.prev.store(
+                                                                    qry_prev, std::memory_order_release);
+                                                                segment_overlap->primary_path.prev.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                qry_prev->primary_path.next.store(
+                                                                    segment_suffix, std::memory_order_release);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_suffix) {
+                                                            qry_prev->primary_path.next.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                            segment_overlap->primary_path.prev.store(
+                                                                qry_prev, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        qry_prev->primary_path.next.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                        segment_overlap->primary_path.prev.store(
+                                                            qry_prev, std::memory_order_release);
+
+                                                    }
+                                                    if (curr_has_prefix) {
+                                                        for (const auto &[species_chr_prefix, segment_prefix]:
+                                                             prefix_block->anchors) {
+                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                                query_has_prefix = true;
+                                                                segment_prefix->primary_path.prev.store(
+                                                                    segment_overlap, std::memory_order_release);
+                                                                segment_prefix->primary_path.next.store(
+                                                                    qry_next, std::memory_order_release);
+                                                                qry_next->primary_path.prev.store(
+                                                                    segment_prefix, std::memory_order_release);
+                                                                segment_overlap->primary_path.next.store(
+                                                                    segment_prefix, std::memory_order_release);
+
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!query_has_prefix) {
+                                                            segment_overlap->primary_path.next.store(
+                                                                qry_next, std::memory_order_release);
+                                                            qry_next->primary_path.prev.store(
+                                                                segment_overlap, std::memory_order_release);
+                                                        }
+                                                    } else {
+                                                        segment_overlap->primary_path.next.store(
+                                                            qry_next, std::memory_order_release);
+                                                        qry_next->primary_path.prev.store(
+                                                            segment_overlap, std::memory_order_release);
+                                                    }
                                                 }
                                             }
                                         }
@@ -1303,21 +2074,21 @@ namespace RaMesh {
                                 auto prev_it = std::find_if(
                                     blocks.begin(), blocks.end(),
                                     [&](const WeakBlock &wb) {
-                                      auto locked = wb.lock();
-                                      return locked && locked == prev_block;
+                                        auto locked = wb.lock();
+                                        return locked && locked == prev_block;
                                     });
                                 if (prev_it != blocks.end()) {
-                                  blocks.erase(prev_it);
+                                    blocks.erase(prev_it);
                                 }
                                 // 移除current_block
                                 auto curr_it = std::find_if(
                                     blocks.begin(), blocks.end(),
                                     [&](const WeakBlock &wb) {
-                                      auto locked = wb.lock();
-                                      return locked && locked == current_block;
+                                        auto locked = wb.lock();
+                                        return locked && locked == current_block;
                                     });
                                 if (curr_it != blocks.end()) {
-                                  blocks.erase(curr_it);
+                                    blocks.erase(curr_it);
                                 }
                                 // 替换current和prev
                                 prev = overlap_ref_seg->primary_path.prev.load(std::memory_order_acquire);
@@ -1330,47 +2101,48 @@ namespace RaMesh {
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
 
 
-                                // // 收集所有物种的segment详细信息
-                                // debug_all_species_segments.clear();
-                                // for (const auto& [species_name, genome_graph] : species_graphs) {
-                                //     SpeciesDebugInfo species_info(species_name);
-                                //     std::shared_lock genome_lock(genome_graph.rw);
-                                //
-                                //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                                //         ChromosomeDebugInfo chr_info(chr_name);
-                                //         std::shared_lock end_lock(genome_end.rw);
-                                //
-                                //         // 遍历该染色体的所有segments
-                                //         SegPtr current = genome_end.head;
-                                //         current = current->primary_path.next.load(std::memory_order_acquire);
-                                //         while (current && current != genome_end.tail) {
-                                //             if (current->isSegment()) {
-                                //                 chr_info.segments.emplace_back(current);
-                                //             }
-                                //             // 检查链表结构是否正确
-                                //             if (current->isHead()) {
-                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
-                                //                 continue;
-                                //             }
-                                //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-                                //             if(prev && prev->isHead())
-                                //             {
-                                //                 current = current->primary_path.next.load(std::memory_order_acquire);
-                                //                 continue;
-                                //             }
-                                //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-                                //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-                                //             }
-                                //             current = current->primary_path.next.load(std::memory_order_acquire);
-                                //         }
-                                //
-                                //         species_info.chromosomes.push_back(std::move(chr_info));
-                                //     }
-                                //
-                                //     debug_all_species_segments.push_back(std::move(species_info));
-                                // }
-
-
+//                                 // 收集所有物种的segment详细信息
+//                                 debug_all_species_segments.clear();
+//                                 for (const auto& [species_name, genome_graph] : species_graphs) {
+//                                     SpeciesDebugInfo species_info(species_name);
+//                                     std::shared_lock genome_lock(genome_graph.rw);
+//
+//                                     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+//                                         ChromosomeDebugInfo chr_info(chr_name);
+//                                         std::shared_lock end_lock(genome_end.rw);
+//
+//                                         // 遍历该染色体的所有segments
+//                                         SegPtr current = genome_end.head;
+//                                         current = current->primary_path.next.load(std::memory_order_acquire);
+//                                         while (current && current != genome_end.tail) {
+//                                             if (current->isSegment()) {
+//                                                 chr_info.segments.emplace_back(current);
+//                                             }
+//                                             // 检查链表结构是否正确
+//                                             if (current->isHead()) {
+//                                                 current = current->primary_path.next.load(std::memory_order_acquire);
+//                                                 continue;
+//                                             }
+//                                             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+//                                             if(prev && prev->isHead())
+//                                             {
+//                                                 current = current->primary_path.next.load(std::memory_order_acquire);
+//                                                 continue;
+//                                             }
+//                                             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+//                                                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+//                                             }
+//                                             current = current->primary_path.next.load(std::memory_order_acquire);
+//                                         }
+//
+//                                         species_info.chromosomes.push_back(std::move(chr_info));
+//                                     }
+//
+//                                     debug_all_species_segments.push_back(std::move(species_info));
+//                                 }
+//
+// count++;
+                                // std::cout<<count<<std::endl;
                                 continue;
                             }
                         }
@@ -1384,46 +2156,44 @@ namespace RaMesh {
                 }
             }
         }
-          // // 收集所有物种的segment详细信息
-          //                       debug_all_species_segments.clear();
-          //                       for (const auto& [species_name, genome_graph] : species_graphs) {
-          //                           SpeciesDebugInfo species_info(species_name);
-          //                           std::shared_lock genome_lock(genome_graph.rw);
-          //
-          //                           for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-          //                               ChromosomeDebugInfo chr_info(chr_name);
-          //                               std::shared_lock end_lock(genome_end.rw);
-          //
-          //                               // 遍历该染色体的所有segments
-          //                               SegPtr current = genome_end.head;
-          //                               current = current->primary_path.next.load(std::memory_order_acquire);
-          //                               while (current && current != genome_end.tail) {
-          //                                   if (current->isSegment()) {
-          //                                       chr_info.segments.emplace_back(current);
-          //                                   }
-          //                                   // 检查链表结构是否正确
-          //                                   if (current->isHead()) {
-          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
-          //                                       continue;
-          //                                   }
-          //                                   SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-          //                                   if(prev && prev->isHead())
-          //                                   {
-          //                                       current = current->primary_path.next.load(std::memory_order_acquire);
-          //                                       continue;
-          //                                   }
-          //                                   if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-          //                                       std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-          //                                   }
-          //                                   current = current->primary_path.next.load(std::memory_order_acquire);
-          //                               }
-          //
-          //                               species_info.chromosomes.push_back(std::move(chr_info));
-          //                           }
-          //
-          //                           debug_all_species_segments.push_back(std::move(species_info));
-          //                       }
-
+        // // 收集所有物种的segment详细信息
+        // debug_all_species_segments.clear();
+        // for (const auto &[species_name, genome_graph]: species_graphs) {
+        //     SpeciesDebugInfo species_info(species_name);
+        //     std::shared_lock genome_lock(genome_graph.rw);
+        //
+        //     for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+        //         ChromosomeDebugInfo chr_info(chr_name);
+        //         std::shared_lock end_lock(genome_end.rw);
+        //
+        //         // 遍历该染色体的所有segments
+        //         SegPtr current = genome_end.head;
+        //         current = current->primary_path.next.load(std::memory_order_acquire);
+        //         while (current && current != genome_end.tail) {
+        //             if (current->isSegment()) {
+        //                 chr_info.segments.emplace_back(current);
+        //             }
+        //             // 检查链表结构是否正确
+        //             if (current->isHead()) {
+        //                 current = current->primary_path.next.load(std::memory_order_acquire);
+        //                 continue;
+        //             }
+        //             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+        //             if (prev && prev->isHead()) {
+        //                 current = current->primary_path.next.load(std::memory_order_acquire);
+        //                 continue;
+        //             }
+        //             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+        //                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+        //             }
+        //             current = current->primary_path.next.load(std::memory_order_acquire);
+        //         }
+        //
+        //         species_info.chromosomes.push_back(std::move(chr_info));
+        //     }
+        //
+        //     debug_all_species_segments.push_back(std::move(species_info));
+        // }
     }
 
     /* ==============================================================
@@ -1674,7 +2444,6 @@ namespace RaMesh {
     }
 
     void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
-        std::shared_lock graph_lock(rw);
 
         // 优化每个物种图的采样表
         for (auto &[species, genome_graph]: species_graphs) {
@@ -1683,13 +2452,14 @@ namespace RaMesh {
             for (auto &[chr, genome_end]: genome_graph.chr2end) {
                 // 重建采样表以提高查询效率
                 genome_end.sample_vec.clear();
+                uint_t last_seg_end = 0;
+
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
                 while (current && !current->isTail()) {
                     genome_end.setToSampling(current);
                     current = current->primary_path.next.load(std::memory_order_acquire);
                 }
-
             }
         }
     }

@@ -149,6 +149,45 @@ Position MaskManager::mapToOriginalPosition(SequenceId seq_id, Position masked_p
   return original_pos;
 }
 
+Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return masked_pos;
+  }
+  // TODO 性能可以优化
+  // TODO 考虑intetval首个不是0的情况
+  const auto &intervals = it->second;
+  Position origin_pos = masked_pos;
+  
+  Position accumulated_unmasked = 0;
+  if (intervals.size() > 0 && intervals[0].start == 0) {
+      accumulated_unmasked = -1;
+  }
+
+
+  Position last_unmasked_interval_end = 0;
+
+  Position cur_interval_len = 0;
+
+
+  for (const auto &interval : intervals) {
+      cur_interval_len = interval.start - last_unmasked_interval_end + 1;
+      accumulated_unmasked += cur_interval_len;
+      if (origin_pos < accumulated_unmasked) {
+          accumulated_unmasked -= cur_interval_len;
+          break;
+      }
+      //accumulated_masked += cur_interval_length;
+	  last_unmasked_interval_end = interval.end;
+  }
+
+
+  // 返回时减去前面遮蔽区间的数量
+  return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
+}
+
+
+
 Length MaskManager::getMaskedSequenceLength(SequenceId seq_id, Length original_length) const {
   auto it = mask_intervals_.find(seq_id);
   if (it == mask_intervals_.end()) {
@@ -706,8 +745,11 @@ Length SequenceManager::getTotalLength() const {
 
 std::string SequenceManager::concatAllSequences(char separator) const {
   auto seq_names = getSequenceNames();
-  return concatSequences(seq_names, separator);
+  auto result = concatSequences(seq_names, separator);
+  return result;
 }
+
+
 
 std::string SequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
   std::string result;
@@ -716,10 +758,9 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\0') {
-      estimated_size += 1;
-    }
+    estimated_size += 1;
   }
+  estimated_size += 1;
   result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
@@ -727,17 +768,17 @@ std::string SequenceManager::concatSequences(const std::vector<std::string> &seq
       Length length = getSequenceLength(seq_names[i]);
       std::string sequence = getSubSequence(seq_names[i], 0, length);
       result.append(sequence);
+     
+      result.push_back('\1');
       
-      if (separator != '\0' && i < seq_names.size() - 1) {
-        result.push_back(separator);
-      }
     } catch (const std::exception&) {
       // 忽略错误
     }
   }
-
+  result.push_back('\0');
   return result;
 }
+
 
 void SequenceManager::streamSequences(std::ostream &output, const std::vector<std::string> &seq_names,
                                      char separator, size_t buffer_size) const {
@@ -881,6 +922,39 @@ std::string MaskedSequenceManager::getSubSequence(SequenceId seq_id,
   return result;
 }
 
+std::string MaskedSequenceManager::getSubSequenceSeparated(const std::string &seq_name, Position start, Length length, char separator) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return getSubSequenceSeparated(seq_id, start, length, separator);
+}
+
+std::string MaskedSequenceManager::getSubSequenceSeparated(SequenceId seq_id, Position start, Length length, char separator) const {
+  // 验证遮蔽坐标
+  if (!isValidPosition(seq_id, start, length)) {
+    throw SequenceException("Invalid masked position");
+  }
+
+  // 转换为原始坐标并获取有效区间
+  Position original_start = toOriginalPosition(seq_id, start);
+  Position original_end = toOriginalPosition(seq_id, start + length - 1);
+  
+  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
+  
+  std::string result;
+  result.reserve(length);
+  
+  for (const auto &range : valid_ranges) {
+    Position range_length = range.second - range.first;
+    std::string segment = original_manager_->getSubSequence(seq_id, range.first, range_length);
+    result.append(segment);
+    result.push_back(separator);
+  }
+
+  return result;
+}
+
 std::string MaskedSequenceManager::getSubSequenceGlobal(Position global_start, Length length) const {
   ensureCacheValid();
 
@@ -952,6 +1026,18 @@ Position MaskedSequenceManager::toOriginalPosition(const std::string &seq_name, 
 
 Position MaskedSequenceManager::toOriginalPosition(SequenceId seq_id, Position masked_pos) const {
   return mask_manager_.mapToOriginalPosition(seq_id, masked_pos);
+}
+
+Position MaskedSequenceManager::toOriginalPositionSeparated(const std::string &seq_name, Position masked_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return toOriginalPositionSeparated(seq_id, masked_pos);
+}
+
+Position MaskedSequenceManager::toOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const {
+  return mask_manager_.mapToOriginalPositionSeparated(seq_id, masked_pos);
 }
 
 Position MaskedSequenceManager::toMaskedPosition(const std::string &seq_name, Position original_pos) const {
@@ -1068,7 +1154,17 @@ Length MaskedSequenceManager::getTotalMaskedBases() const {
 
 std::string MaskedSequenceManager::concatAllSequences(char separator) const {
   auto seq_names = getSequenceNames();
-  return concatSequences(seq_names, separator);
+  auto result = concatSequences(seq_names, separator);
+  if(separator != '\0'){
+    result.push_back('\0');
+  }
+  return result;
+}
+
+std::string MaskedSequenceManager::concatAllSequencesSeparated(char separator) const {
+  auto seq_names = getSequenceNames();
+  auto result = concatSequencesSeparated(seq_names, separator);
+  return result;
 }
 
 std::string MaskedSequenceManager::concatSequences(const std::vector<std::string> &seq_names, char separator) const {
@@ -1078,7 +1174,7 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
     estimated_size += getSequenceLength(seq_name);
-    if (separator != '\0') {
+    if (separator != '\1') {
       estimated_size += 1;
     }
   }
@@ -1087,16 +1183,42 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   for (size_t i = 0; i < seq_names.size(); ++i) {
     try {
       Length length = getSequenceLength(seq_names[i]);
-      std::string sequence = getSubSequence(seq_names[i], 0, length);
+      std::string sequence = getSubSequence (seq_names[i], 0, length);
       result.append(sequence);
       
-      if (separator != '\0' && i < seq_names.size() - 1) {
+      if (separator != '\1' && i < seq_names.size() - 1) {
         result.push_back(separator);
       }
     } catch (const std::exception&) {
       // 忽略错误
     }
   }
+
+  return result;
+}
+
+std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
+  std::string result;
+  
+  // 预估大小
+  size_t estimated_size = 0;
+  for (const auto& seq_name : seq_names) {
+    estimated_size += getSequenceLength(seq_name);
+    estimated_size += 1;  
+  }
+  estimated_size += 1;
+  result.reserve(estimated_size);
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    
+      Length length = getSequenceLength(seq_names[i]);
+      std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+      result.append(sequence);
+      
+      // result.push_back('\1');
+      
+  }
+  result.push_back('\0');
 
   return result;
 }

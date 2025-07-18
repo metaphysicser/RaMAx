@@ -6,12 +6,7 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
                    uint_t sample_rate)
     : species_name(species_name), fasta_manager(fasta_manager) {
     this->sample_rate = sample_rate;
-    this->total_size = std::visit([](auto &&manager_ptr) -> size_t {
-        if (!manager_ptr) {
-            throw std::runtime_error("Manager pointer is null inside variant.");
-        }
-        return manager_ptr->getTotalLength();
-    }, fasta_manager);
+    
     // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
     if (total_size < sample_rate) {
         this->sample_rate = 1;
@@ -20,14 +15,29 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
 
 // 使用 CaPS 算法构建索引（适用于较大的序列）
 bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
-    this->total_size += 1; // 加终止符
-    std::string T = std::visit([](auto &&manager_ptr) -> std::string {
+    std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\0');
-    }, fasta_manager);
-    size_t n = T.size() + 1;
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            return manager_ptr->concatAllSequences('\1');
+        }
+        else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            return manager_ptr->concatAllSequencesSeparated('\1');
+        }
+        else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
+        }, fasta_manager);
+    size_t n = T.size();
+    this->total_size = n;
+
+    // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
+    if (total_size < sample_rate) {
+        this->sample_rate = 1;
+    }
+
     if (n == 0)
         return false;
 
@@ -90,14 +100,27 @@ bool FM_Index::buildIndexUsingCaPSImpl(const std::string &T,
 
 // 使用 divsufsort 构建索引（适用于中小序列）
 bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
-    this->total_size += 1;
     std::string T = std::visit([](auto &&manager_ptr) -> std::string {
+        using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
             throw std::runtime_error("Manager pointer is null inside variant.");
         }
-        return manager_ptr->concatAllSequences('\0');
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+            return manager_ptr->concatAllSequences('\1');
+        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+            return manager_ptr->concatAllSequencesSeparated('\1');
+        } else {
+            throw std::runtime_error("Unhandled manager type in variant.");
+        }
     }, fasta_manager);
-    size_t n = T.size() + 1;
+    size_t n = T.size();
+    this->total_size = n;
+
+    // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
+    if (total_size < sample_rate) {
+        this->sample_rate = 1;
+    }
+
     if (n == 0)
         return false;
 
@@ -156,6 +179,7 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
         buildIndexUsingDivsufsort(thread);
     } else {
         if (fast_mode) {
+            // TODO 对齐divsufsort
             buildIndexUsingCaPS(thread);
         } else {
             buildIndexUsingBigBWT(output_path,
@@ -163,39 +187,77 @@ bool FM_Index::buildIndex(FilePath output_path, bool fast_mode, uint_t thread) {
         }
     }
 
-    // 构建 C 表（前缀计数）和字母转下标映射表
-    size_t cumulative = 0;
-    char2idx.fill(0xFF);
-    count_array.fill(0);
 
-    bool has_ambiguous_bases = std::visit([](auto &&manager_ptr) -> bool {
+    ////// 构建 C 表（前缀计数）和字母转下标映射表
+    //size_t cumulative = 0;
+    //char2idx.fill(0xFF);
+    //count_array.fill(0);
+
+    //bool has_ambiguous_bases = std::visit([](auto &&manager_ptr) -> bool {
+    //    using PtrType = std::decay_t<decltype(manager_ptr)>;
+    //    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+    //        return manager_ptr->hasAmbiguousBasesAll();
+    //    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+    //        return manager_ptr->getOriginalManager().hasAmbiguousBasesAll();
+    //    } else {
+    //        throw std::runtime_error("Unhandled manager type in variant.");
+    //    }
+    //}, fasta_manager);
+    //if (has_ambiguous_bases) {
+    //    uint_t count = 0;
+    //    for (const auto &c: alpha_set) {
+    //        size_t occ = wt_bwt.rank(wt_bwt.size(), c);
+    //        count_array[static_cast<uint8_t>(c)] = cumulative;
+    //        cumulative += occ;
+    //        char2idx[static_cast<uint8_t>(c)] = count;
+    //        count++;
+    //    }
+    //} else {
+    //    uint_t count = 0;
+    //    for (const auto &c: alpha_set_without_N) {
+    //        size_t occ = wt_bwt.rank(wt_bwt.size(), c);
+    //        count_array[static_cast<uint8_t>(c)] = cumulative;
+    //        cumulative += occ;
+    //        char2idx[static_cast<uint8_t>(c)] = count;
+    //        count++;
+    //    }
+    //}
+    ///---------- 1. 判断是否需要把 'N' 纳入字母表 ----------
+    bool has_ambiguous_bases = std::visit([](auto&& manager_ptr) -> bool {
         using PtrType = std::decay_t<decltype(manager_ptr)>;
-        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-            return manager_ptr->hasAmbiguousBasesAll();
-        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-            return manager_ptr->getOriginalManager().hasAmbiguousBasesAll();
-        } else {
+        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>)
+            return manager_ptr->hasAmbiguousBasesAll();          // 原始 FASTA
+        else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>)
+            return manager_ptr->getOriginalManager().hasAmbiguousBasesAll(); // Masked 版本
+        else
             throw std::runtime_error("Unhandled manager type in variant.");
-        }
-    }, fasta_manager);
-    if (has_ambiguous_bases) {
-        uint_t count = 0;
-        for (const auto &c: alpha_set) {
-            size_t occ = wt_bwt.rank(wt_bwt.size(), c);
-            count_array[static_cast<uint8_t>(c)] = cumulative;
-            cumulative += occ;
-            char2idx[static_cast<uint8_t>(c)] = count;
-            count++;
-        }
-    } else {
-        uint_t count = 0;
-        for (const auto &c: alpha_set_without_N) {
-            size_t occ = wt_bwt.rank(wt_bwt.size(), c);
-            count_array[static_cast<uint8_t>(c)] = cumulative;
-            cumulative += occ;
-            char2idx[static_cast<uint8_t>(c)] = count;
-            count++;
-        }
+        }, fasta_manager);
+
+    // ---------- 2. 选定实际使用的字母集合 ----------
+    const std::span<const char> alph =
+        has_ambiguous_bases
+        ? std::span<const char>(alpha_set.data(), alpha_set.size())
+        : std::span<const char>(alpha_set_without_N.data(), alpha_set_without_N.size());
+    // alpha_set           = {'\0','\1','A','C','G','T','N'};
+    // alpha_set_without_N = {'\0','\1','A','C','G','T'};
+
+    // ---------- 3. 初始化数据结构 ----------
+    size_t cumulative = 0;          // C[c] 的前缀计数游标
+    char2idx.fill(0xFF);            // 0xFF 表示“未映射”
+    count_array.fill(0);            // C 表全部先清零
+
+    // ---------- 4. 顺序遍历 alph，填充 C 表和 char→rank 映射 ----------
+    uint_t rank = 0;                // 连续的字符 rank：0,1,2,...
+    for (char c : alph) {
+        // BWT 中字符 c 出现的总次数
+        size_t occ = wt_bwt.rank(wt_bwt.size(), c);
+
+        // C[c]：小于 c 的所有字符出现总数
+        count_array[static_cast<uint8_t>(c)] = cumulative;
+        cumulative += occ;          // 更新前缀和
+
+        // char2idx：字符 → rank，下游 wavelet‑tree 查询要用
+        char2idx[static_cast<uint8_t>(c)] = rank++;
     }
 
     return true;
@@ -594,6 +656,9 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
 
         for (uint_t i = I.l; i < I.r; i++) {
             uint_t ref_global_pos = getSA(i);
+            if (ref_global_pos == 1300 || ref_global_pos == 1) {
+                std::cout << "";
+            }
 
             std::visit([&](auto &&manager_ptr) {
                 SeqPro::SequenceId seq_id = SeqPro::SequenceIndex::INVALID_ID;
@@ -653,7 +718,8 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
                     }
 
                     if (info) {
-                        region_vec.emplace_back(info->name, local_pos, match_length);
+                        /*region_vec.emplace_back(info->name, local_pos, match_length);*/
+                        region_vec.emplace_back(info->name, ref_global_pos, match_length);
                     }
                 }
             }, fasta_manager);

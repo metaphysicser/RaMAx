@@ -391,3 +391,4 @@ FodyWeavers.xsd
 /ramax_temp/
 /.vscode/
 /launch.vs.json
+/submodule/hal/
