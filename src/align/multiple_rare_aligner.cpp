@@ -504,7 +504,7 @@ starAlignment(
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
 			ref_name, species_fasta_manager_map, match_ptr);
-		spdlog::info("filter multiple species anchors for {} done", ref_name);
+ 		spdlog::info("filter multiple species anchors for {} done", ref_name);
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
