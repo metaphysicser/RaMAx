@@ -1764,6 +1764,9 @@ namespace RaMesh {
                                             overlap_ref_seg, std::memory_order_release);
                                     } else if (suffix_ref_seg->start > suffix_next->start) {
                                         while (suffix_ref_seg->start > suffix_next->start) {
+                                            if(suffix_next->isTail()) {
+                                                break;
+                                            }
                                             suffix_next = suffix_next->primary_path.next.
                                                     load(std::memory_order_release);
                                         }
