@@ -263,6 +263,23 @@ Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
   return total;
 }
 
+Length MaskManager::getSeparatorCount(SequenceId seq_id) const {
+  auto it = mask_intervals_.find(seq_id);
+  if (it == mask_intervals_.end()) {
+    return 1; // 没有遮蔽区间时，整个序列是一个有效区间，有1个间隔符
+  }
+
+  const auto &intervals = it->second;
+  // 间隔符数量等于有效区间数量
+  // 如果有n个遮蔽区间，则有n+1个有效区间，每个有效区间后面有1个间隔符
+  // 因此总共有n+1个间隔符
+  if (intervals.empty()) {
+    return 1; // 没有遮蔽区间时，整个序列是一个有效区间，有1个间隔符
+  }
+
+  return intervals.size() + 1;
+}
+
 SequenceId MaskManager::getOrCreateSequenceId(const std::string &seq_name) {
   auto it = name_to_id_mapping_.find(seq_name);
   if (it != name_to_id_mapping_.end()) {
@@ -1015,6 +1032,24 @@ Length MaskedSequenceManager::getTotalLength() const {
   return total_masked_length_;
 }
 
+Length MaskedSequenceManager::getTotalLengthWithSeparators() const {
+  // 总长度 = 遮蔽后的序列长度 + 间隔符数量 + 序列数量 - 1 （因为拼接时还加了间隔符）
+  return getTotalLength() + getTotalSeparatorCount() + getSequenceCount() - 1;
+}
+
+Length MaskedSequenceManager::getSequenceLengthWithSeparators(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getSequenceLengthWithSeparators(seq_id);
+}
+
+Length MaskedSequenceManager::getSequenceLengthWithSeparators(SequenceId seq_id) const {
+  // 序列长度 = 遮蔽后的序列长度 + 该序列的间隔符数量
+  return getSequenceLength(seq_id) + getSeparatorCount(seq_id);
+}
+
 bool MaskedSequenceManager::isValidPosition(const std::string &seq_name, Position pos, Length len) const {
   SequenceId seq_id = getSequenceId(seq_name);
   if (seq_id == SequenceIndex::INVALID_ID) {
@@ -1109,11 +1144,11 @@ Position MaskedSequenceManager::localToGlobal(const std::string& seq_name, Posit
 
 Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_masked_pos) const {
   ensureCacheValid();
-  
+
   if (!isValidPosition(seq_id, local_masked_pos)) {
     throw SequenceException("Local masked position out of bounds");
   }
-  
+
   auto it = global_offset_cache_.find(seq_id);
   if (it != global_offset_cache_.end()) {
     return it->second + local_masked_pos;
@@ -1160,6 +1195,27 @@ Length MaskedSequenceManager::getTotalMaskedBases() const {
   auto seq_names = getSequenceNames();
   for (const auto& seq_name : seq_names) {
     total += getMaskedBases(seq_name);
+  }
+  return total;
+}
+
+Length MaskedSequenceManager::getSeparatorCount(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getSeparatorCount(seq_id);
+}
+
+Length MaskedSequenceManager::getSeparatorCount(SequenceId seq_id) const {
+  return mask_manager_.getSeparatorCount(seq_id);
+}
+
+Length MaskedSequenceManager::getTotalSeparatorCount() const {
+  Length total = 0;
+  auto seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    total += getSeparatorCount(seq_name);
   }
   return total;
 }
@@ -1316,14 +1372,14 @@ size_t MaskedSequenceManager::getSequenceCount() const {
 void MaskedSequenceManager::buildGlobalOffsetCache() const {
   global_offset_cache_.clear();
   total_masked_length_ = 0;
-  
+
   auto seq_names = getSequenceNames();
   for (const auto& seq_name : seq_names) {
     SequenceId seq_id = getSequenceId(seq_name);
     global_offset_cache_[seq_id] = total_masked_length_;
     total_masked_length_ += getSequenceLength(seq_id);
   }
-  
+
   cache_valid_ = true;
 }
 
@@ -1457,13 +1513,13 @@ void MaskedSequenceManager::ensureCacheValid() const {
 
 const SequenceInfo* MaskedSequenceManager::getSequenceInfoByMaskedGlobalPosition(Position global_masked_pos) const {
   ensureCacheValid();
-  
+
   // 查找包含该全局遮蔽位置的序列
   const SequenceInfo* found_info = nullptr;
-  
+
   for (const auto& [seq_id, global_offset] : global_offset_cache_) {
     Length masked_length = getSequenceLength(seq_id);
-    if (global_masked_pos >= global_offset && 
+    if (global_masked_pos >= global_offset &&
         global_masked_pos < global_offset + masked_length) {
       found_info = original_manager_->getIndex().getSequenceInfo(seq_id);
       break;
