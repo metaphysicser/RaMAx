@@ -646,16 +646,20 @@ int main(int argc, char **argv) {
             }
         }
     } else {
-        // 不开启重复遮蔽，基于清洗后的文件创建常规SeqPro managers
+        // 不开启重复遮蔽，基于清洗后的文件创建  MaskedSeqPro managers
         spdlog::info("Repeat masking disabled. Creating standard SeqPro managers...");
 
         for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
             try {
-                auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+                auto original_manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+                auto manager = std::make_unique<SeqPro::MaskedSequenceManager>(
+                    std::move(original_manager)
+                );
                 spdlog::info("[{}] SeqPro Manager created: {}", species_name,
                              cleaned_fasta_path.string());
                 // 记录序列统计信息
                 SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+
 
                 auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
 

@@ -369,9 +369,9 @@ public:
   Position localToGlobal(SequenceId seq_id, Position local_masked_pos) const;
 
   // 支持间隔符的全局坐标系统
-  std::pair<SequenceId, Position> globalToLocalWithSeparators(Position global_pos_with_separators) const;
-  Position localToGlobalWithSeparators(const std::string& seq_name, Position local_masked_pos) const;
-  Position localToGlobalWithSeparators(SequenceId seq_id, Position local_masked_pos) const;
+  std::pair<std::string, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
+  Position localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const;
+  Position localToGlobalSeparated(SequenceId seq_id, Position local_masked_pos) const;
 
   // === 重复区域信息 ===
 
@@ -462,6 +462,10 @@ private:
   // 坐标转换和定案辅助函数
   MaskInterval convertMaskedToOriginalInterval(SequenceId seq_id, const MaskInterval &masked_interval) const;
   void ensureFinalized(SequenceId seq_id) const;
+
+  // 间隔符相关的坐标转换辅助函数
+  Position convertSeparatedToMaskedPosition(SequenceId seq_id, Position separated_pos) const;
+  Position convertMaskedToSeparatedPosition(SequenceId seq_id, Position masked_pos) const;
 };
 
 
