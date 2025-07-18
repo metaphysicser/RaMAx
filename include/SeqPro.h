@@ -247,7 +247,6 @@ public:
   const SequenceInfo* getSequenceInfoFromGlobalPosition(Position global_pos) const;
   std::string getSequenceNameFromGlobalPosition(Position global_pos) const;
   std::pair<SequenceId, Position> globalToLocal(Position global_pos) const;
-  std::pair<SequenceId, Position> globalToLocalSeparated(Position global_pos) const;
   Position localToGlobal(const std::string& seq_name, Position local_pos) const;
   Position localToGlobal(SequenceId seq_id, Position local_pos) const;
   Length getTotalLength() const;

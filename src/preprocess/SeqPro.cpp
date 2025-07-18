@@ -733,16 +733,6 @@ std::pair<SequenceId, Position> SequenceManager::globalToLocal(Position global_p
   return {SequenceIndex::INVALID_ID, 0};
 }
 
-std::pair<SequenceId, Position> SequenceManager::globalToLocalSeparated(Position global_pos) const {
-    const auto* info = getSequenceInfoFromGlobalPosition(global_pos);
-    if (info) {
-        Position local_pos = global_pos - info->global_start_pos;
-        local_pos -= info->id;
-        return { info->id, local_pos };
-    }
-    return { SequenceIndex::INVALID_ID, 0 };
-}
-
 Position SequenceManager::localToGlobal(const std::string& seq_name, Position local_pos) const {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   const auto *info = sequence_index_.getSequenceInfo(seq_name);
