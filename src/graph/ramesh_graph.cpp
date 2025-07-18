@@ -323,10 +323,11 @@ namespace RaMesh {
     /* ==============================================================
      * 5.  Graph Correctness Verification (comprehensive check)
      * ==============================================================*/
-    bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(bool verbose) const {
+    bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(bool verbose, bool show_detailed_segments) const {
         // 使用默认选项调用增强版本
         VerificationOptions options;
         options.verbose = verbose;
+        options.show_detailed_segments = show_detailed_segments;
         options.max_errors_per_type = 100000;      // 完整统计所有错误
         options.max_total_errors = 500000;         // 完整统计所有错误
         options.max_verbose_errors_per_type = 5;   // 每种类型只显示前5条详细信息
@@ -742,7 +743,7 @@ namespace RaMesh {
                         // 检查segment链表的顺序（start是否递增）
                         if (prev_segment) {
                             // 调试输出：显示当前比较的两个segments
-                            if (options.verbose && segment_count <= 10) {
+                            if (options.show_detailed_segments && segment_count <= 10) {
                                 spdlog::debug("    Comparing segment#{} (start={}) with prev segment (start={})",
                                            segment_count, current->start, prev_segment->start);
                             }
@@ -794,8 +795,8 @@ namespace RaMesh {
                     spdlog::debug("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
                                chr_name, segment_count, ordering_violations, large_gaps);
 
-                    // 输出前10个和后10个segments的start值用于调试
-                    if (debug_segments.size() > 20) {
+                    // 输出前10个和后10个segments的start值用于调试（仅在启用详细段信息时）
+                    if (options.show_detailed_segments && debug_segments.size() > 20) {
                         spdlog::debug("    First 10 segments start values:");
                         for (size_t i = 0; i < std::min(size_t(10), debug_segments.size()); ++i) {
                             spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
