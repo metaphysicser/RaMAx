@@ -29,7 +29,7 @@ namespace RaMesh {
 
     using BlockPtr = std::shared_ptr<Block>;
     using WeakBlock = std::weak_ptr<Block>;
-    using SegPtr = Segment*;
+    using SegPtr = std::shared_ptr<Segment>;
 
     // ────────────────────────────────────────────────
     // Helper types / hashing

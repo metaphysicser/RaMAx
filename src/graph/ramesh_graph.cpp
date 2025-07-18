@@ -531,8 +531,8 @@ namespace RaMesh {
                     addVerificationError(result, options, VerificationType::POINTER_VALIDITY, ErrorSeverity::CRITICAL,
                                        species_name, chr_name, 0, 0,
                                        "Head or tail pointer is null",
-                                       "head=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.head)) +
-                                       ", tail=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.tail)));
+                                       "head=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.head.get())) +
+                                       ", tail=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.tail.get())));
                     continue;
                 }
 
@@ -608,8 +608,8 @@ namespace RaMesh {
                         addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
                                            species_name, chr_name, segment_count, current->start,
                                            "Inconsistent prev pointer in doubly linked list",
-                                           "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev)) +
-                                           ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr)));
+                                           "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev.get())) +
+                                           ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr.get())));
                     }
 
                     // 防止死循环
