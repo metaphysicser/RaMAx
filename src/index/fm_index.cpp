@@ -719,7 +719,7 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
 
                     if (info) {
                         /*region_vec.emplace_back(info->name, local_pos, match_length);*/
-                        region_vec.emplace_back(info->name, ref_global_pos, match_length);
+                        region_vec.emplace_back(info->name, local_pos, match_length);
                     }
                 }
             }, fasta_manager);
