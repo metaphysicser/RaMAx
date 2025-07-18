@@ -457,7 +457,7 @@ starAlignment(
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
-    uint_t count = 0;
+    // uint_t count = 0;
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
     //for (uint_t i = 0; i < 1; i++) { 
@@ -480,79 +480,31 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            i > 0? FAST_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
+            i > 0? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, ref_global_cache, sampling_interval
         );
-        // match的start都要转换为原始的start
-
-        auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
-                return std::visit([&](auto& p) {
-                    using T = std::decay_t<decltype(p)>;
-                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-                        return p->getSubSequence(chr, b, l);
-                    }
-                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                        return p->getOriginalManager().getSubSequence(chr, b, l);
-                    }
-                    }, mv);
-            };
-        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
-            using PtrType = std::decay_t<decltype(manager_ptr)>;
-            if (!manager_ptr) {
-                throw std::runtime_error("Manager pointer is null inside variant.");
-            }
-            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                return manager_ptr->concatAllSequences('\1');
-            }
-            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-                return manager_ptr->concatAllSequencesSeparated('\1');
-            }
-            else {
-                throw std::runtime_error("Unhandled manager type in variant.");
-            }
-            }, *seqpro_managers[ref_name]);
 
         if (true) {
             for (auto& kv : *match_ptr) {
                 for (auto& mv2 : *kv.second) {
                     for (auto& mv1 : mv2) {
                         for (auto& m : mv1) {
-          /*                  if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
-                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
-                                m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
-                            }*/
                             if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
-                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
-								std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                if (m.ref_region.start < 5000) {
-                                    std::cout << "";
-                                }
-                                m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-								// std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-								std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
-                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
-								if (ref_seq != query_seq) {
-									spdlog::error("Ref and query sequences do not match for {}: {} vs {}",
-										ref_name, ref_seq, query_seq);
-                                }
-                                else {
-                                    std::cout << "";
-                                }
+                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);								
+                                m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);								
 							}
-						
- 
                         }
                     }
                 }
             }
         }
+		spdlog::info("align multiple genome for {} done", ref_name);
 
 
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
 			ref_name, species_fasta_manager_map, match_ptr);
+		spdlog::info("filter multiple species anchors for {} done", ref_name);
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
@@ -565,6 +517,7 @@ starAlignment(
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
+		spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
@@ -573,6 +526,7 @@ starAlignment(
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
+		spdlog::info("merge multiple genome graphs for {} done", ref_name);
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
         // 这样后续轮次就不会重复比对已经成功比对的区间
@@ -584,7 +538,7 @@ starAlignment(
         catch (const std::exception& e) {
             spdlog::error("Failed to add mask intervals for {}: {}", ref_name, e.what());
         }
-        std::string s = std::to_string(count);
+        // std::string s = std::to_string(count);
         // multi_graph->exportToMaf("/mnt/d/Result/RaMAx/Alignathon/result/primate-small"+ s + ".maf", seqpro_managers, true, false);
         
     }

@@ -6,7 +6,15 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
                    uint_t sample_rate)
     : species_name(species_name), fasta_manager(fasta_manager) {
     this->sample_rate = sample_rate;
-    // TODO total_size 要优化
+    
+    // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
+    if (total_size < sample_rate) {
+        this->sample_rate = 1;
+    }
+}
+
+// 使用 CaPS 算法构建索引（适用于较大的序列）
+bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
     std::string T = std::visit([](auto&& manager_ptr) -> std::string {
         using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
@@ -22,31 +30,14 @@ FM_Index::FM_Index(SpeciesName species_name, SeqPro::ManagerVariant &fasta_manag
             throw std::runtime_error("Unhandled manager type in variant.");
         }
         }, fasta_manager);
-    this->total_size = T.size();
-    
+    size_t n = T.size();
+    this->total_size = n;
+
     // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
     if (total_size < sample_rate) {
         this->sample_rate = 1;
     }
-}
 
-// 使用 CaPS 算法构建索引（适用于较大的序列）
-bool FM_Index::buildIndexUsingCaPS(uint_t thread_count) {
-    this->total_size += 1; // 加终止符
-    std::string T = std::visit([](auto &&manager_ptr) -> std::string {
-        using PtrType = std::decay_t<decltype(manager_ptr)>;
-        if (!manager_ptr) {
-            throw std::runtime_error("Manager pointer is null inside variant.");
-        }
-        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-            return manager_ptr->concatAllSequences('\1');
-        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-            return manager_ptr->concatAllSequencesSeparated('\1');
-        } else {
-            throw std::runtime_error("Unhandled manager type in variant.");
-        }
-    }, fasta_manager);
-    size_t n = T.size();
     if (n == 0)
         return false;
 
@@ -109,7 +100,6 @@ bool FM_Index::buildIndexUsingCaPSImpl(const std::string &T,
 
 // 使用 divsufsort 构建索引（适用于中小序列）
 bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
-    this->total_size += 1;
     std::string T = std::visit([](auto &&manager_ptr) -> std::string {
         using PtrType = std::decay_t<decltype(manager_ptr)>;
         if (!manager_ptr) {
@@ -125,18 +115,14 @@ bool FM_Index::buildIndexUsingDivsufsort(uint_t thread_count) {
     }, fasta_manager);
     size_t n = T.size();
     this->total_size = n;
-    this->T = T;
+
+    // 若总序列长度小于采样率，则降采样率为 1，保证后续索引合法
+    if (total_size < sample_rate) {
+        this->sample_rate = 1;
+    }
+
     if (n == 0)
         return false;
-
-    for (uint_t i = 0; i < n; i++) {
-        if (T[i] == '\0') {
-            std::cout << "";
-        }
-        if (T[i] == '\1') {
-            std::cout <<  "";
-        }
-    }
 
     const auto *Tptr = reinterpret_cast<const sauchar_t *>(T.data());
     std::vector<saidx_t> SA(n); // 后缀数组

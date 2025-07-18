@@ -512,9 +512,6 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			for (auto& anchor : anchor_vec) {
-				if (anchor.match.ref_region.start == 4786915 || anchor.match.query_region.start == 4786915) {
-					std::cout << "";
-				}
 				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
 			}
 			
