@@ -370,7 +370,7 @@ namespace RaMesh {
 
             switch (severity) {
                 case ErrorSeverity::INFO:
-                    spdlog::info(full_message);
+                    spdlog::debug(full_message);
                     break;
                 case ErrorSeverity::WARNING:
                     spdlog::warn(full_message);
@@ -402,12 +402,12 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::logVerificationSummary(const VerificationResult& result, const VerificationOptions& options) const {
         if (!options.verbose) return;
 
-        spdlog::info("");
-        spdlog::info("============================================================");
-        spdlog::info("              VERIFICATION SUMMARY                         ");
-        spdlog::info("============================================================");
-        spdlog::info("Total errors: {}", result.errors.size());
-        spdlog::info("Verification time: {} microseconds", result.verification_time.count());
+        spdlog::debug("");
+        spdlog::debug("============================================================");
+        spdlog::debug("              VERIFICATION SUMMARY                         ");
+        spdlog::debug("============================================================");
+        spdlog::debug("Total errors: {}", result.errors.size());
+        spdlog::debug("Verification time: {} microseconds", result.verification_time.count());
 
         // 按错误类型统计并显示详细信息
         std::map<VerificationType, std::vector<const VerificationError*>> errors_by_type;
@@ -416,8 +416,8 @@ namespace RaMesh {
         }
 
         if (!errors_by_type.empty()) {
-            spdlog::info("");
-            spdlog::info("Error breakdown by type:");
+            spdlog::debug("");
+            spdlog::debug("Error breakdown by type:");
 
             const std::map<VerificationType, std::string> type_names = {
                 {VerificationType::POINTER_VALIDITY, "POINTER_VALIDITY"},
@@ -435,12 +435,12 @@ namespace RaMesh {
                 std::string type_name = (type_name_it != type_names.end()) ?
                                        type_name_it->second : "UNKNOWN_TYPE";
 
-                spdlog::info("  {}: {} errors", type_name, errors.size());
+                spdlog::debug("  {}: {} errors", type_name, errors.size());
 
                 // 如果显示的详细错误数量少于总数，显示提示信息
                 if (errors.size() > options.max_verbose_errors_per_type) {
                     size_t hidden_count = errors.size() - options.max_verbose_errors_per_type;
-                    spdlog::info("    ... and {} more errors of this type (detailed output limited to {} per type)",
+                    spdlog::debug("    ... and {} more errors of this type (detailed output limited to {} per type)",
                                hidden_count, options.max_verbose_errors_per_type);
                 }
             }
@@ -450,10 +450,10 @@ namespace RaMesh {
             spdlog::warn("Error limit reached ({} errors), some issues may not be reported", options.max_total_errors);
         }
 
-        spdlog::info("");
-        spdlog::info("Graph status: {}", result.is_valid ? "Valid" : "Issues found");
-        spdlog::info("============================================================");
-        spdlog::info("");
+        spdlog::debug("");
+        spdlog::debug("Graph status: {}", result.is_valid ? "Valid" : "Issues found");
+        spdlog::debug("============================================================");
+        spdlog::debug("");
     }
 
     RaMeshMultiGenomeGraph::VerificationResult RaMeshMultiGenomeGraph::verifyGraphCorrectness(const VerificationOptions& options) const {
@@ -463,10 +463,10 @@ namespace RaMesh {
         VerificationResult result;
 
         if (options.verbose) {
-            spdlog::info("");
-            spdlog::info("============================================================");
-            spdlog::info("              GRAPH CORRECTNESS VERIFICATION               ");
-            spdlog::info("============================================================");
+            spdlog::debug("");
+            spdlog::debug("============================================================");
+            spdlog::debug("              GRAPH CORRECTNESS VERIFICATION               ");
+            spdlog::debug("============================================================");
         }
 
         // 执行各种验证检查
@@ -519,7 +519,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::verifyPointerValidity(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying pointer validity...");
+            spdlog::debug("Verifying pointer validity...");
         }
 
         for (const auto &[species_name, genome_graph]: species_graphs) {
@@ -561,17 +561,17 @@ namespace RaMesh {
         if (options.verbose) {
             size_t total_errors = result.getErrorCount(VerificationType::POINTER_VALIDITY);
             if (total_errors > options.max_verbose_errors_per_type) {
-                spdlog::info("POINTER_VALIDITY: {} total errors ({} shown in detail)",
+                spdlog::debug("POINTER_VALIDITY: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
             } else if (total_errors > 0) {
-                spdlog::info("POINTER_VALIDITY: {} total errors", total_errors);
+                spdlog::debug("POINTER_VALIDITY: {} total errors", total_errors);
             }
         }
     }
 
     void RaMeshMultiGenomeGraph::verifyLinkedListIntegrity(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying linked list integrity...");
+            spdlog::debug("Verifying linked list integrity...");
         }
 
         for (const auto &[species_name, genome_graph]: species_graphs) {
@@ -634,7 +634,7 @@ namespace RaMesh {
                 }
 
                 if (options.verbose) {
-                    spdlog::info("  Chromosome {} contains {} segments", chr_name, segment_count);
+                    spdlog::debug("  Chromosome {} contains {} segments", chr_name, segment_count);
                 }
             }
         }
@@ -642,7 +642,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::verifyCoordinateOverlap(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying coordinate overlap detection...");
+            spdlog::debug("Verifying coordinate overlap detection...");
         }
 
         for (const auto &[species_name, genome_graph]: species_graphs) {
@@ -697,17 +697,17 @@ namespace RaMesh {
         if (options.verbose) {
             size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_OVERLAP);
             if (total_errors > options.max_verbose_errors_per_type) {
-                spdlog::info("COORDINATE_OVERLAP: {} total errors ({} shown in detail)",
+                spdlog::debug("COORDINATE_OVERLAP: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
             } else if (total_errors > 0) {
-                spdlog::info("COORDINATE_OVERLAP: {} total errors", total_errors);
+                spdlog::debug("COORDINATE_OVERLAP: {} total errors", total_errors);
             }
         }
     }
 
     void RaMeshMultiGenomeGraph::verifyCoordinateOrdering(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying coordinate ordering (segment chain sequence)...");
+            spdlog::debug("Verifying coordinate ordering (segment chain sequence)...");
         }
 
         // 验证参数
@@ -743,7 +743,7 @@ namespace RaMesh {
                         if (prev_segment) {
                             // 调试输出：显示当前比较的两个segments
                             if (options.verbose && segment_count <= 10) {
-                                spdlog::info("    Comparing segment#{} (start={}) with prev segment (start={})",
+                                spdlog::debug("    Comparing segment#{} (start={}) with prev segment (start={})",
                                            segment_count, current->start, prev_segment->start);
                             }
 
@@ -791,24 +791,24 @@ namespace RaMesh {
 
                 // 输出统计信息和调试信息
                 if (options.verbose) {
-                    spdlog::info("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
+                    spdlog::debug("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
                                chr_name, segment_count, ordering_violations, large_gaps);
 
                     // 输出前10个和后10个segments的start值用于调试
                     if (debug_segments.size() > 20) {
-                        spdlog::info("    First 10 segments start values:");
+                        spdlog::debug("    First 10 segments start values:");
                         for (size_t i = 0; i < std::min(size_t(10), debug_segments.size()); ++i) {
-                            spdlog::info("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
+                            spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
                         }
-                        spdlog::info("    Last 10 segments start values:");
+                        spdlog::debug("    Last 10 segments start values:");
                         for (size_t i = std::max(size_t(0), debug_segments.size() - 10); i < debug_segments.size(); ++i) {
-                            spdlog::info("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
+                            spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
                         }
 
                         // 特别检查第5000和第5500个segment
                         if (debug_segments.size() > 5500) {
-                            spdlog::info("    Special check - Segment#5000: start={}", debug_segments[4999].second);
-                            spdlog::info("    Special check - Segment#5500: start={}", debug_segments[5499].second);
+                            spdlog::debug("    Special check - Segment#5000: start={}", debug_segments[4999].second);
+                            spdlog::debug("    Special check - Segment#5500: start={}", debug_segments[5499].second);
                             if (debug_segments[4999].second > debug_segments[5499].second) {
                                 spdlog::error("    MANUAL CHECK CONFIRMED: Segment#5000 start > Segment#5500 start!");
                                 spdlog::error("      This should have been detected as an ordering violation!");
@@ -823,17 +823,17 @@ namespace RaMesh {
         if (options.verbose) {
             size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_ORDERING);
             if (total_errors > options.max_verbose_errors_per_type) {
-                spdlog::info("COORDINATE_ORDERING: {} total errors ({} shown in detail)",
+                spdlog::debug("COORDINATE_ORDERING: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
             } else if (total_errors > 0) {
-                spdlog::info("COORDINATE_ORDERING: {} total errors", total_errors);
+                spdlog::debug("COORDINATE_ORDERING: {} total errors", total_errors);
             }
         }
     }
 
     void RaMeshMultiGenomeGraph::verifyBlockConsistency(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying block consistency...");
+            spdlog::debug("Verifying block consistency...");
         }
 
         size_t valid_blocks = 0;
@@ -896,7 +896,7 @@ namespace RaMesh {
         }
 
         if (options.verbose) {
-            spdlog::info("Block pool statistics: {} valid blocks, {} expired blocks, {} empty blocks",
+            spdlog::debug("Block pool statistics: {} valid blocks, {} expired blocks, {} empty blocks",
                        valid_blocks, expired_blocks, empty_blocks);
         }
 
@@ -914,7 +914,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::verifyMemoryIntegrity(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying memory integrity...");
+            spdlog::debug("Verifying memory integrity...");
         }
 
         // 检查segment的内存一致性
@@ -991,7 +991,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::verifyThreadSafety(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying thread safety...");
+            spdlog::debug("Verifying thread safety...");
         }
 
         size_t total_atomic_operations = 0;
@@ -1022,7 +1022,7 @@ namespace RaMesh {
         }
 
         if (options.verbose) {
-            spdlog::info("Thread safety check completed: {} atomic operations verified", total_atomic_operations);
+            spdlog::debug("Thread safety check completed: {} atomic operations verified", total_atomic_operations);
         }
 
         // 添加一般性的线程安全信息
@@ -1035,7 +1035,7 @@ namespace RaMesh {
 
     void RaMeshMultiGenomeGraph::verifyPerformanceIssues(VerificationResult& result, const VerificationOptions& options) const {
         if (options.verbose) {
-            spdlog::info("Verifying performance issues...");
+            spdlog::debug("Verifying performance issues...");
         }
 
         // 性能检查阈值
@@ -1122,85 +1122,84 @@ namespace RaMesh {
      * 6.  Merge multiple graphs (public API)
      * ===========================================================*/
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
-        size_t count =0;
         std::shared_lock graph_lock(rw);
 
-        // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
-        struct SegmentDebugInfo {
-            uint_t start;
-            uint_t length;
-            std::string strand_str;
-            std::string seg_role_str;
-            std::string align_role_str;
-            size_t cigar_size;
-            std::string parent_block_ref_chr;
-            size_t parent_block_anchors_count;
-
-            SegmentDebugInfo(const SegPtr &seg) {
-                if (!seg) return;
-                start = seg->start;
-                length = seg->length;
-                strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
-                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
-                                   ? "SEGMENT"
-                                   : (seg->seg_role == SegmentRole::HEAD)
-                                         ? "HEAD"
-                                         : "TAIL";
-                align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
-                cigar_size = seg->cigar.size();
-
-                if (seg->parent_block) {
-                    parent_block_ref_chr = seg->parent_block->ref_chr;
-                    parent_block_anchors_count = seg->parent_block->anchors.size();
-                } else {
-                    parent_block_ref_chr = "null";
-                    parent_block_anchors_count = 0;
-                }
-            }
-        };
-
-        struct ChromosomeDebugInfo {
-            std::string chr_name;
-            std::vector<SegmentDebugInfo> segments;
-
-            ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
-            }
-        };
-
-        struct SpeciesDebugInfo {
-            std::string species_name;
-            std::vector<ChromosomeDebugInfo> chromosomes;
-
-            SpeciesDebugInfo(const std::string &name) : species_name(name) {
-            }
-        };
-
-        std::vector<SpeciesDebugInfo> debug_all_species_segments;
-        debug_all_species_segments.reserve(species_graphs.size());
-
-        // 收集所有物种的segment详细信息
-        for (const auto &[species_name, genome_graph]: species_graphs) {
-            SpeciesDebugInfo species_info(species_name);
-            std::shared_lock genome_lock(genome_graph.rw);
-
-            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
-                ChromosomeDebugInfo chr_info(chr_name);
-                std::shared_lock end_lock(genome_end.rw);
-
-                // 遍历该染色体的所有segments
-                SegPtr current = genome_end.head;
-                while (current && current != genome_end.tail) {
-                    if (current->isSegment()) {
-                        chr_info.segments.emplace_back(current);
-                    }
-                    current = current->primary_path.next.load(std::memory_order_acquire);
-                }
-
-                species_info.chromosomes.push_back(std::move(chr_info));
-            }
-
-            debug_all_species_segments.push_back(std::move(species_info));
-        }
+        // // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
+        // struct SegmentDebugInfo {
+        //     uint_t start;
+        //     uint_t length;
+        //     std::string strand_str;
+        //     std::string seg_role_str;
+        //     std::string align_role_str;
+        //     size_t cigar_size;
+        //     std::string parent_block_ref_chr;
+        //     size_t parent_block_anchors_count;
+        //
+        //     SegmentDebugInfo(const SegPtr &seg) {
+        //         if (!seg) return;
+        //         start = seg->start;
+        //         length = seg->length;
+        //         strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
+        //         seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
+        //                            ? "SEGMENT"
+        //                            : (seg->seg_role == SegmentRole::HEAD)
+        //                                  ? "HEAD"
+        //                                  : "TAIL";
+        //         align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
+        //         cigar_size = seg->cigar.size();
+        //
+        //         if (seg->parent_block) {
+        //             parent_block_ref_chr = seg->parent_block->ref_chr;
+        //             parent_block_anchors_count = seg->parent_block->anchors.size();
+        //         } else {
+        //             parent_block_ref_chr = "null";
+        //             parent_block_anchors_count = 0;
+        //         }
+        //     }
+        // };
+        //
+        // struct ChromosomeDebugInfo {
+        //     std::string chr_name;
+        //     std::vector<SegmentDebugInfo> segments;
+        //
+        //     ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
+        //     }
+        // };
+        //
+        // struct SpeciesDebugInfo {
+        //     std::string species_name;
+        //     std::vector<ChromosomeDebugInfo> chromosomes;
+        //
+        //     SpeciesDebugInfo(const std::string &name) : species_name(name) {
+        //     }
+        // };
+        //
+        // std::vector<SpeciesDebugInfo> debug_all_species_segments;
+        // debug_all_species_segments.reserve(species_graphs.size());
+        //
+        // // 收集所有物种的segment详细信息
+        // for (const auto &[species_name, genome_graph]: species_graphs) {
+        //     SpeciesDebugInfo species_info(species_name);
+        //     std::shared_lock genome_lock(genome_graph.rw);
+        //
+        //     for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+        //         ChromosomeDebugInfo chr_info(chr_name);
+        //         std::shared_lock end_lock(genome_end.rw);
+        //
+        //         // 遍历该染色体的所有segments
+        //         SegPtr current = genome_end.head;
+        //         while (current && current != genome_end.tail) {
+        //             if (current->isSegment()) {
+        //                 chr_info.segments.emplace_back(current);
+        //             }
+        //             current = current->primary_path.next.load(std::memory_order_acquire);
+        //         }
+        //
+        //         species_info.chromosomes.push_back(std::move(chr_info));
+        //     }
+        //
+        //     debug_all_species_segments.push_back(std::move(species_info));
+        // }
 
 
         auto ref_it = species_graphs.find(ref_name);
@@ -2102,47 +2101,47 @@ namespace RaMesh {
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
 
 
-                                // 收集所有物种的segment详细信息
-                                debug_all_species_segments.clear();
-                                for (const auto& [species_name, genome_graph] : species_graphs) {
-                                    SpeciesDebugInfo species_info(species_name);
-                                    std::shared_lock genome_lock(genome_graph.rw);
-
-                                    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                                        ChromosomeDebugInfo chr_info(chr_name);
-                                        std::shared_lock end_lock(genome_end.rw);
-
-                                        // 遍历该染色体的所有segments
-                                        SegPtr current = genome_end.head;
-                                        current = current->primary_path.next.load(std::memory_order_acquire);
-                                        while (current && current != genome_end.tail) {
-                                            if (current->isSegment()) {
-                                                chr_info.segments.emplace_back(current);
-                                            }
-                                            // 检查链表结构是否正确
-                                            if (current->isHead()) {
-                                                current = current->primary_path.next.load(std::memory_order_acquire);
-                                                continue;
-                                            }
-                                            SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
-                                            if(prev && prev->isHead())
-                                            {
-                                                current = current->primary_path.next.load(std::memory_order_acquire);
-                                                continue;
-                                            }
-                                            if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
-                                                std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
-                                            }
-                                            current = current->primary_path.next.load(std::memory_order_acquire);
-                                        }
-
-                                        species_info.chromosomes.push_back(std::move(chr_info));
-                                    }
-
-                                    debug_all_species_segments.push_back(std::move(species_info));
-                                }
-
-count++;
+//                                 // 收集所有物种的segment详细信息
+//                                 debug_all_species_segments.clear();
+//                                 for (const auto& [species_name, genome_graph] : species_graphs) {
+//                                     SpeciesDebugInfo species_info(species_name);
+//                                     std::shared_lock genome_lock(genome_graph.rw);
+//
+//                                     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+//                                         ChromosomeDebugInfo chr_info(chr_name);
+//                                         std::shared_lock end_lock(genome_end.rw);
+//
+//                                         // 遍历该染色体的所有segments
+//                                         SegPtr current = genome_end.head;
+//                                         current = current->primary_path.next.load(std::memory_order_acquire);
+//                                         while (current && current != genome_end.tail) {
+//                                             if (current->isSegment()) {
+//                                                 chr_info.segments.emplace_back(current);
+//                                             }
+//                                             // 检查链表结构是否正确
+//                                             if (current->isHead()) {
+//                                                 current = current->primary_path.next.load(std::memory_order_acquire);
+//                                                 continue;
+//                                             }
+//                                             SegPtr prev = current->primary_path.prev.load(std::memory_order_acquire);
+//                                             if(prev && prev->isHead())
+//                                             {
+//                                                 current = current->primary_path.next.load(std::memory_order_acquire);
+//                                                 continue;
+//                                             }
+//                                             if (prev && prev->primary_path.next.load(std::memory_order_acquire) != current) {
+//                                                 std::cerr << "[链表错误] prev->next != current, current start: " << current->start << std::endl;
+//                                             }
+//                                             current = current->primary_path.next.load(std::memory_order_acquire);
+//                                         }
+//
+//                                         species_info.chromosomes.push_back(std::move(chr_info));
+//                                     }
+//
+//                                     debug_all_species_segments.push_back(std::move(species_info));
+//                                 }
+//
+// count++;
                                 // std::cout<<count<<std::endl;
                                 continue;
                             }
