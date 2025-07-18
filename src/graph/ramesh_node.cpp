@@ -223,7 +223,7 @@ namespace RaMesh {
     }
 
     void GenomeEnd::setToSampling(SegPtr cur) {
-        std::unique_lock lk(rw);
+        // std::unique_lock lk(rw);
         std::size_t need = cur->start / kSampleStep;
         if (need == 0) {
             return;
@@ -531,9 +531,6 @@ namespace RaMesh {
             /* -------- 检测交叠 -------- */
             if (prev_end > cur_start)
             {
-                if (cur->start == 4786915) {
-                    std::cout << "";
-                }
                 if (!if_ref || (if_ref && (prev->cigar.size() > 0 || cur->cigar.size() > 0))) {
                     /* 选出要删除的较短段 */
                     SegPtr victim = (prev->length <= cur->length) ? prev : cur;
@@ -547,10 +544,12 @@ namespace RaMesh {
 
                     cur = keeper->primary_path.next.load(std::memory_order_acquire);
                     prev = keeper;                // 继续比较 keeper 与新 cur
+
+                    setToSampling(keeper);
                     continue;                           // 重新比较 keeper 与新 cur
                 }
             }
-
+            setToSampling(cur);
             /* -------- 无交叠，正常前进 -------- */
             prev = cur;
             cur = cur->primary_path.next.load(std::memory_order_acquire);
