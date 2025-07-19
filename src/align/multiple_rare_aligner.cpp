@@ -534,8 +534,8 @@ starAlignment(
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
-                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {}",
-                                        ref_name, ref_seq, query_seq);
+                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+                                        ref_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
                                 }
                                 else {
                                     std::cout << "";
@@ -553,8 +553,8 @@ starAlignment(
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
-                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {}",
-                                        ref_name, ref_seq, query_seq);
+                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+                                        ref_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
                                 }
                                 else {
                                     std::cout << "";
@@ -595,7 +595,7 @@ starAlignment(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
-        //multi_graph->verifyGraphCorrectness(true);
+        // multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
@@ -604,7 +604,7 @@ starAlignment(
         multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
-       // multi_graph->verifyGraphCorrectness(true);
+        // multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("merge multiple genome graphs for {} done", ref_name);
 
