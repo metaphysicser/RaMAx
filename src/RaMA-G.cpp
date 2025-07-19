@@ -774,7 +774,7 @@ int main(int argc, char **argv) {
         SequenceUtils::buildRefGlobalCache(seqpro_managers["reference"], sampling_interval, ref_global_cache);
 
         MatchVec3DPtr anchors = pra.alignPairGenome(
-            "query", *seqpro_managers["query"], common_args.search_mode, common_args.allow_MEM, ref_global_cache, sampling_interval);
+            "query", *seqpro_managers["query"], common_args.search_mode, common_args.allow_MEM,true, ref_global_cache, sampling_interval);
         auto t_end_align = std::chrono::steady_clock::now();
         std::chrono::duration<double> align_time = t_end_align - t_start_align;
         spdlog::info("Query aligned in {:.3f} seconds.", align_time.count());
