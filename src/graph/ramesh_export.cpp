@@ -23,22 +23,35 @@ namespace RaMesh {
 
         /* ---- 序列提取工具 ---- */
 /* ---- 统一使用“原始管理器”取子串 ---- */
+        //auto fetchSeq = [&](const SeqPro::ManagerVariant& mv,
+        //    const ChrName& chr, uint64_t b, uint64_t l) -> std::string
+        //    {
+        //        return std::visit([&](auto& up) -> std::string {
+        //            using PtrT = std::decay_t<decltype(up)>;
+
+        //            if constexpr (std::is_same_v<PtrT,
+        //                std::unique_ptr<SeqPro::SequenceManager>>) {
+        //                /* 直接 SequenceManager */
+        //                return up->getSubSequence(chr, b, l);
+
+        //            }
+        //            else { // → MaskedSequenceManager
+        //            //    /* 回退到底层原始管理器 */
+        //            return up->getOriginalManager()
+        //                    .getSubSequence(chr, b, l);
+        //            }
+        //            }, mv);
+        //    };
+
         auto fetchSeq = [&](const SeqPro::ManagerVariant& mv,
-            const ChrName& chr, uint64_t b, uint64_t l) -> std::string
-            {
-                return std::visit([&](auto& up) -> std::string {
-                    using PtrT = std::decay_t<decltype(up)>;
-
-                    if constexpr (std::is_same_v<PtrT,
-                        std::unique_ptr<SeqPro::SequenceManager>>) {
-                        /* 直接 SequenceManager */
-                        return up->getSubSequence(chr, b, l);
-
+            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+                return std::visit([&](auto& p) {
+                    using T = std::decay_t<decltype(p)>;
+                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                        return p->getSubSequence(chr, b, l);
                     }
-                    else { // → MaskedSequenceManager
-                    //    /* 回退到底层原始管理器 */
-                    return up->getOriginalManager()
-                            .getSubSequence(chr, b, l);
+                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                        return p->getOriginalManager().getSubSequence(chr, b, l);
                     }
                     }, mv);
             };
