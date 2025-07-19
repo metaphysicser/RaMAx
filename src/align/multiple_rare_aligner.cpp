@@ -530,15 +530,15 @@ starAlignment(
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
   
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-								std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+								//std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
                                 auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
 								m.ref_region.start = fallback_local_pos;
-                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
                                     spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-                                        ref_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
+                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
                                 }
                                 else {
                                     std::cout << "";
@@ -547,17 +547,17 @@ starAlignment(
                             else {
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
                                 auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
                                 m.ref_region.start = fallback_local_pos;
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-                                // std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
                                     spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-                                        ref_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
+                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
                                 }
                                 else {
                                     std::cout << "";

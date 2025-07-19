@@ -1167,8 +1167,9 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
       Position local_pos_with_separators = global_pos_with_separators - current_global_pos;
 
       // 需要将包含间隔符的本地位置转换为不含间隔符的遮蔽位置
-      Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
+      //Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
       Position local_original_pos = toOriginalPositionSeparated(seq_id, local_pos_with_separators);
+      local_original_pos -= seq_id;
       return {seq_name, local_original_pos};
     }
 
