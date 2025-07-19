@@ -185,7 +185,7 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 
 
   // 返回时减去前面遮蔽区间的数量
-  return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
+  return origin_pos - accumulated_unmasked + last_unmasked_interval_end + seq_id;
 }
 
 
@@ -271,8 +271,6 @@ Length MaskManager::getSeparatorCount(SequenceId seq_id) const {
 
   const auto &intervals = it->second;
   // 间隔符数量等于有效区间数量
-  // 如果有n个遮蔽区间，则有n+1个有效区间，每个有效区间后面有1个间隔符
-  // 因此总共有n+1个间隔符
   if (intervals.empty()) {
     return 0; // 没有遮蔽区间时，整个序列是一个有效区间，有0个间隔符
   }
@@ -1149,7 +1147,9 @@ Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_
 
 std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
   ensureCacheValid();
-
+  if (global_pos_with_separators == 199534) {
+    std::cout<<"test";
+  }
   // 构建包含间隔符的全局坐标映射
   Position current_global_pos = 0;
   auto seq_names = getSequenceNames();
@@ -1165,8 +1165,8 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
 
       // 需要将包含间隔符的本地位置转换为不含间隔符的遮蔽位置
       Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
-
-      return {seq_name, local_masked_pos};
+      Position local_original_pos = toOriginalPositionSeparated(seq_id, local_pos_with_separators);
+      return {seq_name, local_original_pos};
     }
 
     current_global_pos += seq_length_with_separators;
@@ -1287,6 +1287,8 @@ Length MaskedSequenceManager::getTotalSeparatorCount() const {
   for (const auto& seq_name : seq_names) {
     total += getSeparatorCount(seq_name);
   }
+  // 每个染色体之间有1个间隔符
+  total += getSequenceCount() - 1;
   return total;
 }
 
