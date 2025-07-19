@@ -178,7 +178,7 @@ add_executable(RaMAx ${MAIN_X} ${RAMA_COMMON_SOURCES})
 configure_rama_target(RaMAx)
 
 # 如需确保先有 HAL 工具，再编你的程序：
-add_dependencies(RaMA-G hal_tools)
+# add_dependencies(RaMA-G hal_tools)
 add_dependencies(RaMAx  hal_tools)
 
 # ================= 安装规则（可选） =================
