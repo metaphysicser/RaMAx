@@ -283,6 +283,7 @@ namespace RaMesh {
         r_seg->start = ref_beg;
         q_seg->start = qry_beg;
 
+
         ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
         qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
     }
@@ -323,10 +324,11 @@ namespace RaMesh {
     /* ==============================================================
      * 5.  Graph Correctness Verification (comprehensive check)
      * ==============================================================*/
-    bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(bool verbose) const {
+    bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(bool verbose, bool show_detailed_segments) const {
         // 使用默认选项调用增强版本
         VerificationOptions options;
         options.verbose = verbose;
+        options.show_detailed_segments = show_detailed_segments;
         options.max_errors_per_type = 100000;      // 完整统计所有错误
         options.max_total_errors = 500000;         // 完整统计所有错误
         options.max_verbose_errors_per_type = 5;   // 每种类型只显示前5条详细信息
@@ -531,8 +533,8 @@ namespace RaMesh {
                     addVerificationError(result, options, VerificationType::POINTER_VALIDITY, ErrorSeverity::CRITICAL,
                                        species_name, chr_name, 0, 0,
                                        "Head or tail pointer is null",
-                                       "head=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.head)) +
-                                       ", tail=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.tail)));
+                                       "head=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.head.get())) +
+                                       ", tail=" + std::to_string(reinterpret_cast<uintptr_t>(genome_end.tail.get())));
                     continue;
                 }
 
@@ -608,8 +610,8 @@ namespace RaMesh {
                         addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
                                            species_name, chr_name, segment_count, current->start,
                                            "Inconsistent prev pointer in doubly linked list",
-                                           "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev)) +
-                                           ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr)));
+                                           "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev.get())) +
+                                           ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr.get())));
                     }
 
                     // 防止死循环
@@ -742,7 +744,7 @@ namespace RaMesh {
                         // 检查segment链表的顺序（start是否递增）
                         if (prev_segment) {
                             // 调试输出：显示当前比较的两个segments
-                            if (options.verbose && segment_count <= 10) {
+                            if (options.show_detailed_segments && segment_count <= 10) {
                                 spdlog::debug("    Comparing segment#{} (start={}) with prev segment (start={})",
                                            segment_count, current->start, prev_segment->start);
                             }
@@ -794,8 +796,8 @@ namespace RaMesh {
                     spdlog::debug("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
                                chr_name, segment_count, ordering_violations, large_gaps);
 
-                    // 输出前10个和后10个segments的start值用于调试
-                    if (debug_segments.size() > 20) {
+                    // 输出前10个和后10个segments的start值用于调试（仅在启用详细段信息时）
+                    if (options.show_detailed_segments && debug_segments.size() > 20) {
                         spdlog::debug("    First 10 segments start values:");
                         for (size_t i = 0; i < std::min(size_t(10), debug_segments.size()); ++i) {
                             spdlog::debug("      Segment#{}: start={}", debug_segments[i].first, debug_segments[i].second);
@@ -1762,6 +1764,9 @@ namespace RaMesh {
                                             overlap_ref_seg, std::memory_order_release);
                                     } else if (suffix_ref_seg->start > suffix_next->start) {
                                         while (suffix_ref_seg->start > suffix_next->start) {
+                                            if(suffix_next->isTail()) {
+                                                break;
+                                            }
                                             suffix_next = suffix_next->primary_path.next.
                                                     load(std::memory_order_release);
                                         }

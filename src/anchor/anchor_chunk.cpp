@@ -110,7 +110,7 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
         if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
             return manager_ptr->getTotalLength();
         } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-            return manager_ptr->getTotalLength();
+            return manager_ptr->getTotalLengthWithSeparators();
         } else {
             throw std::runtime_error("Unhandled manager type in variant.");
         }
@@ -136,7 +136,7 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
             if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
                 return manager_ptr->getSequenceLength(seq_name);
             } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                return manager_ptr->getSequenceLength(seq_name);
+                return manager_ptr->getSequenceLengthWithSeparators(seq_name);
             } else {
                 throw std::runtime_error("Unhandled manager type in variant.");
             }
@@ -147,15 +147,15 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
             std::visit([&](auto&& manager_ptr) {
                 using PtrType = std::decay_t<decltype(manager_ptr)>;
                 if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    splitByMaskedRegions(chunks, seq_name, seq_length, *manager_ptr, chunk_size, overlap_size);
+                    splitByMaskedRegions(chunks, seq_name, seq_length, *manager_ptr, chunk_size, overlap_size, seq_manager);
                 } else {
                     // 对于非MaskedSequenceManager，使用常规分割
-                    normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, min_chunk_size);
+                    normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, min_chunk_size, seq_manager);
                 }
             }, seq_manager);
         } else {
             // 常规分割逻辑
-            normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, min_chunk_size);
+            normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, min_chunk_size, seq_manager);
         }
     }
     
@@ -167,7 +167,7 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
 // 辅助函数：常规的基于大小的分块
 void normalSizeBasedChunking(RegionVec& chunks, const std::string& seq_name, 
                            uint64_t seq_length, uint_t chunk_size, 
-                           uint_t overlap_size, uint_t min_chunk_size) {
+                           uint_t overlap_size, uint_t min_chunk_size, const SeqPro::ManagerVariant& seq_manager) {
     // 如果序列长度小于等于chunk_size或min_chunk_size，则只生成一个不重叠chunk
     if (seq_length <= chunk_size || seq_length <= min_chunk_size) {
         chunks.push_back({seq_name, 0, static_cast<uint_t>(seq_length)});
@@ -195,14 +195,14 @@ void normalSizeBasedChunking(RegionVec& chunks, const std::string& seq_name,
 void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name, 
                         uint64_t seq_length, 
                         const SeqPro::MaskedSequenceManager& masked_manager,
-                        uint_t chunk_size, uint_t overlap_size) {
+                        uint_t chunk_size, uint_t overlap_size, const SeqPro::ManagerVariant& seq_manager) {
     try {
         // 获取该序列的遮蔽区间
         auto masked_intervals = masked_manager.getMaskIntervals(seq_name);
         
         if (masked_intervals.empty()) {
             spdlog::debug("No masked intervals for sequence {}, using normal chunking", seq_name);
-            normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0);
+            normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0, seq_manager);
             return;
         }
         
@@ -232,7 +232,7 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
             
             // 处理遮蔽区间前的非遮蔽区域
             if (unmasked_start < unmasked_end) {
-                chunkUnmaskedRegion(chunks, seq_name, unmasked_start, unmasked_end, chunk_size, overlap_size);
+                chunkUnmaskedRegion(chunks, seq_name, unmasked_start, unmasked_end, chunk_size, overlap_size, seq_manager);
             }
             
             // 跳过遮蔽区间
@@ -241,7 +241,7 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
         
         // 处理最后一个遮蔽区间之后的非遮蔽区域
         if (current_pos < seq_length) {
-            chunkUnmaskedRegion(chunks, seq_name, current_pos, seq_length, chunk_size, overlap_size);
+            chunkUnmaskedRegion(chunks, seq_name, current_pos, seq_length, chunk_size, overlap_size, seq_manager);
         }
         
         spdlog::debug("Generated {} chunks for sequence {} with masked region pre-splitting", 
@@ -250,14 +250,14 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
     } catch (const std::exception& e) {
         spdlog::warn("Failed to get masked intervals for sequence {}: {}, using normal chunking", 
                     seq_name, e.what());
-        normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0);
+        normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0, seq_manager);
     }
 }
 
 // 辅助函数：对非遮蔽区域进行分块
 void chunkUnmaskedRegion(RegionVec& chunks, const std::string& seq_name,
                        uint64_t region_start, uint64_t region_end,
-                       uint_t chunk_size, uint_t overlap_size) {
+                       uint_t chunk_size, uint_t overlap_size, const SeqPro::ManagerVariant& seq_manager) {
     uint64_t region_length = region_end - region_start;
     
     // 如果区域太小，直接作为一个chunk

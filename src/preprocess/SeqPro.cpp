@@ -156,7 +156,9 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
   }
   // TODO 性能可以优化
   // TODO 考虑intetval首个不是0的情况
+
   const auto &intervals = it->second;
+
   Position origin_pos = masked_pos;
   
   Position accumulated_unmasked = 0;
@@ -183,7 +185,7 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 
 
   // 返回时减去前面遮蔽区间的数量
-  return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
+  return origin_pos - accumulated_unmasked + last_unmasked_interval_end + seq_id;
 }
 
 
@@ -259,6 +261,47 @@ Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
     total += interval.length();
   }
   return total;
+}
+
+  Length MaskManager::getSeparatorCount(SequenceId seq_id, Length original_length) const {
+  // 如果序列本身没有长度，则不可能有任何区间或间隔符。
+  if (original_length == 0) {
+    return 0;
+  }
+
+  auto it = mask_intervals_.find(seq_id);
+
+  // 如果没有遮蔽区间，则整个序列是一个大的有效区间。
+  // 一个有效区间对应一个间隔符。
+  if (it == mask_intervals_.end() || it->second.empty()) {
+    return 1;
+  }
+
+  const auto &intervals = it->second;
+  Length separator_count = 0;
+  Position current_pos = 0; // 从序列的起始位置开始
+  const Position end = original_length; // 序列的结束位置
+
+  // 遍历所有已排序并合并的遮蔽区间
+  for (const auto &interval : intervals) {
+    // 如果当前位置和下一个遮蔽区间的起点之间存在间隙，
+    // 这就是一个有效区间，需要计入一个间隔符。
+    if (current_pos < interval.start) {
+      separator_count++;
+    }
+
+    // 将当前位置“跳”到遮蔽区间的末尾之后，
+    // 以便寻找下一个有效区间。
+    current_pos = std::max(current_pos, interval.end);
+  }
+
+  // 循环结束后，如果当前位置还未到达序列末尾，
+  // 说明最后一个遮蔽区间到序列末尾之间还有一个有效区间。
+  if (current_pos < end) {
+    separator_count++;
+  }
+
+  return separator_count;
 }
 
 SequenceId MaskManager::getOrCreateSequenceId(const std::string &seq_name) {
@@ -1003,6 +1046,24 @@ Length MaskedSequenceManager::getTotalLength() const {
   return total_masked_length_;
 }
 
+Length MaskedSequenceManager::getTotalLengthWithSeparators() const {
+  // 总长度 = 遮蔽后的序列长度 + 间隔符数量 + 序列数量 - 1 （因为拼接时还加了间隔符）
+  return getTotalLength() + getTotalSeparatorCount() + getSequenceCount() - 1;
+}
+
+Length MaskedSequenceManager::getSequenceLengthWithSeparators(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getSequenceLengthWithSeparators(seq_id);
+}
+
+Length MaskedSequenceManager::getSequenceLengthWithSeparators(SequenceId seq_id) const {
+  // 序列长度 = 遮蔽后的序列长度 + 该序列的间隔符数量
+  return getSequenceLength(seq_id) + getSeparatorCount(seq_id);
+}
+
 bool MaskedSequenceManager::isValidPosition(const std::string &seq_name, Position pos, Length len) const {
   SequenceId seq_id = getSequenceId(seq_name);
   if (seq_id == SequenceIndex::INVALID_ID) {
@@ -1097,16 +1158,99 @@ Position MaskedSequenceManager::localToGlobal(const std::string& seq_name, Posit
 
 Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_masked_pos) const {
   ensureCacheValid();
-  
+
   if (!isValidPosition(seq_id, local_masked_pos)) {
     throw SequenceException("Local masked position out of bounds");
   }
-  
+
   auto it = global_offset_cache_.find(seq_id);
   if (it != global_offset_cache_.end()) {
     return it->second + local_masked_pos;
   }
-  
+
+  throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+}
+
+std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
+  ensureCacheValid();
+  if (global_pos_with_separators == 199534) {
+    std::cout<<"test";
+  }
+  // 构建包含间隔符的全局坐标映射
+  Position current_global_pos = 0;
+  auto seq_names = getSequenceNames();
+
+  for (const auto& seq_name : seq_names) {
+    SequenceId seq_id = getSequenceId(seq_name);
+    Length seq_length_with_separators = getSequenceLengthWithSeparators(seq_id);
+
+    if (global_pos_with_separators >= current_global_pos &&
+        global_pos_with_separators < current_global_pos + seq_length_with_separators) {
+      // 位置在当前序列范围内
+      Position local_pos_with_separators = global_pos_with_separators - current_global_pos;
+
+      // 需要将包含间隔符的本地位置转换为不含间隔符的遮蔽位置
+      //Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
+      Position local_original_pos = toOriginalPositionSeparated(seq_id, local_pos_with_separators);
+      local_original_pos -= seq_id;
+      return {seq_name, local_original_pos};
+    }
+
+    current_global_pos += seq_length_with_separators;
+
+    // 添加染色体间的间隔符（除了最后一个序列）
+    if (seq_name != seq_names.back()) {
+      if (global_pos_with_separators == current_global_pos) {
+        // 位置正好在染色体间隔符上，返回下一个序列的开始位置
+        auto next_seq_it = std::find(seq_names.begin(), seq_names.end(), seq_name);
+        if (next_seq_it != seq_names.end() && ++next_seq_it != seq_names.end()) {
+          return {*next_seq_it, 0};
+        }
+      }
+      current_global_pos += 1; // 染色体间隔符
+    }
+  }
+
+  return {"", INVALID_POSITION};
+}
+
+Position MaskedSequenceManager::localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    throw SequenceException("Sequence not found: " + seq_name);
+  }
+  return localToGlobalSeparated(seq_id, local_masked_pos);
+}
+
+Position MaskedSequenceManager::localToGlobalSeparated(SequenceId seq_id, Position local_masked_pos) const {
+  ensureCacheValid();
+
+  if (!isValidPosition(seq_id, local_masked_pos)) {
+    throw SequenceException("Local masked position out of bounds");
+  }
+
+  // 计算目标序列之前所有序列的累积长度（包含间隔符）
+  Position global_offset = 0;
+  auto seq_names = getSequenceNames();
+
+  for (const auto& seq_name : seq_names) {
+    SequenceId current_seq_id = getSequenceId(seq_name);
+
+    if (current_seq_id == seq_id) {
+      // 找到目标序列，将本地遮蔽位置转换为包含间隔符的位置
+      Position local_pos_with_separators = convertMaskedToSeparatedPosition(seq_id, local_masked_pos);
+      return global_offset + local_pos_with_separators;
+    }
+
+    // 累加当前序列的长度（包含间隔符）
+    global_offset += getSequenceLengthWithSeparators(current_seq_id);
+
+    // 添加染色体间的间隔符（除了最后一个序列）
+    if (seq_name != seq_names.back()) {
+      global_offset += 1;
+    }
+  }
+
   throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
 }
 
@@ -1149,6 +1293,29 @@ Length MaskedSequenceManager::getTotalMaskedBases() const {
   for (const auto& seq_name : seq_names) {
     total += getMaskedBases(seq_name);
   }
+  return total;
+}
+
+Length MaskedSequenceManager::getSeparatorCount(const std::string &seq_name) const {
+  SequenceId seq_id = getSequenceId(seq_name);
+  if (seq_id == SequenceIndex::INVALID_ID) {
+    return 0;
+  }
+  return getSeparatorCount(seq_id);
+}
+
+Length MaskedSequenceManager::getSeparatorCount(SequenceId seq_id) const {
+  return mask_manager_.getSeparatorCount(seq_id, original_manager_->getSequenceLength(seq_id));
+}
+
+Length MaskedSequenceManager::getTotalSeparatorCount() const {
+  Length total = 0;
+  auto seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    total += getSeparatorCount(seq_name);
+  }
+  // 每个染色体之间有1个间隔符
+  total += getSequenceCount() - 1;
   return total;
 }
 
@@ -1197,26 +1364,26 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   return result;
 }
 
-std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
+  std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
   std::string result;
-  
+
   // 预估大小
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
-    estimated_size += getSequenceLength(seq_name);
-    estimated_size += 1;  
+    estimated_size += getSequenceLengthWithSeparators(seq_name);
+    estimated_size += 1;
   }
   estimated_size += 1;
   result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
-    
-      Length length = getSequenceLength(seq_names[i]);
-      std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
-      result.append(sequence);
-      
-      // result.push_back('\1');
-      
+
+    Length length = getSequenceLength(seq_names[i]);
+    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+    result.append(sequence);
+
+    result.push_back('\1');
+
   }
   result.push_back('\0');
 
@@ -1304,14 +1471,14 @@ size_t MaskedSequenceManager::getSequenceCount() const {
 void MaskedSequenceManager::buildGlobalOffsetCache() const {
   global_offset_cache_.clear();
   total_masked_length_ = 0;
-  
+
   auto seq_names = getSequenceNames();
   for (const auto& seq_name : seq_names) {
     SequenceId seq_id = getSequenceId(seq_name);
     global_offset_cache_[seq_id] = total_masked_length_;
     total_masked_length_ += getSequenceLength(seq_id);
   }
-  
+
   cache_valid_ = true;
 }
 
@@ -1349,8 +1516,11 @@ void MaskedSequenceManager::addMaskIntervals(SequenceId seq_id,
   original_intervals.reserve(intervals.size());
   
   for (const auto& interval : intervals) {
-    MaskInterval original_interval = convertMaskedToOriginalInterval(seq_id, interval);
-    original_intervals.push_back(original_interval);
+    // MaskInterval original_interval = convertMaskedToOriginalInterval(seq_id, interval);
+    //if (original_interval.start > 1000000) {
+    //    std::cout << "";
+    //}
+    original_intervals.push_back(interval);
   }
   
   // 使用 MaskManager 的公共接口添加
@@ -1445,20 +1615,93 @@ void MaskedSequenceManager::ensureCacheValid() const {
 
 const SequenceInfo* MaskedSequenceManager::getSequenceInfoByMaskedGlobalPosition(Position global_masked_pos) const {
   ensureCacheValid();
-  
+
   // 查找包含该全局遮蔽位置的序列
   const SequenceInfo* found_info = nullptr;
-  
+
   for (const auto& [seq_id, global_offset] : global_offset_cache_) {
     Length masked_length = getSequenceLength(seq_id);
-    if (global_masked_pos >= global_offset && 
+    if (global_masked_pos >= global_offset &&
         global_masked_pos < global_offset + masked_length) {
       found_info = original_manager_->getIndex().getSequenceInfo(seq_id);
       break;
     }
   }
-  
+
   return found_info;
+}
+
+Position MaskedSequenceManager::convertSeparatedToMaskedPosition(SequenceId seq_id, Position separated_pos) const {
+  // 获取该序列的遮蔽区间
+  const auto& mask_intervals = getMaskIntervals(seq_id);
+
+  if (mask_intervals.empty()) {
+    // 没有遮蔽区间，直接返回
+    return separated_pos;
+  }
+
+  Position masked_pos = separated_pos;
+  Position separator_count_before = 0;
+
+  // 遍历遮蔽区间，计算在当前位置之前有多少个间隔符需要减去
+  for (const auto& interval : mask_intervals) {
+    // 将原始坐标的遮蔽区间转换为遮蔽坐标系统中的位置
+    Position masked_interval_start = toMaskedPosition(seq_id, interval.start);
+
+    if (masked_interval_start == INVALID_POSITION) {
+      // 如果区间开始位置无效，跳过
+      continue;
+    }
+
+    // 计算在包含间隔符的坐标系统中，这个遮蔽区间的间隔符位置
+    Position interval_separator_pos = masked_interval_start + separator_count_before;
+
+    if (separated_pos > interval_separator_pos) {
+      // 当前位置在这个遮蔽区间的间隔符之后，需要减去1个间隔符
+      separator_count_before += 1;
+    } else {
+      // 当前位置在这个遮蔽区间之前，不需要继续计算
+      break;
+    }
+  }
+
+  // 减去间隔符的数量得到遮蔽位置
+  return separated_pos - separator_count_before;
+}
+
+Position MaskedSequenceManager::convertMaskedToSeparatedPosition(SequenceId seq_id, Position masked_pos) const {
+  // 获取该序列的遮蔽区间
+  const auto& mask_intervals = getMaskIntervals(seq_id);
+
+  if (mask_intervals.empty()) {
+    // 没有遮蔽区间，直接返回
+    return masked_pos;
+  }
+
+  Position separated_pos = masked_pos;
+  Position separator_count_before = 0;
+
+  // 遍历遮蔽区间，计算在当前位置之前有多少个间隔符需要加上
+  for (const auto& interval : mask_intervals) {
+    // 将原始坐标的遮蔽区间转换为遮蔽坐标系统中的位置
+    Position masked_interval_start = toMaskedPosition(seq_id, interval.start);
+
+    if (masked_interval_start == INVALID_POSITION) {
+      // 如果区间开始位置无效，跳过
+      continue;
+    }
+
+    if (masked_pos >= masked_interval_start) {
+      // 当前位置在这个遮蔽区间之后或之上，需要加上1个间隔符
+      separator_count_before += 1;
+    } else {
+      // 当前位置在这个遮蔽区间之前，不需要继续计算
+      break;
+    }
+  }
+
+  // 加上间隔符的数量得到包含间隔符的位置
+  return masked_pos + separator_count_before;
 }
 
 // ========================

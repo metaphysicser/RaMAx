@@ -30,13 +30,14 @@ MatchVec3DPtr PairRareAligner::alignPairGenome(
 	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
 	bool allow_MEM,
+	bool allow_short_mum,
 	sdsl::int_vector<0>& ref_global_cache,
 	SeqPro::Length sampling_interval) {
 
 	ThreadPool shared_pool(thread_num);
 
 	MatchVec3DPtr anchors = findQueryFileAnchor(
-		query_name, query_fasta_manager, search_mode, allow_MEM, shared_pool, ref_global_cache, sampling_interval);
+		query_name, query_fasta_manager, search_mode, allow_MEM, allow_short_mum, shared_pool, ref_global_cache, sampling_interval);
 
 	return anchors;
 
@@ -93,6 +94,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	SeqPro::ManagerVariant& query_fasta_manager,
 	SearchMode         search_mode,
 	bool allow_MEM,
+	bool allow_short_mum,
 	ThreadPool& pool,
 	sdsl::int_vector<0>& ref_global_cache,
 	SeqPro::Length sampling_interval,
@@ -115,7 +117,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		loadMatchVec3D(anchor_file, result);
 		return result;
 	}
-
+	// TODO 对于二轮之后，低于20的chunk可以不用输入
 	/* ---------- 读取 FASTA 并分片 ---------- */
 	// 修改：使用新的预分割逻辑，支持多基因组模式
 	RegionVec chunks;
@@ -127,7 +129,6 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size, 1000, 10000);
 	}
 	// 智能分块策略：自动根据序列数量和长度选择最优的分块方式
-
 	/* ---------- ① 计时：搜索 Anchor ---------- */
 	auto t_search0 = std::chrono::steady_clock::now();
 
@@ -153,7 +154,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, allow_short_mum, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -174,6 +175,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 							allow_MEM,
 							ck.start,
 							min_anchor_length,
+							allow_short_mum,
 							max_anchor_frequency,
 							ref_global_cache,
 							sampling_interval);
@@ -187,7 +189,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 				}));
 		futures.emplace_back(
 			pool.enqueue(
-				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
+				[this, chunk_group, &query_fasta_manager, search_mode, allow_MEM,allow_short_mum, &ref_global_cache, sampling_interval, isMultiple]() -> MatchVec2DPtr {
 					MatchVec2DPtr group_matches = std::make_shared<MatchVec2D>();
 					for (const auto& ck : chunk_group) {
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
@@ -203,11 +205,12 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr reverse_matches = ref_index->findAnchors(
-							ck.chr_name, seq, MIDDLE_SEARCH,
+							ck.chr_name, seq, FAST_SEARCH,
 							Strand::REVERSE,
 							allow_MEM,
 							ck.start,
 							min_anchor_length,
+							allow_short_mum,
 							max_anchor_frequency,
 							ref_global_cache,
 							sampling_interval);

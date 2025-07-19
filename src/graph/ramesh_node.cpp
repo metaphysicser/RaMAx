@@ -27,7 +27,7 @@ namespace RaMesh {
         // list pointers – initialise nullptr
         s->primary_path.next.store(nullptr, std::memory_order_relaxed);
         s->primary_path.prev.store(nullptr, std::memory_order_relaxed);
-        return s;
+        return std::shared_ptr<Segment>(s);
     }
 
     SegPtr Segment::createFromRegion(Region& region, Strand sd,
@@ -44,7 +44,7 @@ namespace RaMesh {
         h->align_role = AlignRole::PRIMARY;
         h->primary_path.next.store(nullptr, std::memory_order_relaxed);
         h->primary_path.prev.store(nullptr, std::memory_order_relaxed);
-        return h;
+        return std::shared_ptr<Segment>(h);
     }
 
     SegPtr Segment::createTail()
@@ -54,7 +54,7 @@ namespace RaMesh {
         t->align_role = AlignRole::PRIMARY;
         t->primary_path.next.store(nullptr, std::memory_order_relaxed);
         t->primary_path.prev.store(nullptr, std::memory_order_relaxed);
-        return t;
+        return std::shared_ptr<Segment>(t);
     }
 
     //void Segment::linkChain(const std::vector<SegPtr>& segs)
@@ -149,8 +149,6 @@ namespace RaMesh {
             segment->parent_block.reset();
         }
         
-        // 释放内存 - segment是原生指针，需要手动删除
-        delete segment;
     }
     
     void Segment::deleteBatch(const std::vector<SegPtr>& segments) {
@@ -193,23 +191,14 @@ namespace RaMesh {
         for (SegPtr seg : orphaned_segments) {
             unlinkSegment(seg);
         }
-        
-        // 释放内存
-        for (SegPtr seg : segments) {
-            if (seg && !seg->isHead() && !seg->isTail()) {
-                delete seg;
-            }
-        }
     }
 
     /* =============================================================
      * 1. GenomeEnd helpers
      * ===========================================================*/
     GenomeEnd::GenomeEnd() {
-        head_holder.reset(Segment::createHead());
-        tail_holder.reset(Segment::createTail());
-        head = head_holder.get();
-        tail = tail_holder.get();
+        head = Segment::createHead();
+        tail = Segment::createTail();
         head->primary_path.next.store(tail, std::memory_order_relaxed);
         tail->primary_path.prev.store(head, std::memory_order_release);
 
@@ -252,7 +241,7 @@ namespace RaMesh {
         GenomeEnd::findSurrounding(uint_t range_start, uint_t range_end) {
         // 1) 读取采样表得到“最近前驱”的 hint
         std::shared_lock lk(rw);                 // 读锁即可
-        std::size_t slot = range_start / kSampleStep;
+        std::size_t slot = std::max((range_start / kSampleStep) - 1, (uint_t)0);
         SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
             ? sample_vec[slot]
             : head;
@@ -359,7 +348,7 @@ namespace RaMesh {
         prev->primary_path.next.store(first, std::memory_order_relaxed);
         next->primary_path.prev.store(last, std::memory_order_relaxed);
 
-        if (next == tail && next->primary_path.prev != last) {
+        if (next == tail && next->primary_path.prev.load(std::memory_order_acquire) != last) {
             std::cout << "";
         }
 
@@ -376,8 +365,10 @@ namespace RaMesh {
     {
         if (!seg) return;
 
+
         // 1) 找到目标区间的前驱/后继（只读操作）
         auto [prev, next] = findSurrounding(beg, end);
+        // next = prev->primary_path.next.load(std::memory_order_acquire);
 
         seg->primary_path.prev.store(prev, std::memory_order_relaxed);
         seg->primary_path.next.store(next, std::memory_order_relaxed);
@@ -385,11 +376,7 @@ namespace RaMesh {
         prev->primary_path.next.store(seg, std::memory_order_relaxed);
         next->primary_path.prev.store(seg, std::memory_order_relaxed);
 
-        // 3) 修补采样表（仍然复用现有实现）
-        
         setToSampling(seg);
-        
-
     }
 
 
@@ -657,7 +644,6 @@ namespace RaMesh {
         for (SegPtr seg : seg_list) {
             Segment::unlinkSegment(seg);
             seg->parent_block.reset();
-            delete seg;
         }
     }
 
@@ -674,7 +660,6 @@ namespace RaMesh {
                 if (segment) {
                     Segment::unlinkSegment(segment);
                     segment->parent_block.reset();
-                    delete segment;
                 }
             }
         }
@@ -695,7 +680,6 @@ namespace RaMesh {
             if (it->second) {
                 Segment::unlinkSegment(it->second);
                 it->second->parent_block.reset();
-                delete it->second;
             }
             anchors.erase(it);
             return true;

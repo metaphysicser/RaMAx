@@ -29,7 +29,7 @@ namespace RaMesh {
 
     using BlockPtr = std::shared_ptr<Block>;
     using WeakBlock = std::weak_ptr<Block>;
-    using SegPtr = Segment*;
+    using SegPtr = std::shared_ptr<Segment>;
 
     // ────────────────────────────────────────────────
     // Helper types / hashing
@@ -231,7 +231,7 @@ namespace RaMesh {
         void debugPrint(bool show_detail) const;
         
         // 图正确性验证函数
-        bool verifyGraphCorrectness(bool verbose = false) const;
+        bool verifyGraphCorrectness(bool verbose = false, bool show_detailed_segments = false) const;
 
         // ――― Enhanced verification system ―――
         enum class VerificationType : uint32_t {
@@ -277,6 +277,7 @@ namespace RaMesh {
             size_t max_verbose_errors_per_type = 5; // 每种类型只显示前5条详细信息
             bool stop_on_critical = false;
             bool include_performance_checks = false;
+            bool show_detailed_segments = false;   // 是否显示详细的段信息调试日志
 
             VerificationOptions() {
                 // 默认启用所有基本检查

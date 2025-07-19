@@ -137,6 +137,7 @@ public:
                             SearchMode search_mode, Strand strand,
                             bool allow_MEM, uint_t query_offset,
                             uint_t min_anchor_length,
+                            bool allow_short_mum,
                             uint_t max_anchor_frequency,
                             sdsl::int_vector<0>& ref_global_cache,
                             SeqPro::Length sampling_interval);
@@ -144,6 +145,7 @@ public:
   MatchVec2DPtr findAnchorsFast(ChrName query_chr, std::string query,
                                 Strand strand, bool allow_MEM,
                                 uint_t query_offset, uint_t min_anchor_length,
+                                bool allow_short_mum,
                                 uint_t max_anchor_frequency,
                                 sdsl::int_vector<0>& ref_global_cache,
                                 SeqPro::Length sampling_interval);
@@ -152,6 +154,7 @@ public:
                                     Strand strand, bool allow_MEM,
                                     uint_t query_offset,
                                     uint_t min_anchor_length,
+                                    bool allow_short_mum,
                                     uint_t max_anchor_frequency,
                                     sdsl::int_vector<0>& ref_global_cache,
                                     SeqPro::Length sampling_interval);
@@ -159,6 +162,7 @@ public:
   MatchVec2DPtr findAnchorsMiddle(ChrName query_chr, std::string query,
                                   Strand strand, bool allow_MEM,
                                   uint_t query_offset, uint_t min_anchor_length,
+                                  bool allow_short_mum,
                                   uint_t max_anchor_frequency,
                                   sdsl::int_vector<0>& ref_global_cache,
                                   SeqPro::Length sampling_interval);
@@ -174,7 +178,7 @@ public:
 
   void bisectAnchors(const std::string &query, ChrName query_chr, Strand strand,
                      bool allow_MEM, uint_t query_offset, uint_t query_length,
-                     uint_t min_anchor_length, uint_t max_anchor_frequency,
+                     uint_t min_anchor_length, bool allow_short_mum, uint_t max_anchor_frequency,
                      const MUMInfo &left, const MUMInfo &right,
                      MatchVec2D &out,
                      sdsl::int_vector<0>& ref_global_cache,
@@ -194,6 +198,7 @@ public:
   uint_t findSubSeqAnchors(const char *query, uint_t query_length,
                            bool allow_MEM, RegionVec &region_vec,
                            uint_t min_anchor_length,
+                           bool allow_short_mum,
                            uint_t max_anchor_frequency,
                            sdsl::int_vector<0>& ref_global_cache,
                            SeqPro::Length sampling_interval);
@@ -246,7 +251,6 @@ public:
   uint_t sample_rate{32};
   uint_t total_size{0};
   std::array<uint8_t, 256> char2idx{};
-  std::string T;
   // TODO 到时候删除T
   // uint_t kmer_size;
   // KmerTable_t kmer_table_left;

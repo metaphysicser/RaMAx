@@ -183,6 +183,7 @@ public:
   void clear();
   bool hasData() const { return !mask_intervals_.empty(); }
   Length getTotalMaskedBases(SequenceId seq_id) const;
+  Length getSeparatorCount(SequenceId seq_id, Length original_length) const;
   SequenceId getOrCreateSequenceId(const std::string &seq_name);
 
 
@@ -333,6 +334,11 @@ public:
   Length getSequenceLength(SequenceId seq_id) const;
   Length getTotalLength() const;
 
+  // 计算包含间隔符的总长度
+  Length getTotalLengthWithSeparators() const;
+  Length getSequenceLengthWithSeparators(const std::string &seq_name) const;
+  Length getSequenceLengthWithSeparators(SequenceId seq_id) const;
+
   // 位置验证（遮蔽坐标）
   bool isValidPosition(const std::string &seq_name, Position pos, Length len = 1) const;
   bool isValidPosition(SequenceId seq_id, Position pos, Length len = 1) const;
@@ -362,6 +368,11 @@ public:
   Position localToGlobal(const std::string& seq_name, Position local_masked_pos) const;
   Position localToGlobal(SequenceId seq_id, Position local_masked_pos) const;
 
+  // 支持间隔符的全局坐标系统
+  std::pair<std::string, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
+  Position localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const;
+  Position localToGlobalSeparated(SequenceId seq_id, Position local_masked_pos) const;
+
   // === 重复区域信息 ===
 
   bool isMaskPosition(const std::string &seq_name, Position original_pos) const;
@@ -373,6 +384,11 @@ public:
   Length getMaskedBases(const std::string &seq_name) const;
   Length getMaskedBases(SequenceId seq_id) const;
   Length getTotalMaskedBases() const;
+
+  // 计算间隔符数量
+  Length getSeparatorCount(const std::string &seq_name) const;
+  Length getSeparatorCount(SequenceId seq_id) const;
+  Length getTotalSeparatorCount() const;
 
   // === 序列拼接（遮蔽后） ===
 
@@ -446,6 +462,10 @@ private:
   // 坐标转换和定案辅助函数
   MaskInterval convertMaskedToOriginalInterval(SequenceId seq_id, const MaskInterval &masked_interval) const;
   void ensureFinalized(SequenceId seq_id) const;
+
+  // 间隔符相关的坐标转换辅助函数
+  Position convertSeparatedToMaskedPosition(SequenceId seq_id, Position separated_pos) const;
+  Position convertMaskedToSeparatedPosition(SequenceId seq_id, Position masked_pos) const;
 };
 
 
