@@ -274,7 +274,7 @@ Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
   // 如果没有遮蔽区间，则整个序列是一个大的有效区间。
   // 一个有效区间对应一个间隔符。
   if (it == mask_intervals_.end() || it->second.empty()) {
-    return 1;
+    return 0;
   }
 
   const auto &intervals = it->second;
@@ -974,14 +974,10 @@ std::string MaskedSequenceManager::getSubSequenceSeparated(const std::string &se
 }
 
 std::string MaskedSequenceManager::getSubSequenceSeparated(SequenceId seq_id, Position start, Length length, char separator) const {
-  // 验证遮蔽坐标
-  if (!isValidPosition(seq_id, start, length)) {
-    throw SequenceException("Invalid masked position");
-  }
 
   // 转换为原始坐标并获取有效区间
-  Position original_start = toOriginalPosition(seq_id, start);
-  Position original_end = toOriginalPosition(seq_id, start + length - 1);
+  Position original_start = toOriginalPositionSeparated(seq_id, start);
+  Position original_end = toOriginalPositionSeparated(seq_id, start + length - 1);
   
   auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
   
@@ -1378,7 +1374,7 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
 
-    Length length = getSequenceLength(seq_names[i]);
+    Length length = getSequenceLengthWithSeparators(seq_names[i]);
     std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
     result.append(sequence);
 
