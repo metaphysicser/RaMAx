@@ -129,7 +129,6 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		chunks = preAllocateChunks(query_fasta_manager, chunk_size, overlap_size, 1000, 10000);
 	}
 	// 智能分块策略：自动根据序列数量和长度选择最优的分块方式
-
 	/* ---------- ① 计时：搜索 Anchor ---------- */
 	auto t_search0 = std::chrono::steady_clock::now();
 

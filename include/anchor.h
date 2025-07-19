@@ -303,7 +303,7 @@ RegionVec preAllocateChunksBySize(const SeqPro::ManagerVariant& seq_manager,
  */
 void normalSizeBasedChunking(RegionVec& chunks, const std::string& seq_name, 
                            uint64_t seq_length, uint_t chunk_size, 
-                           uint_t overlap_size, uint_t min_chunk_size);
+                           uint_t overlap_size, uint_t min_chunk_size, const SeqPro::ManagerVariant& seq_manager);
 
 /**
  * @brief 基于遮蔽区间的预分割函数
@@ -317,7 +317,7 @@ void normalSizeBasedChunking(RegionVec& chunks, const std::string& seq_name,
 void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name, 
                         uint64_t seq_length, 
                         const SeqPro::MaskedSequenceManager& masked_manager,
-                        uint_t chunk_size, uint_t overlap_size);
+                        uint_t chunk_size, uint_t overlap_size, const SeqPro::ManagerVariant& seq_manager);
 
 /**
  * @brief 对非遮蔽区域进行分块
@@ -330,7 +330,7 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
  */
 void chunkUnmaskedRegion(RegionVec& chunks, const std::string& seq_name,
                        uint64_t region_start, uint64_t region_end,
-                       uint_t chunk_size, uint_t overlap_size);
+                       uint_t chunk_size, uint_t overlap_size, const SeqPro::ManagerVariant& seq_manager);
 
 // ------------------------------------------------------------------
 // Cereal 序列化支持：用于将结构写入文件或从文件读取

@@ -268,6 +268,9 @@ Length MaskManager::getSeparatorCount(SequenceId seq_id) const {
   if (it == mask_intervals_.end()) {
     return 0; // 没有遮蔽区间时，整个序列是一个有效区间，有0个间隔符
   }
+  else if (it->second[0].start == 0 ) {
+
+  }
 
   const auto &intervals = it->second;
   // 间隔符数量等于有效区间数量
@@ -1337,26 +1340,26 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   return result;
 }
 
-std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
+  std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
   std::string result;
-  
+
   // 预估大小
   size_t estimated_size = 0;
   for (const auto& seq_name : seq_names) {
-    estimated_size += getSequenceLength(seq_name);
-    estimated_size += 1;  
+    estimated_size += getSequenceLengthWithSeparators(seq_name);
+    estimated_size += 1;
   }
   estimated_size += 1;
   result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
-    
-      Length length = getSequenceLength(seq_names[i]);
-      std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
-      result.append(sequence);
-      
-      // result.push_back('\1');
-      
+
+    Length length = getSequenceLength(seq_names[i]);
+    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+    result.append(sequence);
+
+    result.push_back('\1');
+
   }
   result.push_back('\0');
 
