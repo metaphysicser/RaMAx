@@ -183,7 +183,7 @@ public:
   void clear();
   bool hasData() const { return !mask_intervals_.empty(); }
   Length getTotalMaskedBases(SequenceId seq_id) const;
-  Length getSeparatorCount(SequenceId seq_id) const;
+  Length getSeparatorCount(SequenceId seq_id, Length original_length) const;
   SequenceId getOrCreateSequenceId(const std::string &seq_name);
 
 

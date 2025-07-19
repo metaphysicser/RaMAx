@@ -585,15 +585,6 @@ starAlignment(
         //constructMultipleGraphsByGreedy(
         //   seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
 
-        // for 循环遍历cluster_map，打印是否有值存在
-		for (const auto& [species_name, strand_map] : *cluster_map) {
-			for (const auto& clusters : *strand_map) {
-                if (clusters[1].empty()) {
-                    std::cout << "";
-                }
-			}
-		}
-
         constructMultipleGraphsByGreedyByRef(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
         multi_graph->optimizeGraphStructure();

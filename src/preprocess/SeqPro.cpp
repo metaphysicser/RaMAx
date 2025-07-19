@@ -263,22 +263,45 @@ Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
   return total;
 }
 
-Length MaskManager::getSeparatorCount(SequenceId seq_id) const {
-  auto it = mask_intervals_.find(seq_id);
-  if (it == mask_intervals_.end()) {
-    return 0; // 没有遮蔽区间时，整个序列是一个有效区间，有0个间隔符
+  Length MaskManager::getSeparatorCount(SequenceId seq_id, Length original_length) const {
+  // 如果序列本身没有长度，则不可能有任何区间或间隔符。
+  if (original_length == 0) {
+    return 0;
   }
-  else if (it->second[0].start == 0 ) {
 
+  auto it = mask_intervals_.find(seq_id);
+
+  // 如果没有遮蔽区间，则整个序列是一个大的有效区间。
+  // 一个有效区间对应一个间隔符。
+  if (it == mask_intervals_.end() || it->second.empty()) {
+    return 1;
   }
 
   const auto &intervals = it->second;
-  // 间隔符数量等于有效区间数量
-  if (intervals.empty()) {
-    return 0; // 没有遮蔽区间时，整个序列是一个有效区间，有0个间隔符
+  Length separator_count = 0;
+  Position current_pos = 0; // 从序列的起始位置开始
+  const Position end = original_length; // 序列的结束位置
+
+  // 遍历所有已排序并合并的遮蔽区间
+  for (const auto &interval : intervals) {
+    // 如果当前位置和下一个遮蔽区间的起点之间存在间隙，
+    // 这就是一个有效区间，需要计入一个间隔符。
+    if (current_pos < interval.start) {
+      separator_count++;
+    }
+
+    // 将当前位置“跳”到遮蔽区间的末尾之后，
+    // 以便寻找下一个有效区间。
+    current_pos = std::max(current_pos, interval.end);
   }
 
-  return intervals.size();
+  // 循环结束后，如果当前位置还未到达序列末尾，
+  // 说明最后一个遮蔽区间到序列末尾之间还有一个有效区间。
+  if (current_pos < end) {
+    separator_count++;
+  }
+
+  return separator_count;
 }
 
 SequenceId MaskManager::getOrCreateSequenceId(const std::string &seq_name) {
@@ -1282,7 +1305,7 @@ Length MaskedSequenceManager::getSeparatorCount(const std::string &seq_name) con
 }
 
 Length MaskedSequenceManager::getSeparatorCount(SequenceId seq_id) const {
-  return mask_manager_.getSeparatorCount(seq_id);
+  return mask_manager_.getSeparatorCount(seq_id, original_manager_->getSequenceLength(seq_id));
 }
 
 Length MaskedSequenceManager::getTotalSeparatorCount() const {
