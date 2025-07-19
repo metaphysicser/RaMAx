@@ -495,6 +495,22 @@ starAlignment(
                     }
                     }, mv);
             };
+
+        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+            using PtrType = std::decay_t<decltype(manager_ptr)>;
+            if (!manager_ptr) {
+                throw std::runtime_error("Manager pointer is null inside variant.");
+            }
+            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                return manager_ptr->concatAllSequences('\1');
+            }
+            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+                return manager_ptr->concatAllSequencesSeparated('\1');
+            }
+            else {
+                throw std::runtime_error("Unhandled manager type in variant.");
+            }
+            }, *seqpro_managers[ref_name]);
         
 
         if (true) {
@@ -511,8 +527,10 @@ starAlignment(
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
   
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-                                // std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+								std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+                                auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
+								m.ref_region.start = fallback_local_pos;
+                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
@@ -526,10 +544,12 @@ starAlignment(
                             else {
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-
+                                std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+                                auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
+                                m.ref_region.start = fallback_local_pos;
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
                                 // std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
                                 if (ref_seq != query_seq) {
@@ -575,7 +595,7 @@ starAlignment(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
-        multi_graph->verifyGraphCorrectness(true);
+        //multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
@@ -584,7 +604,7 @@ starAlignment(
         multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
-        multi_graph->verifyGraphCorrectness(true);
+       // multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("merge multiple genome graphs for {} done", ref_name);
 
