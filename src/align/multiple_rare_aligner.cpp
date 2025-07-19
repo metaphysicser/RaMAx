@@ -515,7 +515,7 @@ starAlignment(
             }
             }, *seqpro_managers[ref_name]);
         
-
+#ifdef _DEBUG_
         if (true) {
             for (auto& kv : *match_ptr) {
                 for (auto& mv2 : *kv.second) {
@@ -570,7 +570,7 @@ starAlignment(
                 }
             }
         }
-
+#endif
         spdlog::info("align multiple genome for {} done", ref_name);
 
 
