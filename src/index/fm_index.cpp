@@ -720,14 +720,14 @@ uint_t FM_Index::findSubSeqAnchors(const char *query, uint_t query_length,
                         const SeqPro::SequenceInfo* candidate_info = nullptr;
                         auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocal(ref_global_pos);
                         candidate_info = manager_ptr->getIndex().getSequenceInfo(fallback_seq_id);
-                        // region_vec.emplace_back(candidate_info->name, fallback_local_pos, match_length);
-                        region_vec.emplace_back(candidate_info->name, ref_global_pos, match_length);
+                        region_vec.emplace_back(candidate_info->name, fallback_local_pos, match_length);
+                        //region_vec.emplace_back(candidate_info->name, ref_global_pos, match_length);
                     }
                     else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
                         SeqPro::MaskedSequenceManager> >) {
                         auto [fallback_seq_name, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
-                        /*region_vec.emplace_back(fallback_seq_name, fallback_local_pos, match_length);*/
-                        region_vec.emplace_back(fallback_seq_name, ref_global_pos, match_length);
+                        region_vec.emplace_back(fallback_seq_name, fallback_local_pos, match_length);
+                        //region_vec.emplace_back(fallback_seq_name, ref_global_pos, match_length);
                     }
                 }
 
