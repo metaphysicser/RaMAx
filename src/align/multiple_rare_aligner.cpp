@@ -589,7 +589,7 @@ starAlignment(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
-        // multi_graph->verifyGraphCorrectness(true);
+        multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
@@ -598,7 +598,7 @@ starAlignment(
         multi_graph->optimizeGraphStructure();
 
 #ifdef _DEBUG_
-        // multi_graph->verifyGraphCorrectness(true);
+        multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
 		spdlog::info("merge multiple genome graphs for {} done", ref_name);
 
