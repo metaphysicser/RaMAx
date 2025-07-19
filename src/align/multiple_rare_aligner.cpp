@@ -485,7 +485,7 @@ starAlignment(
             ref_name, species_fasta_manager_map,
             i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
         );
-
+#ifdef _DEBUG_
         auto subSeq = [&](const SeqPro::ManagerVariant& mv,
             const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
                 return std::visit([&](auto& p) {
@@ -515,7 +515,7 @@ starAlignment(
             }
             }, *seqpro_managers[ref_name]);
         
-#ifdef _DEBUG_
+
         if (true) {
             for (auto& kv : *match_ptr) {
                 for (auto& mv2 : *kv.second) {
@@ -531,8 +531,8 @@ starAlignment(
   
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
 								//std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
-								m.ref_region.start = fallback_local_pos;
+                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
+								//m.ref_region.start = fallback_local_pos;
                                 std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
                                 if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
@@ -548,8 +548,8 @@ starAlignment(
                                 auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
                                 //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
-                                m.ref_region.start = fallback_local_pos;
+                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
+                                //m.ref_region.start = fallback_local_pos;
                                 //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
                                 std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
                                 //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
