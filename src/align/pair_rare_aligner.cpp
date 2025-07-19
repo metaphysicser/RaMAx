@@ -117,7 +117,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		loadMatchVec3D(anchor_file, result);
 		return result;
 	}
-
+	// TODO 对于二轮之后，低于20的chunk可以不用输入
 	/* ---------- 读取 FASTA 并分片 ---------- */
 	// 修改：使用新的预分割逻辑，支持多基因组模式
 	RegionVec chunks;

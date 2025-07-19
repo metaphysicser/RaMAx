@@ -1489,8 +1489,11 @@ void MaskedSequenceManager::addMaskIntervals(SequenceId seq_id,
   original_intervals.reserve(intervals.size());
   
   for (const auto& interval : intervals) {
-    MaskInterval original_interval = convertMaskedToOriginalInterval(seq_id, interval);
-    original_intervals.push_back(original_interval);
+    // MaskInterval original_interval = convertMaskedToOriginalInterval(seq_id, interval);
+    //if (original_interval.start > 1000000) {
+    //    std::cout << "";
+    //}
+    original_intervals.push_back(interval);
   }
   
   // 使用 MaskManager 的公共接口添加
