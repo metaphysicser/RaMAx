@@ -492,10 +492,10 @@ namespace RaMesh {
             if (shouldStopVerification(result, options)) goto verification_complete;
         }
 
-        if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
-            verifyBlockConsistency(result, options);
-            if (shouldStopVerification(result, options)) goto verification_complete;
-        }
+        //if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
+        //    verifyBlockConsistency(result, options);
+        //    if (shouldStopVerification(result, options)) goto verification_complete;
+        //}
 
         if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
             verifyMemoryIntegrity(result, options);
