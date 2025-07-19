@@ -951,7 +951,7 @@ std::string MaskedSequenceManager::getSubSequence(SequenceId seq_id,
   // 有分隔符的最后一位碱基局部坐标
   Position original_end = toOriginalPosition(seq_id, start + length - 1);
   
-  auto valid_ranges = mask_manager_.getValidRanges(seq_id, 0, getOriginalManager().getSequenceLength(seq_id));
+  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end);
   
   std::string result;
   result.reserve(length);
@@ -977,7 +977,7 @@ std::string MaskedSequenceManager::getSubSequenceSeparated(SequenceId seq_id, Po
 
   // 转换为原始坐标并获取有效区间
   Position original_start = toOriginalPositionSeparated(seq_id, start);
-  Position original_end = toOriginalPositionSeparated(seq_id, start + length - 1) - 1;
+  Position original_end = toOriginalPositionSeparated(seq_id, start + length - 1);
   
   auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
   
@@ -1375,7 +1375,7 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
   for (size_t i = 0; i < seq_names.size(); ++i) {
 
     Length length = getSequenceLengthWithSeparators(seq_names[i]);
-    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length - 1, separator);
     result.append(sequence);
 
     result.push_back('\1');
