@@ -348,8 +348,8 @@ namespace RaMesh {
             return;
         }
 
-        // 检查该类型的错误是否超过限制（用于完整统计）
-        size_t type_count = result.getErrorCount(type);
+        // 使用优化的错误计数器检查该类型的错误是否超过限制
+        size_t type_count = result.getErrorCountFast(type);
         if (type_count >= options.max_errors_per_type) {
             return;
         }
@@ -357,17 +357,31 @@ namespace RaMesh {
         // 始终添加错误到结果中（完整统计）
         result.errors.emplace_back(type, severity, species, chr, segment_index, position, message, details);
 
+        // 更新快速计数器
+        result.incrementErrorCount(type);
+
         if (severity == ErrorSeverity::ERROR || severity == ErrorSeverity::CRITICAL) {
             result.is_valid = false;
         }
 
         // 限制详细输出数量，但不影响错误统计
         if (options.verbose && type_count < options.max_verbose_errors_per_type) {
-            std::string location = species + "/" + chr + " segment#" + std::to_string(segment_index) +
-                                 " pos=" + std::to_string(position);
-            std::string full_message = location + ": " + message;
+            // 优化字符串拼接：使用预分配的字符串缓冲区
+            std::string full_message;
+            full_message.reserve(256); // 预分配合理大小
+            full_message += species;
+            full_message += "/";
+            full_message += chr;
+            full_message += " segment#";
+            full_message += std::to_string(segment_index);
+            full_message += " pos=";
+            full_message += std::to_string(position);
+            full_message += ": ";
+            full_message += message;
             if (!details.empty()) {
-                full_message += " (" + details + ")";
+                full_message += " (";
+                full_message += details;
+                full_message += ")";
             }
 
             switch (severity) {
@@ -411,13 +425,8 @@ namespace RaMesh {
         spdlog::debug("Total errors: {}", result.errors.size());
         spdlog::debug("Verification time: {} microseconds", result.verification_time.count());
 
-        // 按错误类型统计并显示详细信息
-        std::map<VerificationType, std::vector<const VerificationError*>> errors_by_type;
-        for (const auto& error : result.errors) {
-            errors_by_type[error.type].push_back(&error);
-        }
-
-        if (!errors_by_type.empty()) {
+        // 优化：使用快速计数器显示错误统计，避免重复遍历
+        if (!result.error_counts.empty()) {
             spdlog::debug("");
             spdlog::debug("Error breakdown by type:");
 
@@ -432,16 +441,16 @@ namespace RaMesh {
                 {VerificationType::PERFORMANCE_ISSUES, "PERFORMANCE_ISSUES"}
             };
 
-            for (const auto& [type, errors] : errors_by_type) {
+            for (const auto& [type, count] : result.error_counts) {
                 auto type_name_it = type_names.find(type);
                 std::string type_name = (type_name_it != type_names.end()) ?
                                        type_name_it->second : "UNKNOWN_TYPE";
 
-                spdlog::debug("  {}: {} errors", type_name, errors.size());
+                spdlog::debug("  {}: {} errors", type_name, count);
 
                 // 如果显示的详细错误数量少于总数，显示提示信息
-                if (errors.size() > options.max_verbose_errors_per_type) {
-                    size_t hidden_count = errors.size() - options.max_verbose_errors_per_type;
+                if (count > options.max_verbose_errors_per_type) {
+                    size_t hidden_count = count - options.max_verbose_errors_per_type;
                     spdlog::debug("    ... and {} more errors of this type (detailed output limited to {} per type)",
                                hidden_count, options.max_verbose_errors_per_type);
                 }
@@ -471,36 +480,28 @@ namespace RaMesh {
             spdlog::debug("============================================================");
         }
 
-        // 执行各种验证检查
+        // 优化：使用统一的遍历来执行多个检查，减少重复遍历
+        bool need_unified_traversal = options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY) ||
+                                     options.isEnabled(VerificationType::COORDINATE_OVERLAP) ||
+                                     options.isEnabled(VerificationType::COORDINATE_ORDERING) ||
+                                     options.isEnabled(VerificationType::MEMORY_INTEGRITY);
+
+        // 首先执行不需要遍历的检查
         if (options.isEnabled(VerificationType::POINTER_VALIDITY)) {
             verifyPointerValidity(result, options);
             if (shouldStopVerification(result, options)) goto verification_complete;
         }
 
-        if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
-            verifyLinkedListIntegrity(result, options);
+        // 统一遍历执行多个检查
+        if (need_unified_traversal) {
+            verifyWithUnifiedTraversal(result, options);
             if (shouldStopVerification(result, options)) goto verification_complete;
         }
 
-        if (options.isEnabled(VerificationType::COORDINATE_OVERLAP)) {
-            verifyCoordinateOverlap(result, options);
+        if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
+            verifyBlockConsistency(result, options);
             if (shouldStopVerification(result, options)) goto verification_complete;
         }
-
-        if (options.isEnabled(VerificationType::COORDINATE_ORDERING)) {
-            verifyCoordinateOrdering(result, options);
-            if (shouldStopVerification(result, options)) goto verification_complete;
-        }
-
-        //if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
-        //    verifyBlockConsistency(result, options);
-        //    if (shouldStopVerification(result, options)) goto verification_complete;
-        //}
-
-        //if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
-        //    verifyMemoryIntegrity(result, options);
-        //    if (shouldStopVerification(result, options)) goto verification_complete;
-        //}
 
         if (options.isEnabled(VerificationType::THREAD_SAFETY)) {
             verifyThreadSafety(result, options);
@@ -561,7 +562,7 @@ namespace RaMesh {
 
         // 在函数结束时显示该类型的统计信息
         if (options.verbose) {
-            size_t total_errors = result.getErrorCount(VerificationType::POINTER_VALIDITY);
+            size_t total_errors = result.getErrorCountFast(VerificationType::POINTER_VALIDITY);
             if (total_errors > options.max_verbose_errors_per_type) {
                 spdlog::debug("POINTER_VALIDITY: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
@@ -697,7 +698,7 @@ namespace RaMesh {
 
         // 在函数结束时显示该类型的统计信息
         if (options.verbose) {
-            size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_OVERLAP);
+            size_t total_errors = result.getErrorCountFast(VerificationType::COORDINATE_OVERLAP);
             if (total_errors > options.max_verbose_errors_per_type) {
                 spdlog::debug("COORDINATE_OVERLAP: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
@@ -823,7 +824,7 @@ namespace RaMesh {
 
         // 在函数结束时显示该类型的统计信息
         if (options.verbose) {
-            size_t total_errors = result.getErrorCount(VerificationType::COORDINATE_ORDERING);
+            size_t total_errors = result.getErrorCountFast(VerificationType::COORDINATE_ORDERING);
             if (total_errors > options.max_verbose_errors_per_type) {
                 spdlog::debug("COORDINATE_ORDERING: {} total errors ({} shown in detail)",
                            total_errors, options.max_verbose_errors_per_type);
@@ -866,7 +867,10 @@ namespace RaMesh {
                     }
                 }
 
-                // 检查Block与Segment的双向关联
+                // 优化：收集该block的所有segments，避免重复遍历整个图
+                std::unordered_set<SpeciesChrPair, SpeciesChrPairHash> referenced_species_chrs;
+
+                // 遍历图中的segments，只检查引用了当前block的segments
                 for (const auto &[species_name, genome_graph]: species_graphs) {
                     std::shared_lock species_lock(genome_graph.rw);
 
@@ -876,10 +880,14 @@ namespace RaMesh {
                             current = current->primary_path.next.load(std::memory_order_acquire);
                         }
 
+                        bool found_reference = false;
                         while (current && !current->isTail()) {
                             if (current->isSegment() && current->parent_block == block_ptr) {
-                                // 检查block是否确实包含该chr的anchor
+                                found_reference = true;
                                 SpeciesChrPair key{species_name, chr_name};
+                                referenced_species_chrs.insert(key);
+
+                                // 检查block是否确实包含该chr的anchor
                                 auto anchor_it = block_ptr->anchors.find(key);
                                 if (anchor_it == block_ptr->anchors.end()) {
                                     addVerificationError(result, options, VerificationType::BLOCK_CONSISTENCY, ErrorSeverity::ERROR,
@@ -887,6 +895,7 @@ namespace RaMesh {
                                                        "Segment references block but block doesn't contain corresponding anchor",
                                                        "Inconsistent block-segment relationship");
                                 }
+                                break; // 找到一个引用就足够了，不需要继续遍历该染色体
                             }
                             current = current->primary_path.next.load(std::memory_order_acquire);
                         }
@@ -1126,82 +1135,82 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
         std::shared_lock graph_lock(rw);
 
-        // // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
-        // struct SegmentDebugInfo {
-        //     uint_t start;
-        //     uint_t length;
-        //     std::string strand_str;
-        //     std::string seg_role_str;
-        //     std::string align_role_str;
-        //     size_t cigar_size;
-        //     std::string parent_block_ref_chr;
-        //     size_t parent_block_anchors_count;
-        //
-        //     SegmentDebugInfo(const SegPtr &seg) {
-        //         if (!seg) return;
-        //         start = seg->start;
-        //         length = seg->length;
-        //         strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
-        //         seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
-        //                            ? "SEGMENT"
-        //                            : (seg->seg_role == SegmentRole::HEAD)
-        //                                  ? "HEAD"
-        //                                  : "TAIL";
-        //         align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
-        //         cigar_size = seg->cigar.size();
-        //
-        //         if (seg->parent_block) {
-        //             parent_block_ref_chr = seg->parent_block->ref_chr;
-        //             parent_block_anchors_count = seg->parent_block->anchors.size();
-        //         } else {
-        //             parent_block_ref_chr = "null";
-        //             parent_block_anchors_count = 0;
-        //         }
-        //     }
-        // };
-        //
-        // struct ChromosomeDebugInfo {
-        //     std::string chr_name;
-        //     std::vector<SegmentDebugInfo> segments;
-        //
-        //     ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
-        //     }
-        // };
-        //
-        // struct SpeciesDebugInfo {
-        //     std::string species_name;
-        //     std::vector<ChromosomeDebugInfo> chromosomes;
-        //
-        //     SpeciesDebugInfo(const std::string &name) : species_name(name) {
-        //     }
-        // };
-        //
-        // std::vector<SpeciesDebugInfo> debug_all_species_segments;
-        // debug_all_species_segments.reserve(species_graphs.size());
-        //
-        // // 收集所有物种的segment详细信息
-        // for (const auto &[species_name, genome_graph]: species_graphs) {
-        //     SpeciesDebugInfo species_info(species_name);
-        //     std::shared_lock genome_lock(genome_graph.rw);
-        //
-        //     for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
-        //         ChromosomeDebugInfo chr_info(chr_name);
-        //         std::shared_lock end_lock(genome_end.rw);
-        //
-        //         // 遍历该染色体的所有segments
-        //         SegPtr current = genome_end.head;
-        //         while (current && current != genome_end.tail) {
-        //             if (current->isSegment()) {
-        //                 chr_info.segments.emplace_back(current);
-        //             }
-        //             current = current->primary_path.next.load(std::memory_order_acquire);
-        //         }
-        //
-        //         species_info.chromosomes.push_back(std::move(chr_info));
-        //     }
-        //
-        //     debug_all_species_segments.push_back(std::move(species_info));
-        // }
+        // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
+        struct SegmentDebugInfo {
+            uint_t start;
+            uint_t length;
+            std::string strand_str;
+            std::string seg_role_str;
+            std::string align_role_str;
+            size_t cigar_size;
+            std::string parent_block_ref_chr;
+            size_t parent_block_anchors_count;
+
+            SegmentDebugInfo(const SegPtr &seg) {
+                if (!seg) return;
+                start = seg->start;
+                length = seg->length;
+                strand_str = (seg->strand == Strand::FORWARD) ? "FORWARD" : "REVERSE";
+                seg_role_str = (seg->seg_role == SegmentRole::SEGMENT)
+                                   ? "SEGMENT"
+                                   : (seg->seg_role == SegmentRole::HEAD)
+                                         ? "HEAD"
+                                         : "TAIL";
+                align_role_str = (seg->align_role == AlignRole::PRIMARY) ? "PRIMARY" : "SECONDARY";
+                cigar_size = seg->cigar.size();
+
+                if (seg->parent_block) {
+                    parent_block_ref_chr = seg->parent_block->ref_chr;
+                    parent_block_anchors_count = seg->parent_block->anchors.size();
+                } else {
+                    parent_block_ref_chr = "null";
+                    parent_block_anchors_count = 0;
+                }
+            }
+        };
+
+        struct ChromosomeDebugInfo {
+            std::string chr_name;
+            std::vector<SegmentDebugInfo> segments;
+
+            ChromosomeDebugInfo(const std::string &name) : chr_name(name) {
+            }
+        };
+
+        struct SpeciesDebugInfo {
+            std::string species_name;
+            std::vector<ChromosomeDebugInfo> chromosomes;
+
+            SpeciesDebugInfo(const std::string &name) : species_name(name) {
+            }
+        };
+
+        std::vector<SpeciesDebugInfo> debug_all_species_segments;
+        debug_all_species_segments.reserve(species_graphs.size());
+
+        // 收集所有物种的segment详细信息
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            SpeciesDebugInfo species_info(species_name);
+            std::shared_lock genome_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                ChromosomeDebugInfo chr_info(chr_name);
+                std::shared_lock end_lock(genome_end.rw);
+
+                // 遍历该染色体的所有segments
+                SegPtr current = genome_end.head;
+                while (current && current != genome_end.tail) {
+                    if (current->isSegment()) {
+                        chr_info.segments.emplace_back(current);
+                    }
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                species_info.chromosomes.push_back(std::move(chr_info));
+            }
+
+            debug_all_species_segments.push_back(std::move(species_info));
+        }
 
 
         auto ref_it = species_graphs.find(ref_name);
@@ -1221,6 +1230,9 @@ namespace RaMesh {
                 BlockPtr current_block = nullptr;
 
                 while (current && !current->isTail() ) {
+                    if (current->start >= 2310000 && chr_name == "simGorilla.chrD") {
+                        std::cout<<"test";
+                    }
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         current_block = current->parent_block;
@@ -1339,7 +1351,9 @@ namespace RaMesh {
                                     // 找到非ref的anchor
                                     if (species_chr.first != ref_name) {
                                         if (segment->strand == Strand::FORWARD) {
-
+                                            if (segment->start == 2174791 && species_chr.second == "simChimp.chrD") {
+                                                std::cout<<"test";
+                                            }
                                             std::string cigar_str;
                                             uint32_t sum = 0;
                                             bool prefix_done = prev_has_prefix ? false : true;
@@ -1532,7 +1546,9 @@ namespace RaMesh {
                                     // 找到非ref的anchor
                                     if (species_chr.first != ref_name) {
                                         if (segment->strand == Strand::FORWARD) {
-
+                                            if (segment->start == 2174791 && species_chr.second == "simChimp.chrD") {
+                                                std::cout<<"test";
+                                            }
                                             std::string cigar_str;
                                             uint32_t sum = 0;
                                             bool prefix_done = curr_has_prefix ? false : true;
@@ -2492,5 +2508,246 @@ namespace RaMesh {
         stats.total_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
 
         return stats;
+    }
+
+    // ――― 优化的统一遍历函数实现 ―――
+    void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(VerificationResult& result, const VerificationOptions& options) const {
+        if (options.verbose) {
+            spdlog::debug("Performing unified traversal verification...");
+        }
+
+        // 预构建 block 查找映射以优化内存完整性检查
+        std::unordered_set<BlockPtr> valid_blocks;
+        if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+            valid_blocks.reserve(blocks.size());
+            for (const auto &weak_block: blocks) {
+                if (auto block_ptr = weak_block.lock()) {
+                    valid_blocks.insert(block_ptr);
+                }
+            }
+        }
+
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            std::shared_lock species_lock(genome_graph.rw);
+
+            for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                if (!genome_end.head || !genome_end.tail) {
+                    continue; // 已在指针有效性检查中报告
+                }
+
+                // 为链表完整性检查准备数据结构
+                std::unordered_set<SegPtr> visited_segments;
+                std::unordered_set<SegPtr> all_segments; // 用于内存完整性检查
+
+                if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
+                    visited_segments.reserve(10000); // 预分配合理大小
+                }
+                if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+                    all_segments.reserve(10000); // 预分配合理大小
+                }
+
+                SegPtr current = genome_end.head;
+                SegPtr prev = nullptr;
+                SegPtr prev_segment = nullptr; // 用于坐标排序检查
+                size_t segment_count = 0;
+                size_t ordering_violations = 0;
+                size_t large_gaps = 0;
+                const uint_t LARGE_GAP_THRESHOLD = 1000000;
+
+                // 统一遍历链表
+                while (current) {
+                    segment_count++;
+
+                    // ===== 链表完整性检查 =====
+                    if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
+                        // 检查循环引用
+                        if (visited_segments.find(current) != visited_segments.end()) {
+                            addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::CRITICAL,
+                                               species_name, chr_name, segment_count, current->start,
+                                               "Circular reference detected in linked list",
+                                               "Segment appears twice in traversal");
+                            break;
+                        }
+                        visited_segments.insert(current);
+
+                        // 检查双向链表的一致性
+                        SegPtr next_ptr = current->primary_path.next.load(std::memory_order_acquire);
+                        SegPtr prev_ptr = current->primary_path.prev.load(std::memory_order_acquire);
+
+                        if (prev_ptr != prev) {
+                            addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
+                                               species_name, chr_name, segment_count, current->start,
+                                               "Inconsistent prev pointer in doubly linked list",
+                                               "expected_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev.get())) +
+                                               ", actual_prev=" + std::to_string(reinterpret_cast<uintptr_t>(prev_ptr.get())));
+                        }
+
+                        // 防止死循环
+                        if (segment_count > 10000000) {
+                            addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::CRITICAL,
+                                               species_name, chr_name, segment_count, 0,
+                                               "Linked list may contain cycle",
+                                               "Traversed over 10 million nodes");
+                            break;
+                        }
+                    }
+
+                    // ===== 内存完整性检查 =====
+                    if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+                        // 检查重复的segment指针
+                        if (all_segments.find(current) != all_segments.end()) {
+                            addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::CRITICAL,
+                                               species_name, chr_name, segment_count, current->start,
+                                               "Duplicate segment pointer detected",
+                                               "Same segment appears multiple times in memory");
+                        }
+                        all_segments.insert(current);
+                    }
+
+                    // ===== 坐标相关检查（仅对实际segment） =====
+                    if (current->isSegment()) {
+                        // 坐标重叠检查
+                        if (options.isEnabled(VerificationType::COORDINATE_OVERLAP)) {
+                            // 检查segment长度有效性
+                            if (current->length == 0) {
+                                addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Segment has zero length",
+                                                   "start=" + std::to_string(current->start));
+                            }
+
+                            // 检查坐标是否有重叠
+                            if (prev && prev->isSegment()) {
+                                uint_t prev_end = prev->start + prev->length;
+                                if (current->start < prev_end) {
+                                    uint_t overlap_size = prev_end - current->start;
+                                    addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                                       species_name, chr_name, segment_count, current->start,
+                                                       "Segment coordinates overlap",
+                                                       "prev_end=" + std::to_string(prev_end) +
+                                                       ", current_start=" + std::to_string(current->start) +
+                                                       ", overlap_size=" + std::to_string(overlap_size) + "bp");
+                                }
+                            }
+                        }
+
+                        // 坐标排序检查
+                        if (options.isEnabled(VerificationType::COORDINATE_ORDERING)) {
+                            if (prev_segment) {
+                                // 检查排序：start应该是递增的
+                                if (current->start < prev_segment->start) {
+                                    ordering_violations++;
+                                    addVerificationError(result, options, VerificationType::COORDINATE_ORDERING, ErrorSeverity::ERROR,
+                                                       species_name, chr_name, segment_count, current->start,
+                                                       "Segments are not properly ordered (start not increasing)",
+                                                       "current_start=" + std::to_string(current->start) +
+                                                       " < prev_start=" + std::to_string(prev_segment->start) +
+                                                       " (violation #" + std::to_string(ordering_violations) + ")");
+                                }
+
+                                // 检查间隙大小（性能提示）
+                                uint_t prev_end = prev_segment->start + prev_segment->length;
+                                if (current->start > prev_end) {
+                                    uint_t gap_size = current->start - prev_end;
+                                    if (gap_size > LARGE_GAP_THRESHOLD) {
+                                        large_gaps++;
+                                        addVerificationError(result, options, VerificationType::COORDINATE_ORDERING, ErrorSeverity::INFO,
+                                                           species_name, chr_name, segment_count, current->start,
+                                                           "Large gap between segments",
+                                                           "gap_size=" + std::to_string(gap_size) + "bp" +
+                                                           " (large gap #" + std::to_string(large_gaps) + ")");
+                                    }
+                                }
+                            }
+                            prev_segment = current;
+                        }
+
+                        // 内存完整性的额外检查
+                        if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+                            // 检查坐标溢出
+                            if (current->start > UINT32_MAX - current->length) {
+                                addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Coordinate overflow detected",
+                                                   "start=" + std::to_string(current->start) +
+                                                   ", length=" + std::to_string(current->length));
+                            }
+
+                            // 检查parent_block引用的有效性（使用预构建的映射）
+                            if (current->parent_block && valid_blocks.find(current->parent_block) == valid_blocks.end()) {
+                                addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                                   species_name, chr_name, segment_count, current->start,
+                                                   "Segment references invalid parent_block",
+                                                   "parent_block not found in global block pool");
+                            }
+                        }
+                    }
+
+                    prev = current;
+                    current = current->primary_path.next.load(std::memory_order_acquire);
+                }
+
+                // 链表完整性的最终检查
+                if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
+                    if (current == nullptr && prev && !prev->isTail()) {
+                        addVerificationError(result, options, VerificationType::LINKED_LIST_INTEGRITY, ErrorSeverity::ERROR,
+                                           species_name, chr_name, segment_count, 0,
+                                           "Linked list ends without reaching tail sentinel",
+                                           "Last segment is not marked as TAIL");
+                    }
+                }
+
+                // 内存完整性的采样向量检查
+                if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+                    for (size_t i = 0; i < genome_end.sample_vec.size(); ++i) {
+                        SegPtr sample_seg = genome_end.sample_vec[i];
+                        if (sample_seg && all_segments.find(sample_seg) == all_segments.end()) {
+                            addVerificationError(result, options, VerificationType::MEMORY_INTEGRITY, ErrorSeverity::ERROR,
+                                               species_name, chr_name, i, 0,
+                                               "Sampling vector contains invalid segment reference",
+                                               "sample_index=" + std::to_string(i) + ", segment not in main list");
+                        }
+                    }
+                }
+
+                // 输出统计信息
+                if (options.verbose) {
+                    if (options.isEnabled(VerificationType::COORDINATE_ORDERING)) {
+                        spdlog::debug("  Chromosome {}: {} segments, {} ordering violations, {} large gaps",
+                                   chr_name, segment_count, ordering_violations, large_gaps);
+                    } else {
+                        spdlog::debug("  Chromosome {} contains {} segments", chr_name, segment_count);
+                    }
+                }
+            }
+        }
+
+        // 输出各类型的统计信息
+        if (options.verbose) {
+            if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
+                size_t total_errors = result.getErrorCountFast(VerificationType::LINKED_LIST_INTEGRITY);
+                if (total_errors > 0) {
+                    spdlog::debug("LINKED_LIST_INTEGRITY: {} total errors", total_errors);
+                }
+            }
+            if (options.isEnabled(VerificationType::COORDINATE_OVERLAP)) {
+                size_t total_errors = result.getErrorCountFast(VerificationType::COORDINATE_OVERLAP);
+                if (total_errors > 0) {
+                    spdlog::debug("COORDINATE_OVERLAP: {} total errors", total_errors);
+                }
+            }
+            if (options.isEnabled(VerificationType::COORDINATE_ORDERING)) {
+                size_t total_errors = result.getErrorCountFast(VerificationType::COORDINATE_ORDERING);
+                if (total_errors > 0) {
+                    spdlog::debug("COORDINATE_ORDERING: {} total errors", total_errors);
+                }
+            }
+            if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+                size_t total_errors = result.getErrorCountFast(VerificationType::MEMORY_INTEGRITY);
+                if (total_errors > 0) {
+                    spdlog::debug("MEMORY_INTEGRITY: {} total errors", total_errors);
+                }
+            }
+        }
     }
 } // namespace RaMesh

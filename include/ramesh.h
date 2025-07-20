@@ -8,6 +8,7 @@
 #include <atomic>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <map>
 #include <shared_mutex>
@@ -285,7 +286,7 @@ namespace RaMesh {
                 enable(VerificationType::LINKED_LIST_INTEGRITY);
                 enable(VerificationType::COORDINATE_OVERLAP);
                 enable(VerificationType::COORDINATE_ORDERING);
-                enable(VerificationType::BLOCK_CONSISTENCY);
+                disable(VerificationType::BLOCK_CONSISTENCY);
                 enable(VerificationType::MEMORY_INTEGRITY);
                 enable(VerificationType::THREAD_SAFETY);
             }
@@ -308,11 +309,25 @@ namespace RaMesh {
             bool is_valid = true;
             std::chrono::microseconds verification_time{0};
 
+            // 优化的错误计数器：避免每次都遍历整个错误向量
+            mutable std::unordered_map<VerificationType, size_t> error_counts;
+
             size_t getErrorCount(VerificationType type) const {
                 return std::count_if(errors.begin(), errors.end(),
                     [type](const VerificationError& error) {
                         return error.type == type;
                     });
+            }
+
+            // 快速错误计数方法
+            size_t getErrorCountFast(VerificationType type) const {
+                auto it = error_counts.find(type);
+                return it != error_counts.end() ? it->second : 0;
+            }
+
+            // 增加错误计数
+            void incrementErrorCount(VerificationType type) {
+                error_counts[type]++;
             }
         };
 
@@ -373,6 +388,9 @@ namespace RaMesh {
         void verifyMemoryIntegrity(VerificationResult& result, const VerificationOptions& options) const;
         void verifyThreadSafety(VerificationResult& result, const VerificationOptions& options) const;
         void verifyPerformanceIssues(VerificationResult& result, const VerificationOptions& options) const;
+
+        // 优化的统一遍历函数
+        void verifyWithUnifiedTraversal(VerificationResult& result, const VerificationOptions& options) const;
     };
 
 } // namespace RaMesh

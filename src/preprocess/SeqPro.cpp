@@ -1169,9 +1169,6 @@ Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_
 
 std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
   ensureCacheValid();
-  if (global_pos_with_separators == 199534) {
-    std::cout<<"test";
-  }
   // 构建包含间隔符的全局坐标映射
   Position current_global_pos = 0;
   auto seq_names = getSequenceNames();
