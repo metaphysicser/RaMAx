@@ -8,6 +8,7 @@
 #include <shared_mutex>
 #include <unordered_set>
 #include <algorithm>
+#include <chrono>
 #include <spdlog/spdlog.h>
 #include "align.h"
 
@@ -1135,6 +1136,117 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
         std::shared_lock graph_lock(rw);
 
+        // ═══════════════════════════════════════════════════════════
+        // 进度跟踪结构体定义 - 基于基因组坐标而非segment数量
+        // ═══════════════════════════════════════════════════════════
+        struct MergeProgress {
+            size_t total_chromosomes = 0;           // 总染色体数量
+            size_t completed_chromosomes = 0;       // 已完成染色体数量
+            uint64_t total_genomic_length = 0;      // 总基因组长度（所有染色体）
+            uint64_t processed_genomic_length = 0;  // 已处理基因组长度
+            uint64_t current_chr_length = 0;        // 当前染色体长度
+            uint64_t current_chr_processed = 0;     // 当前染色体已处理长度
+            size_t total_merges = 0;                // 总合并操作数量
+            size_t completed_merges = 0;            // 已完成合并操作数量
+            std::string current_species;            // 当前处理的物种
+            std::string current_chromosome;         // 当前处理的染色体
+            uint64_t current_position = 0;          // 当前处理位置
+
+            // 上次日志输出时间（避免过于频繁的日志输出）
+            mutable std::chrono::steady_clock::time_point last_log_time;
+            mutable double last_logged_percentage = -1.0;
+
+            MergeProgress() {
+                last_log_time = std::chrono::steady_clock::now();
+            }
+
+            // 显示进度（使用spdlog，控制输出频率）
+            void displayProgress() const {
+                if (total_genomic_length == 0) return;
+
+                // 计算总体进度
+                double overall_percentage = static_cast<double>(processed_genomic_length) / total_genomic_length * 100.0;
+
+                // 计算当前染色体进度
+                double chr_percentage = 0.0;
+                if (current_chr_length > 0) {
+                    chr_percentage = static_cast<double>(current_chr_processed) / current_chr_length * 100.0;
+                }
+
+                // 控制日志输出频率：每1%或每5秒输出一次
+                auto now = std::chrono::steady_clock::now();
+                auto time_diff = std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
+                double percentage_diff = std::abs(overall_percentage - last_logged_percentage);
+
+                if (percentage_diff >= 1.0 || time_diff >= 5) {
+                    spdlog::info("合并进度: {:.1f}% ({:.1f}MB/{:.1f}MB) 染色体: {}/{} 当前: {}.{} ({:.1f}%) 位置: {} 合并: {}",
+                        overall_percentage,
+                        processed_genomic_length / 1000000.0,
+                        total_genomic_length / 1000000.0,
+                        completed_chromosomes,
+                        total_chromosomes,
+                        current_species,
+                        current_chromosome,
+                        chr_percentage,
+                        current_position,
+                        completed_merges);
+
+                    last_log_time = now;
+                    last_logged_percentage = overall_percentage;
+                }
+            }
+
+            // 开始处理新染色体
+            void startChromosome(const std::string& species, const std::string& chromosome, uint64_t chr_length) {
+                current_species = species;
+                current_chromosome = chromosome;
+                current_chr_length = chr_length;
+                current_chr_processed = 0;
+                current_position = 0;
+
+                spdlog::info("开始处理染色体: {}.{} (长度: {:.1f}MB)",
+                    species, chromosome, chr_length / 1000000.0);
+                displayProgress();
+            }
+
+            // 更新当前处理位置
+            void updatePosition(uint64_t position) {
+                if (position > current_position) {
+                    uint64_t advance = position - current_position;
+                    current_chr_processed += advance;
+                    processed_genomic_length += advance;
+                    current_position = position;
+                    displayProgress();
+                }
+            }
+
+            // 完成一个染色体的处理
+            void completeChromosome() {
+                // 确保当前染色体完全处理完成
+                if (current_chr_processed < current_chr_length) {
+                    uint64_t remaining = current_chr_length - current_chr_processed;
+                    current_chr_processed = current_chr_length;
+                    processed_genomic_length += remaining;
+                }
+
+                completed_chromosomes++;
+                spdlog::info("完成染色体: {}.{} ({}/{})",
+                    current_species, current_chromosome, completed_chromosomes, total_chromosomes);
+                displayProgress();
+            }
+
+            // 记录合并操作
+            void recordMerge() {
+                completed_merges++;
+            }
+
+            // 完成所有处理
+            void finish() {
+                spdlog::info("合并完成！总共处理了 {} 个染色体，{:.1f}MB 基因组数据，执行了 {} 次合并操作",
+                    total_chromosomes, total_genomic_length / 1000000.0, completed_merges);
+            }
+        };
+
         // 调试用：收集所有物种的segment详细信息，方便在调试器中查看
         struct SegmentDebugInfo {
             uint_t start;
@@ -1185,6 +1297,45 @@ namespace RaMesh {
             }
         };
 
+        // ═══════════════════════════════════════════════════════════
+        // 初始化进度跟踪
+        // ═══════════════════════════════════════════════════════════
+        MergeProgress progress;
+
+        // 统计总的染色体数量和基因组长度
+        for (const auto &[species_name, genome_graph]: species_graphs) {
+            if (species_name == ref_name) {
+                progress.total_chromosomes += genome_graph.chr2end.size();
+
+                // 统计总基因组长度
+                std::shared_lock genome_lock(genome_graph.rw);
+                for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
+                    std::shared_lock end_lock(genome_end.rw);
+
+                    // 找到染色体的最后一个segment来确定长度
+                    uint64_t chr_length = 0;
+                    SegPtr current = genome_end.head;
+                    if (current) {
+                        current = current->primary_path.next.load(std::memory_order_acquire);
+                    }
+                    while (current && !current->isTail()) {
+                        if (current->isSegment()) {
+                            uint64_t segment_end = current->start + current->length;
+                            chr_length = std::max(chr_length, segment_end);
+                        }
+                        current = current->primary_path.next.load(std::memory_order_acquire);
+                    }
+                    progress.total_genomic_length += chr_length;
+                }
+                break;
+            }
+        }
+
+        spdlog::info("开始合并多基因组图，参考物种: {}", ref_name);
+        spdlog::info("总共需要处理 {} 个染色体，{:.1f}MB 基因组数据",
+            progress.total_chromosomes, progress.total_genomic_length / 1000000.0);
+        progress.displayProgress();
+
         std::vector<SpeciesDebugInfo> debug_all_species_segments;
         debug_all_species_segments.reserve(species_graphs.size());
 
@@ -1223,6 +1374,26 @@ namespace RaMesh {
             std::shared_lock genome_lock(ref_genome.rw);
             // 主循环，遍历所有Ref序列
             for (const auto &[chr_name, genome_end]: ref_genome.chr2end) {
+                // ═══════════════════════════════════════════════════════════
+                // 计算当前染色体长度并开始处理
+                // ═══════════════════════════════════════════════════════════
+                uint64_t chr_length = 0;
+                std::shared_lock end_lock(genome_end.rw);
+                SegPtr count_current = genome_end.head;
+                if (count_current) {
+                    count_current = count_current->primary_path.next.load(std::memory_order_acquire);
+                }
+                while (count_current && !count_current->isTail()) {
+                    if (count_current->isSegment()) {
+                        uint64_t segment_end = count_current->start + count_current->length;
+                        chr_length = std::max(chr_length, segment_end);
+                    }
+                    count_current = count_current->primary_path.next.load(std::memory_order_acquire);
+                }
+                end_lock.unlock();
+
+                progress.startChromosome(current_species, chr_name, chr_length);
+
                 // 从头节点开始遍历链表
                 SegPtr prev = genome_end.head->primary_path.next.load(std::memory_order_acquire);
                 SegPtr current = prev->primary_path.next.load(std::memory_order_acquire);
@@ -1235,6 +1406,11 @@ namespace RaMesh {
                     }
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
+                        // ═══════════════════════════════════════════════════════════
+                        // 更新基因组位置进度
+                        // ═══════════════════════════════════════════════════════════
+                        progress.updatePosition(current->start + current->length);
+
                         current_block = current->parent_block;
 
                         // 构造查找键并直接find
@@ -1256,6 +1432,11 @@ namespace RaMesh {
 
                             // 发现重叠
                             if (prev_end > curr_start) {
+                                // ═══════════════════════════════════════════════════════════
+                                // 记录合并操作
+                                // ═══════════════════════════════════════════════════════════
+                                progress.recordMerge();
+
                                 // 处理合并
                                 // 确定重叠区间
                                 if (prev_seg->cigar.size() != 0 || curr_seg->cigar.size() != 0) {
@@ -2177,8 +2358,18 @@ namespace RaMesh {
                     // 移动到下一个segment - 使用原子操作保证线程安全
                     current = current->primary_path.next.load(std::memory_order_acquire);
                 }
+
+                // ═══════════════════════════════════════════════════════════
+                // 标记当前染色体处理完成
+                // ═══════════════════════════════════════════════════════════
+                progress.completeChromosome();
             }
         }
+
+        // ═══════════════════════════════════════════════════════════
+        // 完成所有处理
+        // ═══════════════════════════════════════════════════════════
+        progress.finish();
         // // 收集所有物种的segment详细信息
         // debug_all_species_segments.clear();
         // for (const auto &[species_name, genome_graph]: species_graphs) {
