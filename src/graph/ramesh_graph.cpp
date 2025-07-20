@@ -1401,9 +1401,9 @@ namespace RaMesh {
                 BlockPtr current_block = nullptr;
 
                 while (current && !current->isTail() ) {
-                    if (current->start >= 2310000 && chr_name == "simGorilla.chrD") {
-                        std::cout<<"test";
-                    }
+                    // if (current->start >= 2310000 && chr_name == "simGorilla.chrD") {
+                    //     std::cout<<"test";
+                    // }
                     // 只处理真正的segment（跳过头尾哨兵）
                     if (current->isSegment() && current->parent_block) {
                         // ═══════════════════════════════════════════════════════════
