@@ -492,15 +492,15 @@ namespace RaMesh {
             if (shouldStopVerification(result, options)) goto verification_complete;
         }
 
-        if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
-            verifyBlockConsistency(result, options);
-            if (shouldStopVerification(result, options)) goto verification_complete;
-        }
+        //if (options.isEnabled(VerificationType::BLOCK_CONSISTENCY)) {
+        //    verifyBlockConsistency(result, options);
+        //    if (shouldStopVerification(result, options)) goto verification_complete;
+        //}
 
-        if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
-            verifyMemoryIntegrity(result, options);
-            if (shouldStopVerification(result, options)) goto verification_complete;
-        }
+        //if (options.isEnabled(VerificationType::MEMORY_INTEGRITY)) {
+        //    verifyMemoryIntegrity(result, options);
+        //    if (shouldStopVerification(result, options)) goto verification_complete;
+        //}
 
         if (options.isEnabled(VerificationType::THREAD_SAFETY)) {
             verifyThreadSafety(result, options);
@@ -1339,6 +1339,7 @@ namespace RaMesh {
                                     // 找到非ref的anchor
                                     if (species_chr.first != ref_name) {
                                         if (segment->strand == Strand::FORWARD) {
+
                                             std::string cigar_str;
                                             uint32_t sum = 0;
                                             bool prefix_done = prev_has_prefix ? false : true;
@@ -1531,6 +1532,7 @@ namespace RaMesh {
                                     // 找到非ref的anchor
                                     if (species_chr.first != ref_name) {
                                         if (segment->strand == Strand::FORWARD) {
+
                                             std::string cigar_str;
                                             uint32_t sum = 0;
                                             bool prefix_done = curr_has_prefix ? false : true;

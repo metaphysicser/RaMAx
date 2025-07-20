@@ -240,13 +240,13 @@ namespace RaMesh {
     std::pair<SegPtr, SegPtr>
         GenomeEnd::findSurrounding(uint_t range_start, uint_t range_end) {
         // 1) 读取采样表得到“最近前驱”的 hint
-        std::shared_lock lk(rw);                 // 读锁即可
+        //std::shared_lock lk(rw);                 // 读锁即可
         std::size_t slot = std::max((range_start / kSampleStep) - 1, (uint_t)0);
         SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
             ? sample_vec[slot]
             : head;
         // SegPtr hint = head;
-        lk.unlock();                             // 之后只读链表，不再访问 sample_vec
+        //lk.unlock();                             // 之后只读链表，不再访问 sample_vec
 
         // 2) 保证 hint 在目标区间左侧
         while (!hint->isHead() && hint->start > range_start) {
@@ -512,34 +512,37 @@ namespace RaMesh {
 
         while (cur && cur != tail)
         {
+            SegPtr next = cur;
             uint_t prev_end = prev->start + prev->length;
             uint_t cur_start = cur->start;
-
             /* -------- 检测交叠 -------- */
-            if (prev_end > cur_start)
+            while (prev_end > cur_start && cur && cur != tail)
             {
-                if (!if_ref || (if_ref && (prev->cigar.size() > 0 || cur->cigar.size() > 0))) {
-                    /* 选出要删除的较短段 */
-                    SegPtr victim = (prev->length <= cur->length) ? prev : cur;
-                    SegPtr keeper = (victim == prev) ? cur : prev;
+                cur_start = cur->start;
 
-                    uint_t v_beg = victim->start;
-                    uint_t v_end = victim->start + victim->length;
-
-                    if (victim->parent_block)
-                        victim->parent_block->removeAllSegments(); // 从 block 中移除
-
-                    cur = keeper->primary_path.next.load(std::memory_order_acquire);
-                    prev = keeper;                // 继续比较 keeper 与新 cur
-
-                    setToSampling(keeper);
-                    continue;                           // 重新比较 keeper 与新 cur
+                if (if_ref && prev->cigar.size() == 0 && cur->cigar.size() == 0) {
+                    cur = cur->primary_path.next.load(std::memory_order_acquire);
+                }
+                else {
+                    bool cur_longer = prev->length <= cur->length;
+                    if (cur_longer) {
+                        prev->parent_block->removeAllSegments();
+                        break;
+                    }
+                    else {
+                        if (next == cur) {
+                            next = cur->primary_path.next.load(std::memory_order_acquire);
+                        }
+                        cur = cur->primary_path.next.load(std::memory_order_acquire);                   
+                        SegPtr cur_prev = cur->primary_path.prev.load(std::memory_order_acquire);                       
+                        cur_prev->parent_block->removeAllSegments();
+                    }
                 }
             }
-            setToSampling(cur);
+            // setToSampling(next);
             /* -------- 无交叠，正常前进 -------- */
-            prev = cur;
-            cur = cur->primary_path.next.load(std::memory_order_acquire);
+            prev = next;
+            cur = prev->primary_path.next.load(std::memory_order_acquire);
         }
 
     }
