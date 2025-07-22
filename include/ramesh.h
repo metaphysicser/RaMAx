@@ -147,10 +147,7 @@ namespace RaMesh {
     // ────────────────────────────────────────────────
     class GenomeEnd {
     public:
-        SegPtr cur_test = nullptr;
-        SegPtr next_test = nullptr;;
-        SegPtr prev_test = nullptr;;
-        static constexpr uint_t kSampleStep = 10000;
+        static constexpr uint_t kSampleStep = 100000;
         GenomeEnd();
         GenomeEnd(GenomeEnd&&)            noexcept = default;
         GenomeEnd& operator=(GenomeEnd&&) noexcept = default;
