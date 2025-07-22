@@ -171,8 +171,8 @@ endfunction()
 add_compile_options(-w)
 
 # ================= 创建两个可执行文件 =================
-add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
-configure_rama_target(RaMA-G)
+# add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
+# configure_rama_target(RaMA-G)
 
 add_executable(RaMAx ${MAIN_X} ${RAMA_COMMON_SOURCES})
 configure_rama_target(RaMAx)
