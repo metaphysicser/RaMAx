@@ -485,92 +485,92 @@ starAlignment(
             ref_name, species_fasta_manager_map,
             i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
         );
-#ifdef _DEBUG_
-        auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
-                return std::visit([&](auto& p) {
-                    using T = std::decay_t<decltype(p)>;
-                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-                        return p->getSubSequence(chr, b, l);
-                    }
-                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                        return p->getOriginalManager().getSubSequence(chr, b, l);
-                    }
-                    }, mv);
-            };
-
-        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
-            using PtrType = std::decay_t<decltype(manager_ptr)>;
-            if (!manager_ptr) {
-                throw std::runtime_error("Manager pointer is null inside variant.");
-            }
-            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                return manager_ptr->concatAllSequences('\1');
-            }
-            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-                return manager_ptr->concatAllSequencesSeparated('\1');
-            }
-            else {
-                throw std::runtime_error("Unhandled manager type in variant.");
-            }
-            }, *seqpro_managers[ref_name]);
-        
-
-        if (true) {
-            for (auto& kv : *match_ptr) {
-                for (auto& mv2 : *kv.second) {
-                    for (auto& mv1 : mv2) {
-                        for (auto& m : mv1) {
-                            /*                  if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
-                                                  auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
-                                                  m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
-                                              }*/
-                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
-                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
-                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-  
-                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-								//std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
-								//m.ref_region.start = fallback_local_pos;
-                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
-                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
-                                if (ref_seq != query_seq) {
-                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
-                                }
-                                else {
-                                    std::cout << "";
-                                }
-                            }
-                            else {
-                                auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
-                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
-                                //m.ref_region.start = fallback_local_pos;
-                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
-                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
-                                if (ref_seq != query_seq) {
-                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
-                                }
-                                else {
-                                    std::cout << "";
-                                }
-                            }
-
-
-                        }
-                    }
-                }
-            }
-        }
-#endif
+//#ifdef _DEBUG_
+//        auto subSeq = [&](const SeqPro::ManagerVariant& mv,
+//            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+//                return std::visit([&](auto& p) {
+//                    using T = std::decay_t<decltype(p)>;
+//                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+//                        return p->getSubSequence(chr, b, l);
+//                    }
+//                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+//                        return p->getOriginalManager().getSubSequence(chr, b, l);
+//                    }
+//                    }, mv);
+//            };
+//
+//        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
+//            using PtrType = std::decay_t<decltype(manager_ptr)>;
+//            if (!manager_ptr) {
+//                throw std::runtime_error("Manager pointer is null inside variant.");
+//            }
+//            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+//                return manager_ptr->concatAllSequences('\1');
+//            }
+//            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
+//                return manager_ptr->concatAllSequencesSeparated('\1');
+//            }
+//            else {
+//                throw std::runtime_error("Unhandled manager type in variant.");
+//            }
+//            }, *seqpro_managers[ref_name]);
+//        
+//
+//        if (true) {
+//            for (auto& kv : *match_ptr) {
+//                for (auto& mv2 : *kv.second) {
+//                    for (auto& mv1 : mv2) {
+//                        for (auto& m : mv1) {
+//                            /*                  if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
+//                                                  auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
+//                                                  m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
+//                                              }*/
+//                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
+//                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
+//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+//  
+//                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
+//								//std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+//                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
+//								//m.ref_region.start = fallback_local_pos;
+//                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+//                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
+//                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
+//                                if (ref_seq != query_seq) {
+//                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+//                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
+//                                }
+//                                else {
+//                                    std::cout << "";
+//                                }
+//                            }
+//                            else {
+//                                auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
+//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
+//                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
+//                                //m.ref_region.start = fallback_local_pos;
+//                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
+//                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+//                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
+//                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
+//                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
+//                                if (ref_seq != query_seq) {
+//                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+//                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
+//                                }
+//                                else {
+//                                    std::cout << "";
+//                                }
+//                            }
+//
+//
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//#endif
         spdlog::info("align multiple genome for {} done", ref_name);
 
 
@@ -836,103 +836,103 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
  * @param shared_pool          共享线程池
  * @param min_span             最小跨度阈值
  */
-void MultipleRareAligner::constructMultipleGraphsByGreedy(
-std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
-    SpeciesName ref_name,
-    const SpeciesClusterMap& species_cluster_map,
-    RaMesh::RaMeshMultiGenomeGraph& graph,
-    uint_t min_span)
-{
-    if (species_cluster_map.empty()) {
-        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
-        return;
-    }
-
-    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
-                species_cluster_map.size());
-
-    ThreadPool shared_pool(thread_num);
-
-    // 【修复】：添加互斥锁保护graph的并发访问
-    std::mutex graph_mutex;
-
-    /* ---------- 1. 为每个物种并行处理cluster数据 ---------- */
-    std::vector<std::future<void>> species_futures;
-    species_futures.reserve(species_cluster_map.size());
-
-    for (const auto& [species_name, cluster_ptr] : species_cluster_map) {
-        if (species_name == ref_name) continue;  // 跳过参考物种
-
-        // 为每个物种启动异步任务
-        auto species_future = std::async(std::launch::async,
-            [this, ref_name, species_name, cluster_ptr, &graph, &shared_pool, &graph_mutex, min_span,&seqpro_managers]() {
-                try {
-                    if (!cluster_ptr || cluster_ptr->empty()) {
-                        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster data for species: {}",
-                                   species_name);
-                        return;
-                    }
-
-                    // 使用PairRareAligner的贪婪算法构建图
-                    PairRareAligner pra(*this);
-                    pra.ref_name = ref_name;
-                    // 【修复】：设置ref_seqpro_manager，避免空指针
-                    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
-
-                    //// 【修复】：避免过度并行化，改为串行处理chromosome数据
-                    //// 每个物种内部串行处理，避免graph的深度并发访问
-                    //for (const auto& strand_data : *cluster_ptr) {
-                    //    for (const auto& query_ref_data : strand_data) {
-                    //        for (const auto& cluster_vec : query_ref_data) {
-                    //            if (cluster_vec && !cluster_vec->empty()) {
-                    //                // 将集合转换为向量以便处理
-                    //                auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
-                    //                    cluster_vec->begin(), cluster_vec->end());
-
-                    //                // 【修复】：使用互斥锁保护graph访问
-                    //                {
-                    //                    std::lock_guard<std::mutex> lock(graph_mutex);
-                    //                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
-                    //                                             graph, min_span);
-                    //                }
-                    //            }
-                    //        }
-                    //    }
-                    //}
-                    {
-                        std::lock_guard<std::mutex> lock(graph_mutex);
-                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
-                                                                      graph, min_span);
-                    }
-
-                    spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
-                               species_name);
-                }
-                catch (const std::exception& e) {
-                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}",
-                                species_name, e.what());
-                }
-            });
-
-        species_futures.emplace_back(std::move(species_future));
-    }
-
-    /* ---------- 2. 等待所有物种处理完成 ---------- */
-    for (auto& future : species_futures) {
-        try {
-            future.wait();
-        }
-        catch (const std::exception& e) {
-            spdlog::error("[constructMultipleGraphsByGreedy] Error waiting for species processing: {}",
-                        e.what());
-        }
-    }
-
-    // 确保共享线程池中的所有任务都完成
-    shared_pool.waitAllTasksDone();
-
-    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
-}
+//void MultipleRareAligner::constructMultipleGraphsByGreedy(
+//std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
+//    SpeciesName ref_name,
+//    const SpeciesClusterMap& species_cluster_map,
+//    RaMesh::RaMeshMultiGenomeGraph& graph,
+//    uint_t min_span)
+//{
+//    if (species_cluster_map.empty()) {
+//        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
+//        return;
+//    }
+//
+//    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
+//                species_cluster_map.size());
+//
+//    ThreadPool shared_pool(thread_num);
+//
+//    // 【修复】：添加互斥锁保护graph的并发访问
+//    std::mutex graph_mutex;
+//
+//    /* ---------- 1. 为每个物种并行处理cluster数据 ---------- */
+//    std::vector<std::future<void>> species_futures;
+//    species_futures.reserve(species_cluster_map.size());
+//
+//    for (const auto& [species_name, cluster_ptr] : species_cluster_map) {
+//        if (species_name == ref_name) continue;  // 跳过参考物种
+//
+//        // 为每个物种启动异步任务
+//        auto species_future = std::async(std::launch::async,
+//            [this, ref_name, species_name, cluster_ptr, &graph, &shared_pool, &graph_mutex, min_span,&seqpro_managers]() {
+//                try {
+//                    if (!cluster_ptr || cluster_ptr->empty()) {
+//                        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster data for species: {}",
+//                                   species_name);
+//                        return;
+//                    }
+//
+//                    // 使用PairRareAligner的贪婪算法构建图
+//                    PairRareAligner pra(*this);
+//                    pra.ref_name = ref_name;
+//                    // 【修复】：设置ref_seqpro_manager，避免空指针
+//                    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
+//
+//                    //// 【修复】：避免过度并行化，改为串行处理chromosome数据
+//                    //// 每个物种内部串行处理，避免graph的深度并发访问
+//                    //for (const auto& strand_data : *cluster_ptr) {
+//                    //    for (const auto& query_ref_data : strand_data) {
+//                    //        for (const auto& cluster_vec : query_ref_data) {
+//                    //            if (cluster_vec && !cluster_vec->empty()) {
+//                    //                // 将集合转换为向量以便处理
+//                    //                auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
+//                    //                    cluster_vec->begin(), cluster_vec->end());
+//
+//                    //                // 【修复】：使用互斥锁保护graph访问
+//                    //                {
+//                    //                    std::lock_guard<std::mutex> lock(graph_mutex);
+//                    //                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
+//                    //                                             graph, min_span);
+//                    //                }
+//                    //            }
+//                    //        }
+//                    //    }
+//                    //}
+//                    {
+//                        std::lock_guard<std::mutex> lock(graph_mutex);
+//                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
+//                                                                      graph, min_span);
+//                    }
+//
+//                    spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
+//                               species_name);
+//                }
+//                catch (const std::exception& e) {
+//                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}",
+//                                species_name, e.what());
+//                }
+//            });
+//
+//        species_futures.emplace_back(std::move(species_future));
+//    }
+//
+//    /* ---------- 2. 等待所有物种处理完成 ---------- */
+//    for (auto& future : species_futures) {
+//        try {
+//            future.wait();
+//        }
+//        catch (const std::exception& e) {
+//            spdlog::error("[constructMultipleGraphsByGreedy] Error waiting for species processing: {}",
+//                        e.what());
+//        }
+//    }
+//
+//    // 确保共享线程池中的所有任务都完成
+//    shared_pool.waitAllTasksDone();
+//
+//    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
+//}
 
 
 /* ============================================================= *
@@ -1011,7 +1011,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 const ChrName& qry_chr = cluster.front().query_region.chr_name;
 
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                    graph, pool, min_span, false);
+                    graph, min_span, false);
             }
         }
         pool.waitAllTasksDone();
