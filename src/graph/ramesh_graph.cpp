@@ -229,10 +229,6 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name,
                                                        const Anchor &anchor, bool isMultiple) {
         
-        auto &end = species_graphs["simHuman"].chr2end["simHuman.chrJ"];
-        if (end.cur_test && end.prev_test && end.cur_test->primary_path.prev.load() == end.prev_test) {
-            std::cout << "";
-        }
         // 1. Locate ends for reference & query chromosomes
         const ChrName &ref_chr = anchor.match.ref_region.chr_name;
         const ChrName &qry_chr = anchor.match.query_region.chr_name;

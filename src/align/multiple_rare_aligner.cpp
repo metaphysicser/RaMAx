@@ -1007,10 +1007,6 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //        graph, pool, min_span);
             //    });
             for (auto& cluster : *cluster_ptr) {
-                auto& end = graph.species_graphs["simHuman"].chr2end["simHuman.chrJ"];
-                if (end.cur_test && end.prev_test && end.cur_test->primary_path.prev.load() == end.prev_test) {
-                    std::cout << "";
-                }
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                     graph, min_span, false);
             }
@@ -1025,10 +1021,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 //    end.removeOverlap();
                 //    });
                 end.removeOverlap(species_name == ref_name);
-                auto& end2 = graph.species_graphs["simHuman"].chr2end["simHuman.chrJ"];
-                if (end2.cur_test && end2.prev_test && end2.cur_test->primary_path.prev.load() == end2.prev_test) {
-                    std::cout << "";
-                }
+                
             }
 
         }

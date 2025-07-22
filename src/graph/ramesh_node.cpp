@@ -100,9 +100,6 @@ namespace RaMesh {
 
         uint_t cur_start = prev->start;
 
-        if (cur_start == 1286480 || cur_start == 1429536) {
-            std::cout << "";
-        }
 		prev->primary_path.next.store(next);
         next->primary_path.prev.store(prev);
 
@@ -197,55 +194,19 @@ namespace RaMesh {
 
     void GenomeEnd::setToSampling(SegPtr cur) {
         // std::unique_lock lk(rw);
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
-            std::cout << "";
-        }
+
         std::size_t idx = cur->start / kSampleStep;
         
         if (idx == 0) {
             return;
         }
         if (idx + 1 > sample_vec.size()) sample_vec.resize(idx + 1, nullptr);
-        //if (!sample_vec[need] || !sample_vec[need]->parent_block) {
-        //    sample_vec[need] = cur; 
-        //}else if (cur->start > sample_vec[need]->start) {
-        //    sample_vec[need] = cur;
-        //}
+
         if (!sample_vec[idx] || !sample_vec[idx]->parent_block || cur->start > sample_vec[idx]->start)
         {
             sample_vec[idx] = cur;
+        }
 
-            SegPtr cur2 = head;
-            bool t = true;
-            while (cur2 != tail) {
-                if (sample_vec[idx] == cur2) {
-                    t = false;
-                    break;
-                }
-                if (!cur2->primary_path.next.load()) {
-                    std::cout << "";
-                }
-                cur2 = cur2->primary_path.next.load();
-            }
-            if (t) {
-                std::cout << "";
-            }
-            //auto ptr = sample_vec[idx];
-            //if (ptr) {
-            //    std::cout
-            //        << "sample_vec[" << idx << "] @ " << ptr.get()
-            //        << "  start=" << ptr->start
-            //        << "  length=" << ptr->length
-            //        << "  strand=" << (ptr->strand == Strand::FORWARD ? '+' : '-')
-            //        << '\n';
-            //}
-            //else {
-            //    std::cout << "sample_vec[" << idx << "] is null\n";
-            //}
-        }
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
-            std::cout << "";
-        }
     }
 
     void GenomeEnd::updateSampling(const std::vector<SegPtr>& segs) {
@@ -263,27 +224,10 @@ namespace RaMesh {
         // 1) 读取采样表得到“最近前驱”的 hint
         //std::shared_lock lk(rw);                 // 读锁即可
         std::size_t slot = std::max((size_t)(range_start / kSampleStep) - 1, (size_t)0);
-        //std::size_t slot = 1;
-        //SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
-        //? sample_vec[slot] : head;
-        //SegPtr hint = head;
         //lk.unlock();                             // 之后只读链表，不再访问 sample_vec
         SegPtr hint = (slot < sample_vec.size() && sample_vec[slot])
             ? sample_vec[slot] : head;
-
-        bool head_could_go = false;
-        SegPtr a = head;
-        while (a != tail) {
-            if (a == hint) {
-				head_could_go = true; // 说明 hint 在链表中
-				break;
-            }
-			a = a->primary_path.next.load(std::memory_order_acquire);
-        }
-		if (!head_could_go) {
-            std::cout << "";
-		}
-        SegPtr hint2 = head;
+   
         // 2) 保证 hint 在目标区间左侧
         while (!hint->isHead() && hint->start > range_start) {
             SegPtr nxt = hint->primary_path.prev.load(std::memory_order_acquire);
@@ -294,16 +238,6 @@ namespace RaMesh {
             hint = nxt;
         }
 
-        while (!hint2->isHead() && hint2->start > range_start) {
-            SegPtr nxt = hint2->primary_path.prev.load(std::memory_order_acquire);
-            if (!nxt) {                    // 保险：有人在并发删除
-                hint2 = head;               // 回到链表起点重新来
-                break;
-            }
-            hint2 = nxt;
-        }
-
-
         SegPtr prev = hint;
         SegPtr curr = hint->primary_path.next.load(std::memory_order_acquire);
 
@@ -312,31 +246,6 @@ namespace RaMesh {
             prev = curr;
             curr = curr->primary_path.next.load(std::memory_order_acquire);
         }
-
-		if (curr->primary_path.prev.load(std::memory_order_acquire) != prev) {
-			std::cout << "";
-		}
-
-        SegPtr prev2 = hint2;
-        SegPtr curr2 = hint2->primary_path.next.load(std::memory_order_acquire);
-
-        bool t = true;
-        // 3) 向右遍历，直到越过 range_start
-        while (curr2 && !curr2->isTail() && curr2->start <= range_start) {
-            prev2 = curr2;
-            curr2 = curr2->primary_path.next.load(std::memory_order_acquire);
-            if (prev2 == hint) {
-                t == false;
-            }
-        }
-        if (t) {
-            std::cout << "";
-        }
-
-        if (prev2 != prev) {
-            std::cout << "";
-        }
-
         return prev;
     }
 
@@ -349,93 +258,18 @@ namespace RaMesh {
 
         uint_t beg = seg->start;
 
-        if (beg == 1420786) {
-            std::cout << "";
-        }
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() != prev_test) {
-            std::cout << "";
-        }
-
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
-            std::cout << "";
-        }
-
-        if (beg == 1429536) {
-            cur_test = seg;
-        }
-
-        if (beg == 1286480) {
-            prev_test = seg;
-        }
-
-
         // 1) 找到目标区间的前驱/后继（只读操作）
         SegPtr prev = findSurrounding(beg);
-        
         SegPtr next = prev->primary_path.next.load();
-        if (beg == 612415 || prev->start == 612415 || next->start == 612415) {
-            std::cout << "";
-        }
-
-        if (prev->start == 1420786 || next->start == 1420786 || seg->start == 1420786) {
-            std::cout << "";
-        }
-
-        if (prev->start == 1286480 || next->start == 1286480 || seg->start == 1286480) {
-            std::cout << "";
-        }
-
-        if (prev->start == 1429536 || next->start == 1429536 || seg->start == 1429536) {
-            std::cout << "";
-        }
-        if (beg < prev->start || (beg > next->start && next != tail)) {
-            std::cout << "";
-        }
-        if (prev->start == 1389740 && next->start == 1420786) {
-            std::cout << "";
-        }
-
-        if (prev->start == 1286480 && next->start == 1420786) {
-            std::cout << "";
-        }
-		if (next->primary_path.prev.load(std::memory_order_acquire) != prev) {
-            std::cout << "";
-;		}
-
 
         seg->primary_path.prev.store(prev);
-        if (seg->start == 1286480 && next->start == 1429536) {
-            std::cout << "";
-        }
+        
         seg->primary_path.next.store(next);
-
-        if (prev->start == 1286480 && seg->start == 1429536) {
-            std::cout << "";
-        }
+      
         prev->primary_path.next.store(seg);
         next->primary_path.prev.store(seg);
-
-        // 检验链表是否正确，检验seg，prev，next双向是否正确
-		if (next->primary_path.prev.load(std::memory_order_acquire) != seg) {
-			std::cout << "";
-		}
-		if (prev->primary_path.next.load(std::memory_order_acquire) != seg) {
-			std::cout << "";
-		}
-		if (seg->primary_path.prev.load(std::memory_order_acquire) != prev) {
-			std::cout << "";
-		}
-		if (seg->primary_path.next.load(std::memory_order_acquire) != next) {
-			std::cout << "";
-		}
-
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
-            std::cout << "";
-        }
+       
         setToSampling(seg);
-        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
-            std::cout << "";
-        }
     }
 
 
