@@ -344,6 +344,8 @@ public:
     // NewickParser.hpp 里声明
     std::vector<int> orderLeavesGreedyMinSum(int leafRoot);
 
+    std::vector<std::string> getLeafNames() const;
+
 
 
 

@@ -712,10 +712,32 @@ int main(int argc, char **argv) {
     spdlog::info("============================================================");
     spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
 
-    graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
-    /// 仅供调试使用
-    // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
+    std::vector<SpeciesName> species_names = newick_tree.getLeafNames();
+    // 原始输出文件，比如 "mammals.maf"
+    std::filesystem::path out0 = common_args.output_path;
 
+    // 拆分成 parent + stem + ext
+    auto parent = out0.parent_path();
+    auto stem = out0.stem().string();      // "mammals"
+    auto ext = out0.extension().string(); // ".maf"
+
+    // 构建 (SpeciesName, FilePath) 列表
+    std::vector<std::pair<SpeciesName, FilePath>> species_maf_files;
+    species_maf_files.reserve(species_names.size());
+
+    for (auto const& sp : species_names) {
+        // 生成新文件名：  mammals.<sp>.maf
+        std::string filename = stem + "." + sp + ext;
+        std::filesystem::path p = parent / filename;
+        species_maf_files.emplace_back(sp, p);
+    }
+
+    // 把species_names拼接到common_args.output_path中
+    graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
+    /// 导出没有反向链的maf仅供调试使用
+    // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
+    /// 导出多个参考maf
+    //graph->exportToMultipleMaf(species_maf_files, seqpro_managers, true, false);
 
     // ------------------------------
     // 退出
