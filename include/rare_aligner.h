@@ -50,7 +50,7 @@ public:
 
     SpeciesClusterMapPtr filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
 
-    // void constructMultipleGraphsByGreedy(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
+    void constructMultipleGraphsByGreedy(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
     void constructMultipleGraphsByGreedyByRef(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
@@ -106,7 +106,7 @@ public:
 
     MatchVec3DPtr findQueryFileAnchor(const std::string prefix, SeqPro::ManagerVariant& query_fasta_manager, SearchMode search_mode, bool allow_MEM, bool allow_short_mum, ThreadPool& pool, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval, bool isMultiple=false);
 
-    //void constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
+    void constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
     void constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, 
         uint_t min_span, bool isMultiple=false);
