@@ -147,20 +147,16 @@ namespace RaMesh {
     // ────────────────────────────────────────────────
     class GenomeEnd {
     public:
-        static constexpr uint_t kSampleStep = 10000;
+        static constexpr uint_t kSampleStep = 100000;
         GenomeEnd();
         GenomeEnd(GenomeEnd&&)            noexcept = default;
         GenomeEnd& operator=(GenomeEnd&&) noexcept = default;
         GenomeEnd(const GenomeEnd&) = delete;
         GenomeEnd& operator=(const GenomeEnd&) = delete;
 
-        std::pair<SegPtr, SegPtr> findSurrounding(uint_t beg, uint_t end);
+        SegPtr findSurrounding(uint_t range_start);
 
-        // Atomically splice an already linked chain [segments.front(), segments.back()] into list
-        void spliceSegmentChain(const std::vector<SegPtr>& segments,
-            uint_t beg, uint_t end);
-
-        void insertSegment(const SegPtr seg, uint_t beg, uint_t end);
+        void insertSegment(const SegPtr seg);
 
         void clearAllSegments();
         
@@ -221,11 +217,11 @@ namespace RaMesh {
 
         explicit RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_map);
 
-        void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-            const MatchCluster& cluster);
+   //     void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+   //         const MatchCluster& cluster);
 
-        void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-			const AnchorVec& anchor_vec);
+   //     void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+			//const AnchorVec& anchor_vec);
 
         void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
 

@@ -836,103 +836,103 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
  * @param shared_pool          共享线程池
  * @param min_span             最小跨度阈值
  */
-void MultipleRareAligner::constructMultipleGraphsByGreedy(
-std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
-    SpeciesName ref_name,
-    const SpeciesClusterMap& species_cluster_map,
-    RaMesh::RaMeshMultiGenomeGraph& graph,
-    uint_t min_span)
-{
-    if (species_cluster_map.empty()) {
-        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
-        return;
-    }
-
-    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
-                species_cluster_map.size());
-
-    ThreadPool shared_pool(thread_num);
-
-    // 【修复】：添加互斥锁保护graph的并发访问
-    std::mutex graph_mutex;
-
-    /* ---------- 1. 为每个物种并行处理cluster数据 ---------- */
-    std::vector<std::future<void>> species_futures;
-    species_futures.reserve(species_cluster_map.size());
-
-    for (const auto& [species_name, cluster_ptr] : species_cluster_map) {
-        if (species_name == ref_name) continue;  // 跳过参考物种
-
-        // 为每个物种启动异步任务
-        auto species_future = std::async(std::launch::async,
-            [this, ref_name, species_name, cluster_ptr, &graph, &shared_pool, &graph_mutex, min_span,&seqpro_managers]() {
-                try {
-                    if (!cluster_ptr || cluster_ptr->empty()) {
-                        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster data for species: {}",
-                                   species_name);
-                        return;
-                    }
-
-                    // 使用PairRareAligner的贪婪算法构建图
-                    PairRareAligner pra(*this);
-                    pra.ref_name = ref_name;
-                    // 【修复】：设置ref_seqpro_manager，避免空指针
-                    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
-
-                    //// 【修复】：避免过度并行化，改为串行处理chromosome数据
-                    //// 每个物种内部串行处理，避免graph的深度并发访问
-                    //for (const auto& strand_data : *cluster_ptr) {
-                    //    for (const auto& query_ref_data : strand_data) {
-                    //        for (const auto& cluster_vec : query_ref_data) {
-                    //            if (cluster_vec && !cluster_vec->empty()) {
-                    //                // 将集合转换为向量以便处理
-                    //                auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
-                    //                    cluster_vec->begin(), cluster_vec->end());
-
-                    //                // 【修复】：使用互斥锁保护graph访问
-                    //                {
-                    //                    std::lock_guard<std::mutex> lock(graph_mutex);
-                    //                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
-                    //                                             graph, min_span);
-                    //                }
-                    //            }
-                    //        }
-                    //    }
-                    //}
-                    {
-                        std::lock_guard<std::mutex> lock(graph_mutex);
-                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
-                                                                      graph, min_span);
-                    }
-
-                    spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
-                               species_name);
-                }
-                catch (const std::exception& e) {
-                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}",
-                                species_name, e.what());
-                }
-            });
-
-        species_futures.emplace_back(std::move(species_future));
-    }
-
-    /* ---------- 2. 等待所有物种处理完成 ---------- */
-    for (auto& future : species_futures) {
-        try {
-            future.wait();
-        }
-        catch (const std::exception& e) {
-            spdlog::error("[constructMultipleGraphsByGreedy] Error waiting for species processing: {}",
-                        e.what());
-        }
-    }
-
-    // 确保共享线程池中的所有任务都完成
-    shared_pool.waitAllTasksDone();
-
-    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
-}
+//void MultipleRareAligner::constructMultipleGraphsByGreedy(
+//std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
+//    SpeciesName ref_name,
+//    const SpeciesClusterMap& species_cluster_map,
+//    RaMesh::RaMeshMultiGenomeGraph& graph,
+//    uint_t min_span)
+//{
+//    if (species_cluster_map.empty()) {
+//        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
+//        return;
+//    }
+//
+//    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
+//                species_cluster_map.size());
+//
+//    ThreadPool shared_pool(thread_num);
+//
+//    // 【修复】：添加互斥锁保护graph的并发访问
+//    std::mutex graph_mutex;
+//
+//    /* ---------- 1. 为每个物种并行处理cluster数据 ---------- */
+//    std::vector<std::future<void>> species_futures;
+//    species_futures.reserve(species_cluster_map.size());
+//
+//    for (const auto& [species_name, cluster_ptr] : species_cluster_map) {
+//        if (species_name == ref_name) continue;  // 跳过参考物种
+//
+//        // 为每个物种启动异步任务
+//        auto species_future = std::async(std::launch::async,
+//            [this, ref_name, species_name, cluster_ptr, &graph, &shared_pool, &graph_mutex, min_span,&seqpro_managers]() {
+//                try {
+//                    if (!cluster_ptr || cluster_ptr->empty()) {
+//                        spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster data for species: {}",
+//                                   species_name);
+//                        return;
+//                    }
+//
+//                    // 使用PairRareAligner的贪婪算法构建图
+//                    PairRareAligner pra(*this);
+//                    pra.ref_name = ref_name;
+//                    // 【修复】：设置ref_seqpro_manager，避免空指针
+//                    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
+//
+//                    //// 【修复】：避免过度并行化，改为串行处理chromosome数据
+//                    //// 每个物种内部串行处理，避免graph的深度并发访问
+//                    //for (const auto& strand_data : *cluster_ptr) {
+//                    //    for (const auto& query_ref_data : strand_data) {
+//                    //        for (const auto& cluster_vec : query_ref_data) {
+//                    //            if (cluster_vec && !cluster_vec->empty()) {
+//                    //                // 将集合转换为向量以便处理
+//                    //                auto cluster_vec_ptr = std::make_shared<MatchClusterVec>(
+//                    //                    cluster_vec->begin(), cluster_vec->end());
+//
+//                    //                // 【修复】：使用互斥锁保护graph访问
+//                    //                {
+//                    //                    std::lock_guard<std::mutex> lock(graph_mutex);
+//                    //                    pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name],cluster_vec_ptr,
+//                    //                                             graph, min_span);
+//                    //                }
+//                    //            }
+//                    //        }
+//                    //    }
+//                    //}
+//                    {
+//                        std::lock_guard<std::mutex> lock(graph_mutex);
+//                        pra.constructGraphByGreedy(species_name, *seqpro_managers[species_name], cluster_ptr,
+//                                                                      graph, min_span);
+//                    }
+//
+//                    spdlog::info("[constructMultipleGraphsByGreedy] Species {} processed successfully",
+//                               species_name);
+//                }
+//                catch (const std::exception& e) {
+//                    spdlog::error("[constructMultipleGraphsByGreedy] Error processing species {}: {}",
+//                                species_name, e.what());
+//                }
+//            });
+//
+//        species_futures.emplace_back(std::move(species_future));
+//    }
+//
+//    /* ---------- 2. 等待所有物种处理完成 ---------- */
+//    for (auto& future : species_futures) {
+//        try {
+//            future.wait();
+//        }
+//        catch (const std::exception& e) {
+//            spdlog::error("[constructMultipleGraphsByGreedy] Error waiting for species processing: {}",
+//                        e.what());
+//        }
+//    }
+//
+//    // 确保共享线程池中的所有任务都完成
+//    shared_pool.waitAllTasksDone();
+//
+//    spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
+//}
 
 
 /* ============================================================= *
@@ -1007,14 +1007,12 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //        graph, pool, min_span);
             //    });
             for (auto& cluster : *cluster_ptr) {
-                const ChrName& ref_chr = cluster.front().ref_region.chr_name;
-                const ChrName& qry_chr = cluster.front().query_region.chr_name;
-
                 pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
-                    graph, pool, min_span, false);
+                    graph, min_span, false);
             }
         }
-        pool.waitAllTasksDone();
+    }
+    pool.waitAllTasksDone();
 
         for (auto& [species_name, genome_graph] : graph.species_graphs) {
             // if (species_name == ref_name) continue;
@@ -1023,6 +1021,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 //    end.removeOverlap();
                 //    });
                 end.removeOverlap(species_name == ref_name);
+                
             }
 
         }
@@ -1030,4 +1029,3 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
 
         spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
     }
-}

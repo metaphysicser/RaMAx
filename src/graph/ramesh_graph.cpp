@@ -117,117 +117,118 @@ namespace RaMesh {
     }
 
 
-    /* =============================================================
-     * 3.  Cluster insertion (public API)
-     * ===========================================================*/
-    void RaMeshMultiGenomeGraph::insertClusterIntoGraph(SpeciesName ref_name,
-                                                        SpeciesName qry_name,
-                                                        const MatchCluster &cluster) {
-        if (cluster.empty()) return;
+    ///* =============================================================
+    // * 3.  Cluster insertion (public API)
+    // * ===========================================================*/
+    //void RaMeshMultiGenomeGraph::insertClusterIntoGraph(SpeciesName ref_name,
+    //                                                    SpeciesName qry_name,
+    //                                                    const MatchCluster &cluster) {
+    //    if (cluster.empty()) return;
 
-        // 1. Locate ends for reference & query chromosomes
-        const ChrName &ref_chr = cluster.front().ref_region.chr_name;
-        const ChrName &qry_chr = cluster.front().query_region.chr_name;
+    //    // 1. Locate ends for reference & query chromosomes
+    //    const ChrName &ref_chr = cluster.front().ref_region.chr_name;
+    //    const ChrName &qry_chr = cluster.front().query_region.chr_name;
 
-        auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
-        auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
+    //    auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
+    //    auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
 
-        // 2. Build blocks & segments once (no shared‑state yet)
-        std::vector<SegPtr> ref_segs;
-        ref_segs.reserve(cluster.size());
-        std::vector<SegPtr> qry_segs;
-        qry_segs.reserve(cluster.size());
+    //    // 2. Build blocks & segments once (no shared‑state yet)
+    //    std::vector<SegPtr> ref_segs;
+    //    ref_segs.reserve(cluster.size());
+    //    std::vector<SegPtr> qry_segs;
+    //    qry_segs.reserve(cluster.size());
 
-        for (const auto &m: cluster) {
-            BlockPtr blk = Block::create(2);
-            blk->ref_chr = ref_chr;
+    //    for (const auto &m: cluster) {
+    //        BlockPtr blk = Block::create(2);
+    //        blk->ref_chr = ref_chr;
 
-            auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);
+    //        auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);
 
-            ref_segs.emplace_back(r_seg);
-            qry_segs.emplace_back(q_seg);
+    //        ref_segs.emplace_back(r_seg);
+    //        qry_segs.emplace_back(q_seg);
 
-            // register to global pool
-            {
-                std::unique_lock pool_lock(rw);
-                blocks.emplace_back(WeakBlock(blk));
-            }
-        }
+    //        // register to global pool
+    //        {
+    //            std::unique_lock pool_lock(rw);
+    //            blocks.emplace_back(WeakBlock(blk));
+    //        }
+    //    }
 
-        if (cluster.front().strand == REVERSE) {
-            std::reverse(qry_segs.begin(), qry_segs.end());
-        }
+    //    if (cluster.front().strand == REVERSE) {
+    //        std::reverse(qry_segs.begin(), qry_segs.end());
+    //    }
 
-        // 3. Link internal chains locally (single‑threaded)
-        Segment::linkChain(ref_segs);
-        Segment::linkChain(qry_segs);
-
-
-        // 4. Atomically splice into genome graph
-        uint_t ref_beg = cluster.front().ref_region.start;
-        uint_t ref_end_pos = cluster.back().ref_region.start + cluster.back().ref_region.length;
-        uint_t qry_beg = cluster.front().query_region.start;
-        uint_t qry_end_pos = cluster.back().query_region.start + cluster.back().query_region.length;
-
-        ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
-        qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
-    }
-
-    /* =============================================================
- * 3.  Anchor insertion (public API)
- * ===========================================================*/
-    void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-                                                          const AnchorVec &anchor_vec) {
-        if (anchor_vec.empty()) return;
-
-        // 1. Locate ends for reference & query chromosomes
-        const ChrName &ref_chr = anchor_vec.front().match.ref_region.chr_name;
-        const ChrName &qry_chr = anchor_vec.front().match.query_region.chr_name;
-
-        auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
-        auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
-
-        // 2. Build blocks & segments once (no shared‑state yet)
-        std::vector<SegPtr> ref_segs;
-        ref_segs.reserve(anchor_vec.size());
-        std::vector<SegPtr> qry_segs;
-        qry_segs.reserve(anchor_vec.size());
-
-        for (const Anchor &m: anchor_vec) {
-            BlockPtr blk = Block::create(2);
-            blk->ref_chr = ref_chr;
-
-            auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);
-
-            ref_segs.emplace_back(r_seg);
-            qry_segs.emplace_back(q_seg);
-
-            // register to global pool
-            {
-                std::unique_lock pool_lock(rw);
-                blocks.emplace_back(WeakBlock(blk));
-            }
-        }
-        if (anchor_vec.front().match.strand == REVERSE) {
-            std::reverse(qry_segs.begin(), qry_segs.end());
-        }
-        // 3. Link internal chains locally (single‑threaded)
-        Segment::linkChain(ref_segs);
-        Segment::linkChain(qry_segs);
-
-        // 4. Atomically splice into genome graph
-        uint_t ref_beg = anchor_vec.front().match.ref_region.start;
-        uint_t ref_end_pos = anchor_vec.back().match.ref_region.start + anchor_vec.back().match.ref_region.length;
-        uint_t qry_beg = anchor_vec.front().match.query_region.start;
-        uint_t qry_end_pos = anchor_vec.back().match.query_region.start + anchor_vec.back().match.query_region.length;
+    //    // 3. Link internal chains locally (single‑threaded)
+    //    Segment::linkChain(ref_segs);
+    //    Segment::linkChain(qry_segs);
 
 
-        ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
-        qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
-    }
+    //    // 4. Atomically splice into genome graph
+    //    uint_t ref_beg = cluster.front().ref_region.start;
+    //    uint_t ref_end_pos = cluster.back().ref_region.start + cluster.back().ref_region.length;
+    //    uint_t qry_beg = cluster.front().query_region.start;
+    //    uint_t qry_end_pos = cluster.back().query_region.start + cluster.back().query_region.length;
+
+    //    ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
+    //    qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
+    //}
+
+ //   /* =============================================================
+ //* 3.  Anchor insertion (public API)
+ //* ===========================================================*/
+ //   void RaMeshMultiGenomeGraph::insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+ //                                                         const AnchorVec &anchor_vec) {
+ //       if (anchor_vec.empty()) return;
+
+ //       // 1. Locate ends for reference & query chromosomes
+ //       const ChrName &ref_chr = anchor_vec.front().match.ref_region.chr_name;
+ //       const ChrName &qry_chr = anchor_vec.front().match.query_region.chr_name;
+
+ //       auto &ref_end = species_graphs[ref_name].chr2end[ref_chr];
+ //       auto &qry_end = species_graphs[qry_name].chr2end[qry_chr];
+
+ //       // 2. Build blocks & segments once (no shared‑state yet)
+ //       std::vector<SegPtr> ref_segs;
+ //       ref_segs.reserve(anchor_vec.size());
+ //       std::vector<SegPtr> qry_segs;
+ //       qry_segs.reserve(anchor_vec.size());
+
+ //       for (const Anchor &m: anchor_vec) {
+ //           BlockPtr blk = Block::create(2);
+ //           blk->ref_chr = ref_chr;
+
+ //           auto [r_seg, q_seg] = Block::createSegmentPair(m, ref_name, qry_name, ref_chr, qry_chr, blk);
+
+ //           ref_segs.emplace_back(r_seg);
+ //           qry_segs.emplace_back(q_seg);
+
+ //           // register to global pool
+ //           {
+ //               std::unique_lock pool_lock(rw);
+ //               blocks.emplace_back(WeakBlock(blk));
+ //           }
+ //       }
+ //       if (anchor_vec.front().match.strand == REVERSE) {
+ //           std::reverse(qry_segs.begin(), qry_segs.end());
+ //       }
+ //       // 3. Link internal chains locally (single‑threaded)
+ //       Segment::linkChain(ref_segs);
+ //       Segment::linkChain(qry_segs);
+
+ //       // 4. Atomically splice into genome graph
+ //       uint_t ref_beg = anchor_vec.front().match.ref_region.start;
+ //       uint_t ref_end_pos = anchor_vec.back().match.ref_region.start + anchor_vec.back().match.ref_region.length;
+ //       uint_t qry_beg = anchor_vec.front().match.query_region.start;
+ //       uint_t qry_end_pos = anchor_vec.back().match.query_region.start + anchor_vec.back().match.query_region.length;
+
+
+ //       ref_end.spliceSegmentChain(ref_segs, ref_beg, ref_end_pos);
+ //       qry_end.spliceSegmentChain(qry_segs, qry_beg, qry_end_pos);
+ //   }
 
     void RaMeshMultiGenomeGraph::insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name,
                                                        const Anchor &anchor, bool isMultiple) {
+        
         // 1. Locate ends for reference & query chromosomes
         const ChrName &ref_chr = anchor.match.ref_region.chr_name;
         const ChrName &qry_chr = anchor.match.query_region.chr_name;
@@ -248,45 +249,8 @@ namespace RaMesh {
             blocks.emplace_back(WeakBlock(blk));
         }
 
-        uint_t ref_beg;
-        uint_t ref_end_pos;
-        uint_t qry_beg;
-        uint_t qry_end_pos;
-
-        // 4. Atomically splice into genome graph
-        if(isMultiple){
-            ref_beg = std::visit([&](auto& mgr) -> uint_t {
-                using T = std::decay_t<decltype(mgr)>;
-                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    return mgr->toOriginalPosition(anchor.match.ref_region.chr_name, anchor.match.ref_region.start);
-                } else {
-                    // 没有 toOriginalPosition，直接返回原始 start 或抛异常
-                    return anchor.match.ref_region.start;
-                }
-            }, ref_mgr);
-            ref_end_pos = ref_beg + anchor.match.ref_region.length;
-            qry_beg = std::visit([&](auto& mgr) -> uint_t {
-                using T = std::decay_t<decltype(mgr)>;
-                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    return mgr->toOriginalPosition(anchor.match.query_region.chr_name, anchor.match.query_region.start);
-                } else {
-                    return anchor.match.query_region.start;
-                }
-            }, qry_mgr);
-            qry_end_pos = qry_beg + anchor.match.query_region.length;
-        }
-        else{
-            ref_beg = anchor.match.ref_region.start;
-            ref_end_pos = anchor.match.ref_region.start + anchor.match.ref_region.length;
-            qry_beg = anchor.match.query_region.start;
-            qry_end_pos = anchor.match.query_region.start + anchor.match.query_region.length;
-        }
-        r_seg->start = ref_beg;
-        q_seg->start = qry_beg;
-
-
-        ref_end.insertSegment(r_seg, ref_beg, ref_end_pos);
-        qry_end.insertSegment(q_seg, qry_beg, qry_end_pos);
+        ref_end.insertSegment(r_seg);
+        qry_end.insertSegment(q_seg);
     }
 
     /* ==============================================================
