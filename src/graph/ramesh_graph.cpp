@@ -1134,6 +1134,115 @@ namespace RaMesh {
      * 6.  Merge multiple graphs (public API)
      * ===========================================================*/
     void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name, uint_t thread_num) {
+        // ═══════════════════════════════════════════════════════════
+        // 性能分析：函数开始计时
+        // ═══════════════════════════════════════════════════════════
+        using namespace std::chrono;
+        using HighResClock = high_resolution_clock;
+        using TimePoint = HighResClock::time_point;
+        using Duration = nanoseconds;
+
+        const TimePoint function_start_time = HighResClock::now();
+
+        // 性能统计结构
+        struct PerformanceStats {
+            Duration initialization_time{0};
+            Duration chromosome_iteration_time{0};
+            Duration overlap_detection_time{0};
+            Duration block_creation_time{0};
+            Duration cigar_processing_time{0};
+            Duration segment_creation_time{0};
+            Duration link_replacement_time{0};
+            Duration cleanup_time{0};
+
+            size_t total_overlaps_found = 0;
+            size_t total_blocks_created = 0;
+            size_t total_segments_created = 0;
+            size_t total_cigar_operations = 0;
+
+            // 批量删除相关统计
+            size_t total_blocks_marked_for_deletion = 0;
+            size_t batch_deletion_operations = 0;
+
+            // 细粒度清理工作计时
+            Duration block_lookup_time{0};
+            Duration actual_deletion_time{0};
+            Duration container_reorganization_time{0};
+
+            void logStepTime(const std::string& step_name, Duration step_time, Duration total_time) const {
+                double step_ms = duration_cast<microseconds>(step_time).count() / 1000.0;
+                double total_ms = duration_cast<microseconds>(total_time).count() / 1000.0;
+                double percentage = total_ms > 0 ? (step_ms / total_ms) * 100.0 : 0.0;
+
+                spdlog::info("性能分析 - {}: {:.3f}ms ({:.2f}%)", step_name, step_ms, percentage);
+            }
+
+            void logFinalReport(Duration total_time) const {
+                double total_ms = duration_cast<microseconds>(total_time).count() / 1000.0;
+
+                spdlog::info("═══════════════════════════════════════════════════════════");
+                spdlog::info("性能分析报告 - mergeMultipleGraphs 函数");
+                spdlog::info("═══════════════════════════════════════════════════════════");
+                spdlog::info("总执行时间: {:.3f}ms", total_ms);
+                spdlog::info("───────────────────────────────────────────────────────────");
+
+                logStepTime("初始化阶段", initialization_time, total_time);
+                logStepTime("染色体遍历", chromosome_iteration_time, total_time);
+                logStepTime("重叠检测", overlap_detection_time, total_time);
+                logStepTime("Block创建", block_creation_time, total_time);
+                logStepTime("CIGAR处理", cigar_processing_time, total_time);
+                logStepTime("Segment创建", segment_creation_time, total_time);
+                logStepTime("链表重连", link_replacement_time, total_time);
+                logStepTime("清理工作", cleanup_time, total_time);
+
+                spdlog::info("───────────────────────────────────────────────────────────");
+                spdlog::info("清理工作详细分析:");
+                logStepTime("  Block查找", block_lookup_time, total_time);
+                logStepTime("  实际删除", actual_deletion_time, total_time);
+                logStepTime("  容器重组", container_reorganization_time, total_time);
+
+                spdlog::info("───────────────────────────────────────────────────────────");
+                spdlog::info("操作统计:");
+                spdlog::info("  发现重叠: {} 次", total_overlaps_found);
+                spdlog::info("  创建Block: {} 个", total_blocks_created);
+                spdlog::info("  创建Segment: {} 个", total_segments_created);
+                spdlog::info("  CIGAR操作: {} 次", total_cigar_operations);
+                spdlog::info("  标记删除Block: {} 个", total_blocks_marked_for_deletion);
+                spdlog::info("  批量删除操作: {} 次", batch_deletion_operations);
+
+                if (total_overlaps_found > 0) {
+                    double avg_overlap_time = duration_cast<microseconds>(overlap_detection_time).count() / 1000.0 / total_overlaps_found;
+                    spdlog::info("  平均重叠处理时间: {:.3f}ms", avg_overlap_time);
+                }
+
+                if (total_blocks_marked_for_deletion > 0 && batch_deletion_operations > 0) {
+                    double avg_deletion_efficiency = static_cast<double>(total_blocks_marked_for_deletion) / batch_deletion_operations;
+                    spdlog::info("  批量删除效率: {:.1f} 个Block/次", avg_deletion_efficiency);
+                }
+
+                spdlog::info("═══════════════════════════════════════════════════════════");
+            }
+        } perf_stats;
+
+        // 辅助函数：带性能监控的Segment创建
+        auto createSegmentWithTiming = [&](uint_t start, uint_t len, Strand sd, Cigar_t cg,
+                                          AlignRole rl, SegmentRole sl, const BlockPtr& bp) -> SegPtr {
+            TimePoint seg_create_start = HighResClock::now();
+            SegPtr result = Segment::create(start, len, sd, std::move(cg), rl, sl, bp);
+            TimePoint seg_create_end = HighResClock::now();
+            perf_stats.segment_creation_time += duration_cast<Duration>(seg_create_end - seg_create_start);
+            perf_stats.total_segments_created++;
+            return result;
+        };
+
+        TimePoint step_start_time = HighResClock::now();
+
+        // ═══════════════════════════════════════════════════════════
+        // 批量删除优化：收集要删除的Block，避免逐个删除的O(n²)问题
+        // ═══════════════════════════════════════════════════════════
+        std::unordered_set<BlockPtr> blocks_to_delete;
+        blocks_to_delete.reserve(100000); // 预分配空间，根据统计数据估算
+
         std::shared_lock graph_lock(rw);
 
         // ═══════════════════════════════════════════════════════════
@@ -1336,6 +1445,13 @@ namespace RaMesh {
             progress.total_chromosomes, progress.total_genomic_length / 1000000.0);
         progress.displayProgress();
 
+        // ═══════════════════════════════════════════════════════════
+        // 性能分析：初始化阶段完成
+        // ═══════════════════════════════════════════════════════════
+        TimePoint init_end_time = HighResClock::now();
+        perf_stats.initialization_time = duration_cast<Duration>(init_end_time - step_start_time);
+        step_start_time = init_end_time;
+
         std::vector<SpeciesDebugInfo> debug_all_species_segments;
         debug_all_species_segments.reserve(species_graphs.size());
 
@@ -1366,6 +1482,12 @@ namespace RaMesh {
 
         auto ref_it = species_graphs.find(ref_name);
         if (ref_it == species_graphs.end()) return;
+
+        // ═══════════════════════════════════════════════════════════
+        // 性能分析：开始主循环 - 染色体遍历
+        // ═══════════════════════════════════════════════════════════
+        TimePoint main_loop_start = HighResClock::now();
+
         // 改为遍历species_graphs来查找Ref
         for (const auto &[current_species, ref_genome]: species_graphs) {
             if (current_species != ref_name) {
@@ -1413,6 +1535,11 @@ namespace RaMesh {
 
                         current_block = current->parent_block;
 
+                        // ═══════════════════════════════════════════════════════════
+                        // 性能分析：重叠检测开始
+                        // ═══════════════════════════════════════════════════════════
+                        TimePoint overlap_detection_start = HighResClock::now();
+
                         // 构造查找键并直接find
                         SpeciesChrPair ref_key{ref_name, chr_name};
 
@@ -1432,6 +1559,14 @@ namespace RaMesh {
 
                             // 发现重叠
                             if (prev_end > curr_start) {
+                                // ═══════════════════════════════════════════════════════════
+                                // 性能分析：重叠检测完成，开始处理
+                                // ═══════════════════════════════════════════════════════════
+                                TimePoint overlap_detection_end = HighResClock::now();
+                                perf_stats.overlap_detection_time += duration_cast<Duration>(overlap_detection_end - overlap_detection_start);
+                                perf_stats.total_overlaps_found++;
+
+                                TimePoint block_creation_start = HighResClock::now();
                                 // ═══════════════════════════════════════════════════════════
                                 // 记录合并操作
                                 // ═══════════════════════════════════════════════════════════
@@ -1490,6 +1625,8 @@ namespace RaMesh {
                                     );
                                     // 将ref segment注册到block
                                     prefix_block->anchors[ref_key] = prefix_ref_seg;
+                                    perf_stats.total_blocks_created++;
+                                    perf_stats.total_segments_created++;
                                 }
 
                                 // 2. 创建重叠block和segment（必定存在）
@@ -1507,6 +1644,8 @@ namespace RaMesh {
                                 );
                                 // 将ref segment注册到block
                                 overlap_block->anchors[ref_key] = overlap_ref_seg;
+                                perf_stats.total_blocks_created++;
+                                perf_stats.total_segments_created++;
 
                                 // 3. 创建后缀block和segment（如果存在）
                                 if (prev_has_suffix || curr_has_suffix) {
@@ -1523,7 +1662,18 @@ namespace RaMesh {
                                     );
                                     // 将ref segment注册到block
                                     suffix_block->anchors[ref_key] = suffix_ref_seg;
+                                    perf_stats.total_blocks_created++;
+                                    perf_stats.total_segments_created++;
                                 }
+
+                                // ═══════════════════════════════════════════════════════════
+                                // 性能分析：Block创建完成
+                                // ═══════════════════════════════════════════════════════════
+                                TimePoint block_creation_end = HighResClock::now();
+                                perf_stats.block_creation_time += duration_cast<Duration>(block_creation_end - block_creation_start);
+
+                                TimePoint cigar_processing_start = HighResClock::now();
+                                TimePoint segment_creation_start = HighResClock::now();
 
                                 // 准备开始处理对应的query，首先处理prev_block，然后处理current_block
                                 // 1. 处理prev_block
@@ -1547,6 +1697,7 @@ namespace RaMesh {
                                             uint32_t overlap_length = prefix_length + overlap_len;
                                             uint32_t suffix_length = prev_has_suffix ? overlap_length + suffix_len : 0;
                                             for (CigarUnit cu: segment->cigar) {
+                                                perf_stats.total_cigar_operations++;
                                                 uint32_t cigar_len;
                                                 char op;
                                                 intToCigar(cu, op, cigar_len);
@@ -1559,7 +1710,7 @@ namespace RaMesh {
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, prefix_len);
                                                         cigar_str = remain_cigar;
-                                                        prefix_qry_seg = Segment::create(
+                                                        prefix_qry_seg = createSegmentWithTiming(
                                                             segment->start,
                                                             countNonDeletionOperations(split_cigar),
                                                             segment->strand,
@@ -1579,7 +1730,7 @@ namespace RaMesh {
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, overlap_len);
                                                         cigar_str = remain_cigar;
-                                                        overlap_qry_seg = Segment::create(
+                                                        overlap_qry_seg = createSegmentWithTiming(
                                                             prefix_qry_seg
                                                                 ? prefix_qry_seg->start + prefix_qry_seg->length
                                                                 : segment->start,
@@ -1599,7 +1750,7 @@ namespace RaMesh {
                                                         auto [split_cigar, remain_cigar] = splitCigarMixed(
                                                             cigar_str, suffix_len);
                                                         cigar_str = remain_cigar;
-                                                        suffix_qry_seg = Segment::create(
+                                                        suffix_qry_seg = createSegmentWithTiming(
                                                             overlap_qry_seg->start + overlap_qry_seg->length,
                                                             countNonDeletionOperations(split_cigar),
                                                             segment->strand,
@@ -1920,6 +2071,14 @@ namespace RaMesh {
                                         }
                                     }
                                 }
+
+                                // ═══════════════════════════════════════════════════════════
+                                // 性能分析：CIGAR处理完成，开始链表重连
+                                // ═══════════════════════════════════════════════════════════
+                                TimePoint cigar_processing_end = HighResClock::now();
+                                perf_stats.cigar_processing_time += duration_cast<Duration>(cigar_processing_end - cigar_processing_start);
+
+                                TimePoint link_replacement_start = HighResClock::now();
 
                                 // 开始替换prev和current，先替换Ref
                                 // 获取prev的前驱和current的后继
@@ -2274,25 +2433,24 @@ namespace RaMesh {
                                     }
                                 }
 
-                                // 移除prev_block
-                                auto prev_it = std::find_if(
-                                    blocks.begin(), blocks.end(),
-                                    [&](const WeakBlock &wb) {
-                                        auto locked = wb.lock();
-                                        return locked && locked == prev_block;
-                                    });
-                                if (prev_it != blocks.end()) {
-                                    blocks.erase(prev_it);
+                                // ═══════════════════════════════════════════════════════════
+                                // 性能分析：链表重连完成，开始清理工作
+                                // ═══════════════════════════════════════════════════════════
+                                TimePoint link_replacement_end = HighResClock::now();
+                                perf_stats.link_replacement_time += duration_cast<Duration>(link_replacement_end - link_replacement_start);
+
+                                TimePoint cleanup_start = HighResClock::now();
+
+                                // ═══════════════════════════════════════════════════════════
+                                // 批量删除优化：标记要删除的Block，而不是立即删除
+                                // ═══════════════════════════════════════════════════════════
+                                if (prev_block) {
+                                    blocks_to_delete.insert(prev_block);
+                                    perf_stats.total_blocks_marked_for_deletion++;
                                 }
-                                // 移除current_block
-                                auto curr_it = std::find_if(
-                                    blocks.begin(), blocks.end(),
-                                    [&](const WeakBlock &wb) {
-                                        auto locked = wb.lock();
-                                        return locked && locked == current_block;
-                                    });
-                                if (curr_it != blocks.end()) {
-                                    blocks.erase(curr_it);
+                                if (current_block) {
+                                    blocks_to_delete.insert(current_block);
+                                    perf_stats.total_blocks_marked_for_deletion++;
                                 }
                                 // 替换current和prev
                                 prev = overlap_ref_seg->primary_path.prev.load(std::memory_order_acquire);
@@ -2302,6 +2460,12 @@ namespace RaMesh {
                                 prev_block = prev->parent_block;
                                 current = prev->primary_path.next.load(std::memory_order_acquire);
                                 current_block = current->parent_block;
+                                // ═══════════════════════════════════════════════════════════
+                                // 性能分析：清理工作完成
+                                // ═══════════════════════════════════════════════════════════
+                                TimePoint cleanup_end = HighResClock::now();
+                                perf_stats.cleanup_time += duration_cast<Duration>(cleanup_end - cleanup_start);
+
                                 // 继续处理，不要跳到最后，因为新创建的blocks之间可能还有重叠
 
 
@@ -2367,9 +2531,75 @@ namespace RaMesh {
         }
 
         // ═══════════════════════════════════════════════════════════
+        // 性能分析：染色体遍历完成
+        // ═══════════════════════════════════════════════════════════
+        TimePoint main_loop_end = HighResClock::now();
+        perf_stats.chromosome_iteration_time = duration_cast<Duration>(main_loop_end - main_loop_start);
+
+        // ═══════════════════════════════════════════════════════════
+        // 批量删除优化：一次性删除所有标记的Block
+        // ═══════════════════════════════════════════════════════════
+        TimePoint batch_deletion_start = HighResClock::now();
+
+        if (!blocks_to_delete.empty()) {
+            spdlog::info("开始批量删除 {} 个Block...", blocks_to_delete.size());
+
+            // 升级为写锁以进行删除操作
+            graph_lock.unlock();
+            std::unique_lock<std::shared_mutex> write_lock(rw);
+
+            // 使用高效的批量删除：标记-清除策略
+            size_t original_size = blocks.size();
+
+            // 1. Block查找阶段计时
+            TimePoint lookup_start = HighResClock::now();
+
+            // 方法1：使用remove_if + erase idiom（推荐）
+            auto new_end = std::remove_if(blocks.begin(), blocks.end(),
+                [&blocks_to_delete](const WeakBlock& wb) {
+                    auto locked = wb.lock();
+                    return locked && blocks_to_delete.find(locked) != blocks_to_delete.end();
+                });
+
+            TimePoint lookup_end = HighResClock::now();
+            perf_stats.block_lookup_time += duration_cast<Duration>(lookup_end - lookup_start);
+
+            // 2. 实际删除阶段计时
+            TimePoint deletion_start = HighResClock::now();
+
+            blocks.erase(new_end, blocks.end());
+
+            TimePoint deletion_end = HighResClock::now();
+            perf_stats.actual_deletion_time += duration_cast<Duration>(deletion_end - deletion_start);
+
+            size_t deleted_count = original_size - blocks.size();
+            perf_stats.batch_deletion_operations = 1;
+
+            spdlog::info("批量删除完成，实际删除了 {} 个Block", deleted_count);
+
+            // 释放写锁，重新获取读锁
+            write_lock.unlock();
+            graph_lock = std::shared_lock<std::shared_mutex>(rw);
+        }
+
+        TimePoint batch_deletion_end = HighResClock::now();
+        Duration batch_deletion_time = duration_cast<Duration>(batch_deletion_end - batch_deletion_start);
+
+        // 将批量删除时间加入清理工作统计
+        perf_stats.cleanup_time += batch_deletion_time;
+
+        // ═══════════════════════════════════════════════════════════
         // 完成所有处理
         // ═══════════════════════════════════════════════════════════
         progress.finish();
+
+        // ═══════════════════════════════════════════════════════════
+        // 性能分析：函数执行完成，生成最终报告
+        // ═══════════════════════════════════════════════════════════
+        TimePoint function_end_time = HighResClock::now();
+        Duration total_function_time = duration_cast<Duration>(function_end_time - function_start_time);
+
+        perf_stats.logFinalReport(total_function_time);
         // // 收集所有物种的segment详细信息
         // debug_all_species_segments.clear();
         // for (const auto &[species_name, genome_graph]: species_graphs) {
