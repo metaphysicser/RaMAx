@@ -453,6 +453,10 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
   */
 void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span, bool isMultiple)
 {
+	auto& end = graph.species_graphs["simHuman"].chr2end["simHuman.chrJ"];
+	if (end.cur_test && end.prev_test && end.cur_test->primary_path.prev.load() == end.prev_test) {
+		std::cout << "";
+	}
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
 	struct Node {
@@ -475,7 +479,7 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 
 	std::unordered_map<ChrName, IntervalMap> rMaps;
 	std::unordered_map<ChrName, IntervalMap> qMaps;
-
+	uint_t last = 0;
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
 
@@ -513,10 +517,26 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
+			
 			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			for (auto& anchor : anchor_vec) {
+				if (anchor.match.ref_region.start == 4482014 || anchor.match.query_region.start == 4482014) {
+					std::cout << "";
+				}
+				if (anchor.match.ref_region.start == 0 || anchor.match.query_region.start == 0) {
+					std::cout << "";
+				}
+				auto& end = graph.species_graphs["simHuman"].chr2end["simHuman.chrJ"];
+				if (end.cur_test && end.prev_test && end.cur_test->primary_path.prev.load() == end.prev_test) {
+					std::cout << "";
+				}
+				last = anchor.match.ref_region.start;
 				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
+				if (end.cur_test && end.prev_test && end.cur_test->primary_path.prev.load() == end.prev_test) {
+					std::cout << "";
+				}
 			}
+			
 			
 			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {
 			//	AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
@@ -537,6 +557,7 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			}
 		}
 	}
+	return;
 }
 
 ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)

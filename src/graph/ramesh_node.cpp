@@ -95,35 +95,19 @@ namespace RaMesh {
     {
         if (!seg || seg->isHead() || seg->isTail()) return;
 
-        while (true) {
-            SegPtr prev = seg->primary_path.prev.load(std::memory_order_acquire);
-            SegPtr next = seg->primary_path.next.load(std::memory_order_acquire);
+        SegPtr prev = seg->primary_path.prev.load(std::memory_order_acquire);
+        SegPtr next = seg->primary_path.next.load(std::memory_order_acquire);
 
-            // 已经被摘过
-            if (!prev || !next) return;
+        uint_t cur_start = prev->start;
 
-            /* -- CAS  prev->next  -- */
-            SegPtr exp = seg;
-            if (!prev->primary_path.next.compare_exchange_weak(
-                exp, next,
-                std::memory_order_acq_rel,
-                std::memory_order_acquire))
-                continue;                       // 失败：再读一遍重试
-
-            /* -- CAS  next->prev  -- */
-            exp = seg;
-            while (!next->primary_path.prev.compare_exchange_weak(
-                exp, prev,
-                std::memory_order_acq_rel,
-                std::memory_order_acquire))
-            {
-                if (exp != seg) break;          // 别人已修好
-            }
-
-            //seg->primary_path.next.store(nullptr, std::memory_order_release);
-            //seg->primary_path.prev.store(nullptr, std::memory_order_release);
-            return;                             // 至此链表闭合
+        if (cur_start == 1286480 || cur_start == 1429536) {
+            std::cout << "";
         }
+		prev->primary_path.next.store(next);
+        next->primary_path.prev.store(prev);
+
+		seg->primary_path.next.store(nullptr);
+		seg->primary_path.prev.store(nullptr);
     }
 
 
@@ -213,6 +197,9 @@ namespace RaMesh {
 
     void GenomeEnd::setToSampling(SegPtr cur) {
         // std::unique_lock lk(rw);
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
+            std::cout << "";
+        }
         std::size_t idx = cur->start / kSampleStep;
         
         if (idx == 0) {
@@ -256,7 +243,9 @@ namespace RaMesh {
             //    std::cout << "sample_vec[" << idx << "] is null\n";
             //}
         }
-		
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
+            std::cout << "";
+        }
     }
 
     void GenomeEnd::updateSampling(const std::vector<SegPtr>& segs) {
@@ -348,7 +337,7 @@ namespace RaMesh {
             std::cout << "";
         }
 
-        return prev2;
+        return prev;
     }
 
 
@@ -359,9 +348,27 @@ namespace RaMesh {
         if (!seg) return;
 
         uint_t beg = seg->start;
-        if (beg == 1461897 || beg == 4014548) {
+
+        if (beg == 1420786) {
             std::cout << "";
-        };
+        }
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() != prev_test) {
+            std::cout << "";
+        }
+
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
+            std::cout << "";
+        }
+
+        if (beg == 1429536) {
+            cur_test = seg;
+        }
+
+        if (beg == 1286480) {
+            prev_test = seg;
+        }
+
+
         // 1) 找到目标区间的前驱/后继（只读操作）
         SegPtr prev = findSurrounding(beg);
         
@@ -422,8 +429,13 @@ namespace RaMesh {
 			std::cout << "";
 		}
 
-
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
+            std::cout << "";
+        }
         setToSampling(seg);
+        if (cur_test && prev_test && cur_test->primary_path.prev.load() == prev_test) {
+            std::cout << "";
+        }
     }
 
 
@@ -562,7 +574,7 @@ namespace RaMesh {
             SegPtr next = cur;
             uint_t prev_end = prev->start + prev->length;
             uint_t cur_start = cur->start;
-            if (cur_start == 583001 || cur_start == 2956412 || cur_start == 4488638) {
+            if (cur_start == 1286480 || cur_start == 1429536) {
                 std::cout << "";
             }
             /* -------- 检测交叠 -------- */
@@ -728,7 +740,7 @@ namespace RaMesh {
     //}
     void Block::removeAllSegments()
     {
-        std::unique_lock lk(rw);                     // 独占 Block
+        //std::unique_lock lk(rw);                     // 独占 Block
 
         std::vector<SegPtr> seg_list;
         seg_list.reserve(anchors.size());
@@ -738,12 +750,13 @@ namespace RaMesh {
 
         anchors.clear();                              // 现在可以一次性清空
 
-        /* 真正断链 + 释放在容器之外进行，
-           即使过程中触发再修改 anchors，也不会再有活迭代器。 */
+        ///* 真正断链 + 释放在容器之外进行，
+        //   即使过程中触发再修改 anchors，也不会再有活迭代器。 */
         for (SegPtr seg : seg_list) {
             Segment::unlinkSegment(seg);
             seg->parent_block.reset();
         }
+
     }
 
     
