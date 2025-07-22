@@ -713,6 +713,8 @@ int main(int argc, char **argv) {
     spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
 
     graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
+    /// 仅供调试使用
+    // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
 
 
     // ------------------------------

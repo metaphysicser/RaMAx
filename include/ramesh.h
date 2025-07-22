@@ -339,6 +339,8 @@ namespace RaMesh {
 
         void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
 
+        void exportToMafWithoutReverse(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
+
         
         // ――― high-performance deletion methods ―――
         bool removeBlock(const BlockPtr& block);
