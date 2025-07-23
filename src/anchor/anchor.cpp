@@ -157,11 +157,22 @@ void groupMatchByQueryRef(
     auto ensure_slot = [&](MatchByStrandByQueryRefPtr& tgt,
         uint_t s, uint_t q, uint_t r) -> MatchVec&
         {
-            if (s >= tgt->size())            tgt->resize(STRAND_CNT);
-            if (q >= (*tgt)[s].size())       (*tgt)[s].resize(qry_chr_cnt);
-            if (r >= (*tgt)[s][q].size())    (*tgt)[s][q].resize(ref_chr_cnt);
+            //if (s >= tgt->size())            tgt->resize(STRAND_CNT);
+            //if (q >= (*tgt)[s].size())       (*tgt)[s].resize(qry_chr_cnt);
+            //if (r >= (*tgt)[s][q].size())    (*tgt)[s][q].resize(ref_chr_cnt);
             return (*tgt)[s][q][r];
         };
+
+    auto initTarget = [&](MatchByStrandByQueryRefPtr& tgt) {
+    tgt->resize(STRAND_CNT);
+    for (uint_t s = 0; s < STRAND_CNT; ++s) {
+        (*tgt)[s].resize(qry_chr_cnt);
+        for (uint_t q = 0; q < qry_chr_cnt; ++q)
+            (*tgt)[s][q].resize(ref_chr_cnt);
+    }
+    };
+    initTarget(unique_anchors);
+    initTarget(repeat_anchors);
 
     // ----------------- 2) 顺序遍历所有 slice -----------------
     for (auto& slice : *anchors) {
@@ -189,31 +200,35 @@ void groupMatchByQueryRef(
                 ? ensure_slot(unique_anchors, sIdx, qIdx, rIdx)
                 : ensure_slot(repeat_anchors, sIdx, qIdx, rIdx);
 
-            //if (dest.empty()) dest.reserve(vec.size()); // 减少后续扩容
+            if (dest.empty()) dest.reserve(vec.size()); // 减少后续扩容
 
-            if (dest.empty()) {
-                // 零复制合并
-                dest.swap(vec);
-            }
-            else {
-                if (dest.capacity() < dest.size() + vec.size())
-                    dest.reserve(dest.size() + vec.size());
-                dest.insert(dest.end(),
-                    std::make_move_iterator(vec.begin()),
-                    std::make_move_iterator(vec.end()));
-                vec.clear();
-            }
+            dest.insert(dest.end(),
+                std::make_move_iterator(vec.begin()),
+                std::make_move_iterator(vec.end()));
 
-            // ---- 2‑C 可选择性回收 vec.capacity() ----
-            if (vec.capacity() > 1024 && vec.empty()) {
-                MatchVec{}.swap(vec); // 只有容量较大时才回收
-            }
+            // --- 立即回收 vec 占用容量 ---
+            vec.clear();
+            vec.shrink_to_fit();
         }
     }
 
     // ----------------- 3) anchors 自身可以释放 -----------------
     anchors->clear();
     anchors->shrink_to_fit();
+
+    // 遍历unique_anchors，使用shrink_to_fit()
+    auto shrink_matrix = [](MatchByStrandByQueryRefPtr& matrix) {
+        for (auto& strand_v : *matrix) {
+            for (auto& qry_v : strand_v) {
+                for (auto& ref_v : qry_v) {
+                    if (ref_v.capacity() > ref_v.size())
+                        ref_v.shrink_to_fit();
+                }
+            }
+        }
+        };
+    shrink_matrix(unique_anchors);
+    shrink_matrix(repeat_anchors);
 }
 
 
