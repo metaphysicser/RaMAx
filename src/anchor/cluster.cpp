@@ -148,7 +148,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool)
+    ThreadPool& pool, uint_t min_cluster_length)
 {
     // ---------- 0. 判空 ----------
     if (unique_anchors->empty() && repeat_anchors->empty()) {
@@ -217,8 +217,8 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
         if (tasks[task_idx].total_size >= MIN_PARALLEL_SIZE) {
             // 大任务：单独处理
             const auto& task = tasks[task_idx];
-            futures.emplace_back(pool.enqueue([task, task_idx]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
-                auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr);
+            futures.emplace_back(pool.enqueue([task, task_idx, min_cluster_length]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
+                auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr, min_cluster_length);
                 return {{task_idx, result}};
             }));
             ++task_idx;
@@ -227,13 +227,13 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
             size_t batch_end = std::min(task_idx + BATCH_SIZE, tasks.size());
             std::vector<ClusterTask> batch(tasks.begin() + task_idx, tasks.begin() + batch_end);
             
-            futures.emplace_back(pool.enqueue([batch, task_idx]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
+            futures.emplace_back(pool.enqueue([batch, task_idx, min_cluster_length]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
                 std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> results;
                 results.reserve(batch.size());
                 
                 for (size_t i = 0; i < batch.size(); ++i) {
                     const auto& task = batch[i];
-                    auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr);
+                    auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr, min_cluster_length);
                     results.emplace_back(task_idx + i, result);
                 }
                 return results;
@@ -397,7 +397,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 /* ───────────────────────────────────────────────────────── *
  * 对外主函数                                              *
  * ───────────────────────────────────────────────────────── */
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap, int_t diagdiff, double diagfactor, int_t min_cluster_length)
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t min_cluster_length, int_t max_gap, int_t diagdiff, double diagfactor)
 {
 
     auto best_chain_clusters = std::make_shared<MatchClusterVec>();

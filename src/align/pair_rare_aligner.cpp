@@ -645,7 +645,7 @@ void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::Ma
 	return;
 }
 
-ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)
+ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
 	ThreadPool shared_pool(thread_num);
 	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
@@ -668,7 +668,7 @@ ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(Spe
 	ClusterVecPtrByStrandByQueryRefPtr cluster_ptr = clusterAllChrMatch(
 		unique_anchors,
 		repeat_anchors,
-		shared_pool);
+		shared_pool, min_span);
 
 	shared_pool.waitAllTasksDone();
 

@@ -577,7 +577,7 @@ starAlignment(
         // 使用同一个线程池进行过滤比对结果，获取cluster数据
         spdlog::info("filter multiple species anchors for {}", ref_name);
 		SpeciesClusterMapPtr cluster_map = filterMultipeSpeciesAnchors(
-			ref_name, species_fasta_manager_map, match_ptr);
+			ref_name, species_fasta_manager_map, match_ptr, min_span);
  		spdlog::info("filter multiple species anchors for {} done", ref_name);
 
         // 并行构建多个比对结果图，共用线程池
@@ -721,7 +721,8 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     SpeciesName                       ref_name,
     std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map,
-    SpeciesMatchVec3DPtrMapPtr        species_match_map)
+    SpeciesMatchVec3DPtrMapPtr        species_match_map,
+    uint_t min_span)
 {
     if (!species_match_map || species_match_map->empty()) {
         return std::make_shared<SpeciesClusterMap>();
@@ -808,8 +809,8 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
         fut_map.emplace(
             species,
             shared_pool.enqueue(
-                [u_ptr, r_ptr, &shared_pool]() mutable -> ClusterVecPtrByStrandByQueryRefPtr {
-                    return clusterAllChrMatch(u_ptr, r_ptr, shared_pool);
+                [u_ptr, r_ptr, &shared_pool, min_span]() mutable -> ClusterVecPtrByStrandByQueryRefPtr {
+                    return clusterAllChrMatch(u_ptr, r_ptr, shared_pool, min_span);
                 })
         );
     }

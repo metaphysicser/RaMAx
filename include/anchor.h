@@ -197,7 +197,7 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
 
 void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
 
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t min_cluster_length, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12);
 
 MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
 
@@ -209,7 +209,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool);
+    ThreadPool& pool, uint_t min_span);
 
 MatchClusterVec
 splitCluster(const MatchCluster& cl,
