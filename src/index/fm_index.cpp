@@ -354,7 +354,7 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, 
             }
 
             MatchVec anchor_ptr_list;
-
+            anchor_ptr_list.reserve(region_vec.size());
             for (uint_t i = 0; i < region_vec.size(); i++) {
                 Match match(region_vec[i], query_region, strand);
                 /*Score_t score = caculateMatchScore(query.c_str() + total_length,
@@ -369,6 +369,7 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, 
 
         total_length += match_length;
     }
+    anchor_ptr_list_vec->shrink_to_fit();
     return anchor_ptr_list_vec;
 }
 
@@ -412,6 +413,7 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query,
                 query_region = Region(query_chr, total_length + query_offset, match_length);
             }
             MatchVec anchor_ptr_list;
+			anchor_ptr_list.reserve(region_vec.size());
             uint_t ref_end_pos = region_vec[0].start + match_length;
 
             // 仅当与上一段区域不重复时才添加
@@ -430,6 +432,8 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query,
         }
         total_length += std::min(min_anchor_length, match_length == 1 ? min_anchor_length : match_length);
     }
+    anchor_ptr_list_vec->shrink_to_fit();
+
     return anchor_ptr_list_vec;
 }
 
@@ -495,7 +499,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
             }
 
             MatchVec anchor_ptr_list;
-
+            anchor_ptr_list.reserve(regs.size());
             for (uint_t i = 0; i < regs.size(); i++) {
                 Match match(regs[i], query_region, strand);
                 /*Score_t score = caculateMatchScore(query.c_str() + right_pos,
@@ -516,7 +520,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
                       *out, ref_global_cache, sampling_interval);
         count++;
     }
-
+    out->shrink_to_fit();
     return out;
 }
 
@@ -602,6 +606,7 @@ void FM_Index::bisectAnchors(const std::string &query, ChrName query_chr,
         }
 
         MatchVec lst;
+        lst.reserve(regs.size());
         for (auto const &rg: regs) {
             Match m(rg, qreg, strand);
             /*Score_t sc = caculateMatchScore(query.c_str() + mid, mid_len);

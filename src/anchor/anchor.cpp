@@ -102,22 +102,25 @@ void groupMatchByQueryRef(MatchVec3DPtr& anchors,
 
                 if(rIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
-                    // 计算锁下标并加锁
-                    uint_t lockIdx = sIdx * query_chr_cnt + qIdx;
-                    std::lock_guard<std::mutex> lk((*rowLocks)[lockIdx]);
+                // 计算锁下标并加锁
+                uint_t lockIdx = sIdx * query_chr_cnt + qIdx;
+                std::lock_guard<std::mutex> lk((*rowLocks)[lockIdx]);
 
-                    MatchVec& tgt = (vec.size() == 1)
-                        ? (*unique_anchors)[sIdx][qIdx][rIdx]
-                        : (*repeat_anchors)[sIdx][qIdx][rIdx];
+                MatchVec& tgt = (vec.size() == 1)
+                    ? (*unique_anchors)[sIdx][qIdx][rIdx]
+                    : (*repeat_anchors)[sIdx][qIdx][rIdx];
 
-                        tgt.insert(tgt.end(),
-                            std::make_move_iterator(vec.begin()),
-                            std::make_move_iterator(vec.end()));
+                    tgt.insert(tgt.end(),
+                        std::make_move_iterator(vec.begin()),
+                        std::make_move_iterator(vec.end()));
+                    vec.clear();
+                    vec.shrink_to_fit();
                 }
             });
     }
-    // **不再在这里 wait；由调用者在外部 pool.waitAllTasksDone() 同步**
+    
 }
+
 
 // 重载版本：支持 SharedManagerVariant，通过解引用调用原始版本
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,
