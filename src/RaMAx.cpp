@@ -31,7 +31,7 @@ struct CommonArgs {
     bool allow_MEM = false;                    // 是否允许MEM
     bool fast_build = true;                    // 是否使用快速索引构建
     SeqPro::Length sampling_interval = 32;    // 采样间隔
-    uint_t min_span = 50;                      // 最小跨度阈值
+    uint_t min_span = 65;                      // 最小跨度阈值
 
     // 日志相关参数
     std::string log_level = "info";            // 日志级别
