@@ -731,6 +731,7 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> unique_map;
     std::unordered_map<SpeciesName, MatchByStrandByQueryRefPtr> repeat_map;
     SpeciesClusterMap cluster_map;                    // 最终结果
+    spdlog::info("Group Match By Query and Ref...");
 
     /*========================= Phase-1  : group =====================*/
     for (auto it = species_match_map->begin();
@@ -774,9 +775,11 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
         it->second.reset();   // 释放 MatchVec3D 对象占用的全部内存
     }
     species_match_map->clear();         // 清掉 map 自身节点
+    spdlog::info("Group Match By Query and Ref Done");
 
 
     /*========================= Phase-2  : sort ======================*/
+	spdlog::info("Sort Match By Query Start...");   
     for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
         MatchByStrandByQueryRefPtr u_ptr = it->second;
         shared_pool.enqueue([u_ptr, &shared_pool]() mutable {
@@ -790,8 +793,10 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
             });
     }
     shared_pool.waitAllTasksDone();                          // —— Phase-2 完
+	spdlog::info("Sort Match By Query Done");
 
     /*========================= Phase-3  :  ===================*/
+	spdlog::info("Cluster All Chr Match Start...");
     using Fut = std::future<ClusterVecPtrByStrandByQueryRefPtr>;
     std::unordered_map<SpeciesName, Fut> fut_map;
 
@@ -820,6 +825,7 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
 
     // 返回cluster数据用于后续处理
     auto cluster_map_ptr = std::make_shared<SpeciesClusterMap>(std::move(cluster_map));
+	spdlog::info("Cluster All Chr Match Done, species num: {}", cluster_map_ptr->size());
     return cluster_map_ptr;
 
 }

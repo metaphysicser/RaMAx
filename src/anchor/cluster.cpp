@@ -151,7 +151,7 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     ThreadPool& pool)
 {
     // ---------- 0. 判空 ----------
-    if (unique_anchors->empty() || repeat_anchors->empty()) {
+    if (unique_anchors->empty() && repeat_anchors->empty()) {
         spdlog::warn("[clusterAllChrAnchors] empty anchor ptr");
         return std::make_shared<ClusterVecPtrByStrandByQueryRef>();   // 返回空指针容器
     }
@@ -406,6 +406,10 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
     }
     // 1. 聚簇
     MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
+
+   // 释放unique_match的内存
+	unique_match.clear();
+	unique_match.shrink_to_fit();  // 释放内存
 
     // 2. 每簇提链 + 长度过滤
     
