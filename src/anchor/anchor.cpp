@@ -145,7 +145,7 @@ void groupMatchByQueryRef(
     MatchByStrandByQueryRefPtr repeat_anchors,
     SeqPro::ManagerVariant& ref_fasta_manager,
     SeqPro::ManagerVariant& query_fasta_manager,
-    ThreadPool& pool)
+    ThreadPool & pool)
 {
     constexpr uint_t STRAND_CNT = 2; // 0 = FWD, 1 = REV
 
@@ -189,15 +189,25 @@ void groupMatchByQueryRef(
                 ? ensure_slot(unique_anchors, sIdx, qIdx, rIdx)
                 : ensure_slot(repeat_anchors, sIdx, qIdx, rIdx);
 
-            if (dest.empty()) dest.reserve(vec.size()); // 减少后续扩容
+            //if (dest.empty()) dest.reserve(vec.size()); // 减少后续扩容
 
-            dest.insert(dest.end(),
-                std::make_move_iterator(vec.begin()),
-                std::make_move_iterator(vec.end()));
+            if (dest.empty()) {
+                // 零复制合并
+                dest.swap(vec);
+            }
+            else {
+                if (dest.capacity() < dest.size() + vec.size())
+                    dest.reserve(dest.size() + vec.size());
+                dest.insert(dest.end(),
+                    std::make_move_iterator(vec.begin()),
+                    std::make_move_iterator(vec.end()));
+                vec.clear();
+            }
 
-            // --- 立即回收 vec 占用容量 ---
-            vec.clear();
-            vec.shrink_to_fit();
+            // ---- 2‑C 可选择性回收 vec.capacity() ----
+            if (vec.capacity() > 1024 && vec.empty()) {
+                MatchVec{}.swap(vec); // 只有容量较大时才回收
+            }
         }
     }
 
