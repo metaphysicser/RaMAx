@@ -237,7 +237,11 @@ struct Anchor {
 
 using AnchorVec = std::vector<Anchor>;
 
-AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
+AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& query_mgr);
+
+Anchor extendClusterToAnchor(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
