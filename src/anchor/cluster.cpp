@@ -407,6 +407,10 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
     // 1. 聚簇
     MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
 
+   // 释放unique_match的内存
+	unique_match.clear();
+	unique_match.shrink_to_fit();  // 释放内存
+
     // 2. 每簇提链 + 长度过滤
     
     best_chain_clusters->reserve(clusters.size());
