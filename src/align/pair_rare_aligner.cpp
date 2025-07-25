@@ -586,7 +586,7 @@ void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::Ma
 	 *  1. 直接按参考起点升序排序 anchors             *
 	 * --------------------------------------------- */
 	std::sort(anchors.begin(), anchors.end(), [](const Anchor& a, const Anchor& b) {
-		return a.match.ref_region.start < b.match.ref_region.start;
+		return a.ref_start < b.ref_start;
 		});
 
 	const size_t n = anchors.size();
@@ -600,8 +600,8 @@ void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::Ma
 	int_t    best_pos = 0;
 
 	for (size_t i = 0; i < n; ++i) {
-		const auto ai_start = anchors[i].match.ref_region.start;
-		const auto ai_end = ai_start + anchors[i].match.ref_region.length - 1;
+		const auto ai_start = anchors[i].ref_start;
+		const auto ai_end = ai_start + anchors[i].ref_len - 1;
 
 		dp[i] = anchors[i].alignment_length;
 
@@ -609,8 +609,8 @@ void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::Ma
 		size_t j_beg = (i > K) ? i - K : 0;
 		for (size_t j = i; j-- > j_beg; ) {
 			const auto aj_end =
-				anchors[j].match.ref_region.start +
-				anchors[j].match.ref_region.length - 1;
+				anchors[j].ref_start +
+				anchors[j].ref_len - 1;
 
 			if (aj_end < ai_start) {                  // 无重叠
 				long long cand = dp[j] + anchors[i].alignment_length;

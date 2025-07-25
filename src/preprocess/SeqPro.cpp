@@ -706,6 +706,12 @@ std::vector<std::string> SequenceManager::getSequenceNames() const {
   return sequence_index_.getSequenceNames();
 }
 
+std::string SequenceManager::getSequenceName(const uint32_t& seq_id) const {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    const auto* info = sequence_index_.getSequenceInfo(seq_id);
+    return info->name;
+}
+
 Length SequenceManager::getSequenceLength(const std::string &seq_name) const {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   const auto *info = sequence_index_.getSequenceInfo(seq_name);

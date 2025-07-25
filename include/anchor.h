@@ -20,7 +20,8 @@
 // 类型别名定义
 // ------------------------------------------------------------------
 // 定义坐标类型（可在 config.hpp 中设为 uint32_t 或 uint64_t）
-using Coord_t = uint_t;
+using Coord_t = uint32_t;
+using Length_t = uint32_t;
 
 /* 区间与 map 类型 */
 using IntervalMap = std::map<int_t, int_t>;          // key = beg, value = end   (右开)
@@ -220,20 +221,39 @@ splitCluster(const MatchCluster& cl,
 
 void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr);
 
-// 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
-    Match match;                    // 匹配信息
-    Coord_t alignment_length{ 0 }; // 对齐长度
-    Cigar_t cigar;                 // 对齐的 CIGAR 字符串
+    ChrName ref_chr_index;
+    Coord_t  ref_start;
+    Length_t ref_len;
+    ChrName qry_chr_index;
+    Coord_t  qry_start;
+    Length_t qry_len;
+
+    Strand strand;
+    uint_t alignment_length{}; // 对齐长度
+    uint_t aligned_base{};
+    Cigar_t cigar{};                 // 对齐的 CIGAR 字符串
 
     Anchor() = default;
 
-    Anchor(const Match m, Coord_t aln_len,
-        const Cigar_t c)
-        : match(m), alignment_length(aln_len),
-        cigar(c) {
+    Anchor(ChrName ref_chr, Coord_t ref_start, Length_t ref_len,
+        ChrName qry_chr, Coord_t qry_start, Length_t qry_len,
+        Strand strand, uint_t align_len, uint_t aligned_base, Cigar_t cigar_str)
+        : ref_chr_index(ref_chr),
+        ref_start(ref_start),
+        ref_len(ref_len),
+        qry_chr_index(qry_chr),
+        qry_start(qry_start),
+        qry_len(qry_len),
+        strand(strand),
+        alignment_length(align_len),
+        aligned_base(aligned_base),
+        cigar(cigar_str) {
     }
+
+
 };
+
 
 using AnchorVec = std::vector<Anchor>;
 
@@ -354,12 +374,12 @@ namespace cereal {
     }
 
     // Anchor 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Anchor& a) {
-        ar(a.match,
-            a.alignment_length,
-            a.cigar);
-    }
+    //template <class Archive>
+    //void serialize(Archive& ar, Anchor& a) {
+    //    ar(a.match,
+    //        a.alignment_length,
+    //        a.cigar);
+    //}
 
 } // namespace cereal
 

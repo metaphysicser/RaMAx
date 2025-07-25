@@ -231,6 +231,7 @@ public:
   std::filesystem::path getFastaPath() const { return fasta_path_; }
   SequenceId getSequenceId(const std::string &seq_name) const;
   std::vector<std::string> getSequenceNames() const;
+  std::string getSequenceName(const uint32_t& seq_id) const;
   bool hasAmbiguousBasesAll() const { return has_ambiguous_bases; }
 
   // 序列长度（原始长度）

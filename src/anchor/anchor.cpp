@@ -791,15 +791,12 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
 
         };
     auto flush = [&] {
-        Region rR{ ref_chr, ref_beg, ref_end - ref_beg };
-        Region qR;
         if (fwd) {
-            qR = { qry_chr, qry_beg, qry_end - qry_beg };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
         }
         else {
-            qR = { qry_chr, qry_end, qry_beg - qry_end };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
         }
-        anchors.emplace_back(Match{ rR,qR,strand }, aln_len, std::move(cigar));
         cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
         aln_len = 0;
 
@@ -996,15 +993,12 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
 
         };
     auto flush = [&] {
-        Region rR{ ref_chr, ref_beg, ref_end - ref_beg };
-        Region qR;
         if (fwd) {
-            qR = { qry_chr, qry_beg, qry_end - qry_beg };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
         }
         else {
-            qR = { qry_chr, qry_end, qry_beg - qry_end };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
         }
-        anchors.emplace_back(Match{ rR,qR,strand }, aln_len, std::move(cigar));
         cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
         aln_len = 0;
 
