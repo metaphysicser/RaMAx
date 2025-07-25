@@ -180,20 +180,16 @@ void groupMatchByQueryRef(
 
         // sIdx & qIdx 只需要从 slice 第一个元素即可得出
         const Match& first = slice.front().front();
-        const uint_t sIdx = (first.strand == REVERSE ? 1u : 0u);
+        const uint_t sIdx = (first.strand() == REVERSE ? 1u : 0u);
 
-        uint_t qIdx = std::visit([&first](auto& man) {
-            return man->getSequenceId(first.query_region.chr_name);
-            }, query_fasta_manager);
+        ChrIndex qIdx = first.qry_chr_index;
         if (qIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
         // --- 遍历 slice 内的每个 MatchVec（同一 query & strand, 不同 ref）
         for (auto& vec : slice) {
             if (vec.empty()) continue;
 
-            uint_t rIdx = std::visit([&vec](auto& man) {
-                return man->getSequenceId(vec.front().ref_region.chr_name);
-                }, ref_fasta_manager);
+            ChrIndex rIdx = vec.front().ref_chr_index;
             if (rIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
             MatchVec& dest = (vec.size() == 1)
@@ -283,7 +279,7 @@ void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool
                     futures.emplace_back(pool.enqueue([v = &vec]() {
                         std::sort(v->begin(), v->end(),
                             [](const Match& a, const Match& b) {
-                                return a.query_region.start < b.query_region.start;
+                                return a.qry_start < b.qry_start;
                             });
                     }));
                 } else {
@@ -309,7 +305,7 @@ void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool
             for (auto* vec : batch) {
                 std::sort(vec->begin(), vec->end(),
                     [](const Match& a, const Match& b) {
-                        return a.query_region.start < b.query_region.start;
+                        return a.qry_start < b.qry_start;
                     });
             }
         }));
@@ -635,12 +631,12 @@ ValidationResult validateAnchorsCorrectness(
                         std::string ref_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
                             using PtrType = std::decay_t<decltype(manager_ptr)>;
                             if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
-                                                                   match.ref_region.length);
+                                return manager_ptr->getSubSequence(match.ref_chr_index, match.ref_start,
+                                                                   match.match_len());
                             } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
                                 SeqPro::MaskedSequenceManager> >) {
-                                return manager_ptr->getSubSequence(match.ref_region.chr_name, match.ref_region.start,
-                                                                   match.ref_region.length);
+                                return manager_ptr->getSubSequence(match.ref_chr_index, match.ref_start,
+                                    match.match_len());
                             } else {
                                 throw std::runtime_error("Unhandled manager type in variant.");
                             }
@@ -650,19 +646,19 @@ ValidationResult validateAnchorsCorrectness(
                         std::string query_seq = std::visit([&match](auto &&manager_ptr) -> std::string {
                             using PtrType = std::decay_t<decltype(manager_ptr)>;
                             if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                                return manager_ptr->getSubSequence(match.query_region.chr_name,
-                                                                   match.query_region.start, match.query_region.length);
+                                return manager_ptr->getSubSequence(match.qry_chr_index,
+                                                                   match.qry_start, match.match_len());
                             } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
                                 SeqPro::MaskedSequenceManager> >) {
-                                return manager_ptr->getSubSequence(match.query_region.chr_name,
-                                                                   match.query_region.start, match.query_region.length);
+                                return manager_ptr->getSubSequence(match.qry_chr_index,
+                                    match.qry_start, match.match_len());
                             } else {
                                 throw std::runtime_error("Unhandled manager type in variant.");
                             }
                         }, query_manager);
 
                         // 如果是反向链，进行反向互补
-                        if (match.strand == REVERSE) {
+                        if (match.strand() == REVERSE) {
                             query_seq = reverseComplement(query_seq);
                         }
 
@@ -681,20 +677,20 @@ ValidationResult validateAnchorsCorrectness(
                                     "query_start={}, length={}, strand={}\n"
                                     "  Ref Seq:    {}\n"
                                     "  Query Seq{}: {}",
-                                    match.ref_region.chr_name, match.ref_region.start, match.query_region.chr_name,
-                                    match.query_region.start, match.ref_region.length,
-                                    (match.strand == FORWARD ? "FORWARD" : "REVERSE"), ref_seq,
-                                    (match.strand == REVERSE ? " (RC)" : ""), query_seq
+                                    match.ref_chr_index, match.ref_start, match.qry_chr_index,
+                                    match.qry_start, match.match_len(),
+                                    (match.strand() == FORWARD ? "FORWARD" : "REVERSE"), ref_seq,
+                                    (match.strand() == REVERSE ? " (RC)" : ""), query_seq
                                 );
                                 spdlog::error("--- [CAPTURED FIRST MISMATCH] INITIATING DIAGNOSTIC DUMP ---");
 
                                 // 打印错误匹配的详细信息
                                 spdlog::error("Failing Match Details:");
-                                spdlog::error("  - Reference: {}:{} (len:{})", match.ref_region.chr_name,
-                                              match.ref_region.start, match.ref_region.length);
-                                spdlog::error("  - Query:     {}:{} (len:{})", match.query_region.chr_name,
-                                              match.query_region.start, match.query_region.length);
-                                spdlog::error("  - Strand:    {}", (match.strand == FORWARD ? "FORWARD" : "REVERSE"));
+                                spdlog::error("  - Reference: {}:{} (len:{})", match.ref_chr_index,
+                                              match.ref_start, match.match_len());
+                                spdlog::error("  - Query:     {}:{} (len:{})", match.qry_chr_index,
+                                              match.qry_start, match.match_len());
+                                spdlog::error("  - Strand:    {}", (match.strand() == FORWARD ? "FORWARD" : "REVERSE"));
                             }
                         }
                     } catch (const std::exception &e) {
@@ -734,7 +730,7 @@ ValidationResult validateAnchorsCorrectness(
 }
 
 
-AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
+AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr)
 {
@@ -744,7 +740,7 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
     // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
     auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
     return std::visit([&](auto& p) {
         using T = std::decay_t<decltype(p)>;
         if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
@@ -757,10 +753,10 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
 
     /* ===== 初始 anchor 状态 ===== */
     const Match& first = cluster.front();
-    Strand strand = first.strand;
+    Strand strand = first.strand();
     bool   fwd         = (strand == FORWARD); 
-    ChrName ref_chr = first.ref_region.chr_name;
-    ChrName qry_chr = first.query_region.chr_name;
+    ChrIndex ref_chr = first.ref_chr_index;
+    ChrIndex qry_chr = first.qry_chr_index;
 
     Coord_t ref_beg = start1(first);
     Coord_t ref_end = ref_beg;
@@ -791,15 +787,12 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
 
         };
     auto flush = [&] {
-        Region rR{ ref_chr, ref_beg, ref_end - ref_beg };
-        Region qR;
         if (fwd) {
-            qR = { qry_chr, qry_beg, qry_end - qry_beg };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
         }
         else {
-            qR = { qry_chr, qry_end, qry_beg - qry_end };
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
         }
-        anchors.emplace_back(Match{ rR,qR,strand }, aln_len, std::move(cigar));
         cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
         aln_len = 0;
 
@@ -939,6 +932,209 @@ AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
     return anchors;
 }
 
+Anchor extendClusterToAnchor(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& query_mgr)
+{
+    if (cluster.empty()) return Anchor();
+    AnchorVec anchors;
+    // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
+    // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
+    auto subSeq = [&](const SeqPro::ManagerVariant& mv,
+        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
+            return std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return p->getSubSequence(chr, b, l);
+                }
+                else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return p->getOriginalManager().getSubSequence(chr, b, l);
+                }
+                }, mv);
+        };
+
+    /* ===== 初始 anchor 状态 ===== */
+    const Match& first = cluster.front();
+    Strand strand = first.strand();
+    bool   fwd = (strand == FORWARD);
+    ChrIndex ref_chr = first.ref_chr_index;
+    ChrIndex qry_chr = first.qry_chr_index;
+
+    Coord_t ref_beg = start1(first);
+    Coord_t ref_end = ref_beg;
+
+    Coord_t qry_beg = 0;
+    Coord_t qry_end = 0;
+    if (fwd) {
+        qry_beg = start2(first);
+    }
+    else {
+        qry_beg = start2(first) + len2(first);
+    }
+    qry_end = qry_beg;
+
+    Cigar_t cigar; cigar.reserve(cluster.size() * 2);  // 预估
+    Coord_t aln_len = 0;
+
+    auto pushEq = [&](uint32_t len) {
+        appendCigarOp(cigar, 'M', len);
+        aln_len += len;
+        ref_end += len;
+        if (fwd) {
+            qry_end += len;
+        }
+        else {
+            qry_end -= len;
+        }
+
+        };
+    auto flush = [&] {
+        if (fwd) {
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
+        }
+        else {
+            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
+        }
+        cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
+        aln_len = 0;
+
+        ref_beg = ref_end;          // 推进到下一段起点
+        qry_beg = qry_end;          // 同理（fwd 递增，rev 递减）
+        };
+
+
+    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+    attributes.distance_metric = gap_affine;
+    attributes.affine_penalties.mismatch = 2;      // X > 0
+    attributes.affine_penalties.gap_opening = 3;   // O >= 0
+    attributes.affine_penalties.gap_extension = 1; // E > 0
+    attributes.memory_mode = wavefront_memory_ultralow;
+    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
+    attributes.heuristic.min_wavefront_length = 10;
+    attributes.heuristic.max_distance_threshold = 50;
+    attributes.heuristic.steps_between_cutoffs = 1;
+
+    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
+
+    /* ==================== 遍历 cluster ==================== */
+    for (size_t i = 0;i < cluster.size();++i) {
+        const Match& m = cluster[i];
+        pushEq(len1(m));                                  // 精确 match
+
+        if (i + 1 == cluster.size()) break;
+
+        const Match& nxt = cluster[i + 1];
+        Coord_t rgBeg = start1(m) + len1(m), rgEnd = start1(nxt);
+        Coord_t qgBeg = 0;
+        Coord_t qgEnd = 0;
+        if (fwd) {
+            qgBeg = start2(m) + len2(m);
+            qgEnd = start2(nxt);
+        }
+        else {
+            qgBeg = start2(nxt) + len2(nxt);
+            qgEnd = start2(m);
+        }
+
+        uint32_t rgLen = rgEnd > rgBeg ? rgEnd - rgBeg : 0;
+        uint32_t qgLen = qgEnd > qgBeg ? qgEnd - qgBeg : 0;
+        // 无 gap
+        if (rgLen == 0 && qgLen == 0) {
+            continue;
+        }
+        Cigar_t buf;
+        Cigar_t gap = {};
+        if (rgLen == 0 || qgLen == 0) {
+            // 纯 I / 纯 D，不跑比对
+            char op = (rgLen == 0 ? 'I' : 'D');
+            uint32_t len = (rgLen == 0 ? qgLen : rgLen);
+            gap.push_back(cigarToInt(op, len));
+        }
+        else {
+            // 2) 获取 gap 片段
+            std::string ref_gap = subSeq(ref_mgr, ref_chr, rgBeg, rgEnd - rgBeg);
+            std::string qry_gap = subSeq(query_mgr, qry_chr, qgBeg, qgEnd - qgBeg);
+            if (strand == REVERSE) reverseComplement(qry_gap);
+
+            uint_t Lt = ref_gap.size();
+            uint_t Lq = qry_gap.size();
+            int64_t d = std::abs(static_cast<int64_t>(Lt) - static_cast<int64_t>(Lq));
+
+            double rho = double(d) / std::min(Lt, Lq);
+
+
+            if (rho <= 0.3 && Lt > 10 && Lq > 10) {
+                int cigar_len;
+                uint32_t* cigar_tmp;
+                wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
+                cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
+                for (uint_t j = 0; j < cigar_len; ++j) {
+                    gap.push_back(cigar_tmp[j]);
+                }
+
+            }
+            else {
+                gap = globalAlignKSW2(ref_gap, qry_gap);
+            }
+
+            /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
+            buf.reserve(gap.size());
+        }
+
+        for (auto unit : gap) {
+            uint32_t len = unit >> 4;
+            uint8_t  op = unit & 0xf;          // 0=M,1=I,2=D,7='=',8='X'
+            //bool big = ((op == 1 || op == 2) && len > 50);
+
+            if (false) {
+                // 先把已有片段 merge
+                if (!buf.empty()) { appendCigar(cigar, buf); buf.clear(); }
+                flush();                        // 输出 anchor
+                // 移动起点：I 影响 query，D 影响 ref
+                if (op == 1) {
+                    if (fwd) {
+                        qry_beg += len;
+                    }
+                    else {
+                        qry_beg -= len;
+                    }
+                }
+                else {
+                    ref_beg += len;
+                }
+                ref_end = ref_beg; qry_end = qry_beg;
+            }
+            else {
+                buf.push_back(unit);
+                // 更新末端坐标
+                if (op == 1) {
+                    if (fwd) {
+                        qry_end += len;
+                    }
+                    else {
+                        qry_end -= len;
+                    }
+                }
+                else if (op == 2)       ref_end += len;
+                else {
+                    ref_end += len;
+                    if (fwd) {
+                        qry_end += len;
+                    }
+                    else {
+                        qry_end -= len;
+                    }
+                }
+                if (op != 3) aln_len += len;     // 3(N)不会出现
+            }
+        }
+        if (!buf.empty()) appendCigar(cigar, buf);
+    }
+    flush();
+    wavefront_aligner_delete(wf_aligner);// 收尾
+    return anchors[0];
+}
+
 /// 同时验证 ref/query，两者都通过才算成功
 void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
 {
@@ -966,18 +1162,18 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
                     ++total_clusters;
                     const MatchCluster& cluster = (*clusters_ptr)[c_i];
  
-                    Strand strand = cluster[0].strand;
+                    Strand strand = cluster[0].strand();
 
 					if (strand == REVERSE && cluster.size() > 5) {
 						reverse_cluster = true;
 					}   
 
                     for (std::size_t m_i = 0; m_i < cluster.size(); ++m_i) {
-                        if (cluster[m_i].strand != strand) {
+                        if (cluster[m_i].strand() != strand) {
                             spdlog::debug(
                                 "❌ Cluster FAILED (strand={},query={},ref={},cluster={}): "
                                 "strand mismatch (expected {}, got {})",
-                                strand_i, q_i, r_i, c_i, static_cast<int>(strand), static_cast<int>(cluster[m_i].strand));
+                                strand_i, q_i, r_i, c_i, static_cast<int>(strand), static_cast<int>(cluster[m_i].strand()));
                         }
                     }
 
@@ -998,8 +1194,8 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
                         //-------------------//
                         // 1) 参考坐标检查
                         //-------------------//
-                        Coord_t ref_start = m.ref_region.start;
-                        Coord_t ref_end = ref_start + m.ref_region.length; // 右开
+                        Coord_t ref_start = m.ref_start;
+                        Coord_t ref_end = ref_start + m.match_len(); // 右开
 
                         if (ref_start < ref_last_end) {
                             spdlog::debug(
@@ -1013,12 +1209,12 @@ void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
                         //-------------------//
                         // 2) 查询坐标检查
                         //-------------------//
-                        Coord_t qry_start = m.query_region.start;
-                        Coord_t qry_end = qry_start + m.query_region.length;
+                        Coord_t qry_start = m.qry_start;
+                        Coord_t qry_end = qry_start + m.match_len();
 
 
                         
-                        if (m.strand == FORWARD) {
+                        if (m.strand() == FORWARD) {
                             // 正向：要求升序且不重叠
                             if (qry_start < qry_last_pos) {
                                 spdlog::debug(

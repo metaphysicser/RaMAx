@@ -31,7 +31,7 @@ struct CommonArgs {
     bool allow_MEM = false;                    // 是否允许MEM
     bool fast_build = true;                    // 是否使用快速索引构建
     SeqPro::Length sampling_interval = 32;    // 采样间隔
-    uint_t min_span = 50;                      // 最小跨度阈值
+    uint_t min_span = 65;                      // 最小跨度阈值
 
     // 日志相关参数
     std::string log_level = "info";            // 日志级别
@@ -274,7 +274,7 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
 
     auto *min_span_opt = cmd->add_option("--min-span", args.min_span,
                                          "Minimum span threshold for graph construction (default: 50).")
-            ->default_val(50)
+            ->default_val(65)
             ->capture_default_str()
             ->group("Software Parameters")
             ->check(CLI::Range(1, std::numeric_limits<int>::max()))
@@ -733,7 +733,8 @@ int main(int argc, char **argv) {
     }
 
     // 把species_names拼接到common_args.output_path中
-    graph->exportToMaf(common_args.output_path, seqpro_managers, true, false);
+    // TODO双基因组比对模式后续要改为false，目前只是调试
+    graph->exportToMaf(common_args.output_path, seqpro_managers, true, true);
     /// 导出没有反向链的maf仅供调试使用
     // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
     /// 导出多个参考maf

@@ -58,6 +58,7 @@ using FilePath = std::filesystem::path;   // 文件路径
 using SpeciesName = std::string;          // 物种名称
 using ChrName = std::string;              // 染色体名称
 
+using ChrIndex = uint32_t;
 // ------------------------------------------------------------------
 // 调试与整数精度配置
 // ------------------------------------------------------------------

@@ -112,11 +112,11 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		(prefix + "_" + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
 	/* ---------- 若已存在结果文件，直接加载 ---------- */
-	if (std::filesystem::exists(anchor_file)) {
-		MatchVec3DPtr result = std::make_shared<MatchVec3D>();
-		loadMatchVec3D(anchor_file, result);
-		return result;
-	}
+	//if (std::filesystem::exists(anchor_file)) {
+	//	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
+	//	loadMatchVec3D(anchor_file, result);
+	//	return result;
+	//}
 	// TODO 对于二轮之后，低于20的chunk可以不用输入
 	/* ---------- 读取 FASTA 并分片 ---------- */
 	// 修改：使用新的预分割逻辑，支持多基因组模式
@@ -160,17 +160,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr forwoard_matches = ref_index->findAnchors(
-							ck.chr_name, seq, search_mode,
+							ck.chr_index, seq, search_mode,
 							Strand::FORWARD,
 							allow_MEM,
 							ck.start,
@@ -195,17 +195,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr reverse_matches = ref_index->findAnchors(
-							ck.chr_name, seq, FAST_SEARCH,
+							ck.chr_index, seq, FAST_SEARCH,
 							Strand::REVERSE,
 							allow_MEM,
 							ck.start,
@@ -307,8 +307,8 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	cluster_vec_ptr->clear();
 	std::make_heap(heap.begin(), heap.end(), cmp);
 
-	std::unordered_map<ChrName, IntervalMap> rMaps;
-	std::unordered_map<ChrName, IntervalMap> qMaps;
+	std::vector<IntervalMap> rMaps;
+	std::vector<IntervalMap> qMaps;
 
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
@@ -324,10 +324,10 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
-		const ChrName& qChr = cur.cl.front().query_region.chr_name;
+		const ChrIndex refChr = cur.cl.front().ref_chr_index;
+		const ChrIndex qChr = cur.cl.front().qry_chr_index;
 
-		Strand strand = cur.cl.front().strand;
+		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());
 		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
 		uint_t qb = 0;
@@ -374,7 +374,7 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 			auto t_enq = Clock::now();
 #endif
 			pool.enqueue([this, &graph, &query_name, task_cl, &query_seqpro_manager] {
-				AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+				AnchorVec anchor_vec = extendClusterToAnchorVec(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 				for (auto& anchor : anchor_vec) {
 					graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, anchor, true);
 				}	
@@ -476,8 +476,11 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 	cluster_vec_ptr->clear();
 	std::make_heap(heap.begin(), heap.end(), cmp);
 
-	std::unordered_map<ChrName, IntervalMap> rMaps;
-	std::unordered_map<ChrName, IntervalMap> qMaps;
+	std::vector<IntervalMap> rMaps;
+	std::vector<IntervalMap> qMaps;
+	
+
+	// 初始化rMaps和qMaps
 
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
@@ -490,10 +493,17 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
-		const ChrName& qChr = cur.cl.front().query_region.chr_name;
+		const ChrIndex refChr = cur.cl.front().ref_chr_index;
+		const ChrIndex qChr = cur.cl.front().qry_chr_index;
 
-		Strand strand = cur.cl.front().strand;
+		if (refChr >= rMaps.size()) {
+			rMaps.resize(refChr + 1);
+		}
+		if (qChr >= qMaps.size()) {
+			qMaps.resize(qChr + 1);
+		}
+
+		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());
 		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
 		uint_t qb = 0;
@@ -517,7 +527,7 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			insertInterval(qMaps[qChr], qb, qe);
 			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			
-			AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+			AnchorVec anchor_vec = extendClusterToAnchorVec(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
 			for (auto& anchor : anchor_vec) {
 
 				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
@@ -547,7 +557,105 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 	return;
 }
 
-ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph)
+void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool,uint_t thread_num, uint_t min_span, bool isMultiple)
+{
+	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
+
+	std::vector<Anchor> anchors;
+	anchors.resize(cluster_vec_ptr->size());
+
+	size_t cluster_num = cluster_vec_ptr->size();
+	size_t chunk = (cluster_vec_ptr->size() + thread_num - 1) / thread_num;   // 向上取整
+
+	std::vector<std::future<void>> futs;
+	for (size_t t = 0; t < thread_num && t * chunk < cluster_num; ++t) {
+		size_t beg = t * chunk;
+		size_t end = std::min(cluster_num, beg + chunk);
+
+		futs.emplace_back(
+			pool.enqueue([&, beg, end] {
+				for (size_t i = beg; i < end; ++i) {
+					anchors[i] =
+						extendClusterToAnchor((*cluster_vec_ptr)[i],
+							*ref_seqpro_manager,
+							query_seqpro_manager);
+				}
+				})
+		);
+	}
+	for (auto& f : futs) f.get();
+
+	// 释放cluster_vec_ptr
+	if (cluster_vec_ptr) {
+		cluster_vec_ptr->clear();   // 可选：先把元素析构掉
+		cluster_vec_ptr->shrink_to_fit(); // 可选：把 capacity 也回收给 STL 实现
+		cluster_vec_ptr.reset();    // 关键：降低引用计数 / 转移所有权
+	}
+
+	/* --------------------------------------------- *
+	 *  1. 直接按参考起点升序排序 anchors             *
+	 * --------------------------------------------- */
+	std::sort(anchors.begin(), anchors.end(), [](const Anchor& a, const Anchor& b) {
+		return a.ref_start < b.ref_start;
+		});
+
+	const size_t n = anchors.size();
+	if (n == 0) return;
+
+	constexpr size_t K = 50;                   // 只看最近 K 个前驱
+	std::vector<int_t> dp(n, 0);           // dp[i] = 以 i 结尾的最大得分
+	std::vector<int_t>       prev(n, -1);        // 链前驱索引
+
+	int_t best_score = 0;
+	int_t    best_pos = 0;
+
+	for (size_t i = 0; i < n; ++i) {
+		const auto ai_start = anchors[i].ref_start;
+		const auto ai_end = ai_start + anchors[i].ref_len - 1;
+
+		dp[i] = anchors[i].alignment_length;
+
+		/* ---------- 只回溯最近 K 个元素 ---------- */
+		size_t j_beg = (i > K) ? i - K : 0;
+		for (size_t j = i; j-- > j_beg; ) {
+			const auto aj_end =
+				anchors[j].ref_start +
+				anchors[j].ref_len - 1;
+
+			if (aj_end < ai_start) {                  // 无重叠
+				long long cand = dp[j] + anchors[i].alignment_length;
+				if (cand > dp[i]) {
+					dp[i] = cand;
+					prev[i] = static_cast<int>(j);
+				}
+			}
+		}
+
+		if (dp[i] > best_score) {
+			best_score = dp[i];
+			best_pos = i;
+		}
+	}
+
+	/* --------------------------------------------- *
+	 *  2. 回溯得到最长链并替换 anchors               *
+	 * --------------------------------------------- */
+	std::vector<Anchor> lis_chain;
+	for (int p = static_cast<int>(best_pos); p != -1; p = prev[p])
+		lis_chain.emplace_back(std::move(anchors[p]));
+	std::reverse(lis_chain.begin(), lis_chain.end());
+
+	anchors.swap(lis_chain);   // anchors 只保留 LIS
+	std::vector<Anchor>().swap(lis_chain);
+
+	for (auto& anchor : anchors) {
+		graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
+	}
+
+	return;
+}
+
+ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span)
 {
 	ThreadPool shared_pool(thread_num);
 	MatchByStrandByQueryRefPtr unique_anchors = std::make_shared<MatchByStrandByQueryRef>();;
@@ -570,7 +678,7 @@ ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(Spe
 	ClusterVecPtrByStrandByQueryRefPtr cluster_ptr = clusterAllChrMatch(
 		unique_anchors,
 		repeat_anchors,
-		shared_pool);
+		shared_pool, min_span);
 
 	shared_pool.waitAllTasksDone();
 

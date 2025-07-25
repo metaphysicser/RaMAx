@@ -20,7 +20,8 @@
 // 类型别名定义
 // ------------------------------------------------------------------
 // 定义坐标类型（可在 config.hpp 中设为 uint32_t 或 uint64_t）
-using Coord_t = uint_t;
+using Coord_t = uint32_t;
+using Length_t = uint32_t;
 
 /* 区间与 map 类型 */
 using IntervalMap = std::map<int_t, int_t>;          // key = beg, value = end   (右开)
@@ -57,13 +58,13 @@ inline bool overlap1D(const IntervalMap& m,
 
 // 表示基因组上的一个区域
 struct Region {
-    ChrName chr_name{};     // 染色体名称
+    ChrIndex chr_index{};     // 染色体名称
     Coord_t start{ 0 };     // 起始坐标
     Coord_t length{ 0 };    // 区域长度
 
     Region() = default;
-    Region(ChrName chr_name, Coord_t s, Coord_t len)
-        : chr_name{ chr_name }, start{ s }, length{ len } {
+    Region(ChrIndex chr_index, Coord_t s, Coord_t len)
+        : chr_index{ chr_index }, start{ s }, length{ len } {
     }
 };
 
@@ -74,27 +75,39 @@ enum Strand { FORWARD, REVERSE };
 
 // 表示参考与查询序列之间的一段匹配区域
 struct Match {
-    Region ref_region;      // 参考基因组上的区域
-    Region query_region;    // 查询基因组上的区域
-    Strand strand;          // 链接方向
-
-    // 构造函数：使用详细参数创建一个 Match
-    Match(ChrName r_chr, Coord_t r_start, Coord_t r_len,
-        ChrName q_chr, Coord_t q_start, Coord_t q_len,
-        Strand sd = FORWARD)
-        : ref_region(r_chr, r_start, r_len),
-        query_region(q_chr, q_start, q_len),
-        strand(sd) {
-    }
-
-    // 构造函数：使用已构建的 Region
-    Match(Region ref_region, Region query_region, Strand sd = FORWARD)
-        : ref_region(ref_region),
-        query_region(query_region),
-        strand(sd) {
-    }
+    ChrIndex ref_chr_index;
+    Coord_t  ref_start;
+    ChrIndex qry_chr_index;
+    Coord_t  qry_start;
+    uint32_t len_and_strand; // 高位存 strand，低 31 位存 length
 
     Match() = default;
+
+    Match(ChrIndex r_chr, Coord_t r_start,
+        ChrIndex q_chr, Coord_t q_start,
+        uint32_t len, Strand strand)
+        : ref_chr_index(r_chr),
+        ref_start(r_start),
+        qry_chr_index(q_chr),
+        qry_start(q_start),
+        len_and_strand((len & 0x7FFFFFFF) | (static_cast<uint32_t>(strand) << 31)) {
+    }
+
+    uint32_t match_len() const {
+        return len_and_strand & 0x7FFFFFFF;
+    }
+
+    Strand strand() const {
+        return (len_and_strand >> 31) ? Strand::REVERSE : Strand::FORWARD;
+    }
+
+    void set_match_len(uint32_t len) {
+        len_and_strand = (len & 0x7FFFFFFF) | (static_cast<uint32_t>(strand()) << 31);
+    }
+
+    void set_strand(Strand s) {
+        len_and_strand = (match_len() & 0x7FFFFFFF) | (static_cast<uint32_t>(s) << 31);
+    }
 };
 
 using MatchVec = std::vector<Match>;
@@ -138,10 +151,10 @@ using SpeciesClusterMap =
 std::unordered_map<SpeciesName, ClusterVecPtrByStrandByQueryRefPtr>;
 using SpeciesClusterMapPtr = std::shared_ptr<SpeciesClusterMap>;
 
-inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
-inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
-inline uint_t len1(const Match& m) { return static_cast<uint_t>(m.ref_region.length); }
-inline uint_t len2(const Match& m) { return static_cast<uint_t>(m.query_region.length); }
+inline Coord_t start1(const Match& m) { return (m.ref_start); }
+inline Coord_t start2(const Match& m) { return (m.qry_start); }
+inline Length_t len1(const Match& m) { return (m.match_len()); }
+inline Length_t len2(const Match& m) { return (m.match_len()); }
 inline int_t diag(const Match& m) {
     return start2(m) - start1(m);
 }
@@ -197,7 +210,7 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
 
 void sortMatchByQueryStart(MatchByStrandByQueryRefPtr& anchors, ThreadPool& pool);
 
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12, int_t min_cluster_length = 50);
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t min_cluster_length, int_t max_gap = 90, int_t diagdiff = 5, double diagfactor = 0.12);
 
 MatchVec bestChainDP(MatchVec& cluster, double diagfactor);
 
@@ -209,7 +222,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool);
+    ThreadPool& pool, uint_t min_span);
 
 MatchClusterVec
 splitCluster(const MatchCluster& cl,
@@ -220,24 +233,47 @@ splitCluster(const MatchCluster& cl,
 
 void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr);
 
-// 一个比对锚点（Anchor）表示一对匹配区域之间的精确比对信息
 struct Anchor {
-    Match match;                    // 匹配信息
-    Coord_t alignment_length{ 0 }; // 对齐长度
-    Cigar_t cigar;                 // 对齐的 CIGAR 字符串
+    ChrIndex ref_chr_index;
+    Coord_t  ref_start;
+    Length_t ref_len;
+    ChrIndex qry_chr_index;
+    Coord_t  qry_start;
+    Length_t qry_len;
+
+    Strand strand;
+    uint_t alignment_length{}; // 对齐长度
+    uint_t aligned_base{};
+    Cigar_t cigar{};                 // 对齐的 CIGAR 字符串
 
     Anchor() = default;
 
-    Anchor(const Match m, Coord_t aln_len,
-        const Cigar_t c)
-        : match(m), alignment_length(aln_len),
-        cigar(c) {
+    Anchor(ChrIndex ref_chr, Coord_t ref_start, Length_t ref_len,
+        ChrIndex qry_chr, Coord_t qry_start, Length_t qry_len,
+        Strand strand, uint_t align_len, uint_t aligned_base, Cigar_t cigar_str)
+        : ref_chr_index(ref_chr),
+        ref_start(ref_start),
+        ref_len(ref_len),
+        qry_chr_index(qry_chr),
+        qry_start(qry_start),
+        qry_len(qry_len),
+        strand(strand),
+        alignment_length(align_len),
+        aligned_base(aligned_base),
+        cigar(cigar_str) {
     }
+
+
 };
+
 
 using AnchorVec = std::vector<Anchor>;
 
-AnchorVec extendClusterToAnchor(const MatchCluster& cluster,
+AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& query_mgr);
+
+Anchor extendClusterToAnchor(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
@@ -337,25 +373,25 @@ void chunkUnmaskedRegion(RegionVec& chunks, const std::string& seq_name,
 // ------------------------------------------------------------------
 namespace cereal {
 
-    // Region 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Region& r) {
-        ar(r.chr_name, r.start, r.length);
-    }
+    //// Region 的序列化
+    //template <class Archive>
+    //void serialize(Archive& ar, Region& r) {
+    //    ar(r.chr_name, r.start, r.length);
+    //}
 
     // Match 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Match& m) {
-        ar(m.ref_region, m.query_region, m.strand);
-    }
+    //template <class Archive>
+    //void serialize(Archive& ar, Match& m) {
+    //    ar(m.ref_region, m.query_region, m.strand);
+    //}
 
     // Anchor 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Anchor& a) {
-        ar(a.match,
-            a.alignment_length,
-            a.cigar);
-    }
+    //template <class Archive>
+    //void serialize(Archive& ar, Anchor& a) {
+    //    ar(a.match,
+    //        a.alignment_length,
+    //        a.cigar);
+    //}
 
 } // namespace cereal
 
@@ -363,11 +399,11 @@ namespace cereal {
 // Anchor 文件的读写接口
 // ------------------------------------------------------------------
 
-bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
-bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
-
-bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
-bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
+//bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
+//bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
+//
+//bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
+//bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
 
 class UnionFind
 {
