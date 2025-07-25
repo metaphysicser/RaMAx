@@ -510,7 +510,7 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
 
     /* ---------- 2. 两级 interval map ---------- */
     IntervalMap refMap;
-    std::unordered_map<std::string, IntervalMap> qMaps;
+    std::vector<IntervalMap> qMaps;
 
     /* ---------- 3. 贪婪循环 ---------- */
     while (!heap.empty())
@@ -523,7 +523,7 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
         uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
         uint_t qb = start2(cur.cl.front());
         uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
-        const ChrName& qChr = cur.cl.front().qry_chr_index;
+        const ChrIndex& qChr = cur.cl.front().qry_chr_index;
 
         int_t RL = 0, RR = 0, QL = 0, QR = 0;
         bool ref_hit = overlap1D(refMap, rb, re, RL, RR);
@@ -593,10 +593,7 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
 
                     /* ---- 3-1 计算 query 染色体 ID ---- */
                     const auto& m = cluster.front();
-                    uint32_t qIdx = std::visit([&](auto&& mgr) {
-                        return static_cast<uint32_t>(
-                            mgr->getSequenceId(m.qry_chr_index));
-                        }, query_fasta_manager);
+                    uint32_t qIdx = m.qry_chr_index;
 
                     if (qIdx >= query_cnt) continue;      // 无效或未收录
 

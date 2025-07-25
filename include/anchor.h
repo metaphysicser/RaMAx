@@ -58,13 +58,13 @@ inline bool overlap1D(const IntervalMap& m,
 
 // 表示基因组上的一个区域
 struct Region {
-    ChrName chr_name{};     // 染色体名称
+    ChrIndex chr_index{};     // 染色体名称
     Coord_t start{ 0 };     // 起始坐标
     Coord_t length{ 0 };    // 区域长度
 
     Region() = default;
-    Region(ChrName chr_name, Coord_t s, Coord_t len)
-        : chr_name{ chr_name }, start{ s }, length{ len } {
+    Region(ChrIndex chr_index, Coord_t s, Coord_t len)
+        : chr_index{ chr_index }, start{ s }, length{ len } {
     }
 };
 
@@ -75,16 +75,16 @@ enum Strand { FORWARD, REVERSE };
 
 // 表示参考与查询序列之间的一段匹配区域
 struct Match {
-    ChrName ref_chr_index;
+    ChrIndex ref_chr_index;
     Coord_t  ref_start;
-    ChrName qry_chr_index;
+    ChrIndex qry_chr_index;
     Coord_t  qry_start;
     uint32_t len_and_strand; // 高位存 strand，低 31 位存 length
 
     Match() = default;
 
-    Match(ChrName r_chr, Coord_t r_start,
-        ChrName q_chr, Coord_t q_start,
+    Match(ChrIndex r_chr, Coord_t r_start,
+        ChrIndex q_chr, Coord_t q_start,
         uint32_t len, Strand strand)
         : ref_chr_index(r_chr),
         ref_start(r_start),
@@ -234,10 +234,10 @@ splitCluster(const MatchCluster& cl,
 void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr);
 
 struct Anchor {
-    ChrName ref_chr_index;
+    ChrIndex ref_chr_index;
     Coord_t  ref_start;
     Length_t ref_len;
-    ChrName qry_chr_index;
+    ChrIndex qry_chr_index;
     Coord_t  qry_start;
     Length_t qry_len;
 
@@ -248,8 +248,8 @@ struct Anchor {
 
     Anchor() = default;
 
-    Anchor(ChrName ref_chr, Coord_t ref_start, Length_t ref_len,
-        ChrName qry_chr, Coord_t qry_start, Length_t qry_len,
+    Anchor(ChrIndex ref_chr, Coord_t ref_start, Length_t ref_len,
+        ChrIndex qry_chr, Coord_t qry_start, Length_t qry_len,
         Strand strand, uint_t align_len, uint_t aligned_base, Cigar_t cigar_str)
         : ref_chr_index(ref_chr),
         ref_start(ref_start),
@@ -373,11 +373,11 @@ void chunkUnmaskedRegion(RegionVec& chunks, const std::string& seq_name,
 // ------------------------------------------------------------------
 namespace cereal {
 
-    // Region 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Region& r) {
-        ar(r.chr_name, r.start, r.length);
-    }
+    //// Region 的序列化
+    //template <class Archive>
+    //void serialize(Archive& ar, Region& r) {
+    //    ar(r.chr_name, r.start, r.length);
+    //}
 
     // Match 的序列化
     //template <class Archive>

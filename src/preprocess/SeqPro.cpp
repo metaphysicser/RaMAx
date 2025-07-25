@@ -1173,7 +1173,7 @@ Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_
   throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
 }
 
-std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
+std::pair<SequenceId, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
   ensureCacheValid();
   // 构建包含间隔符的全局坐标映射
   Position current_global_pos = 0;
@@ -1192,7 +1192,7 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
       //Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
       Position local_original_pos = toOriginalPositionSeparated(seq_id, local_pos_with_separators);
       // local_original_pos -= seq_id;
-      return {seq_name, local_original_pos};
+      return {seq_id , local_original_pos};
     }
 
     current_global_pos += seq_length_with_separators;
@@ -1203,14 +1203,14 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
         // 位置正好在染色体间隔符上，返回下一个序列的开始位置
         auto next_seq_it = std::find(seq_names.begin(), seq_names.end(), seq_name);
         if (next_seq_it != seq_names.end() && ++next_seq_it != seq_names.end()) {
-          return {*next_seq_it, 0};
+          return {getSequenceId(*next_seq_it), 0};
         }
       }
       current_global_pos += 1; // 染色体间隔符
     }
   }
 
-  return {"", INVALID_POSITION};
+  return {SequenceIndex::INVALID_ID, INVALID_POSITION};
 }
 
 Position MaskedSequenceManager::localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const {

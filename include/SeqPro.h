@@ -370,7 +370,7 @@ public:
   Position localToGlobal(SequenceId seq_id, Position local_masked_pos) const;
 
   // 支持间隔符的全局坐标系统
-  std::pair<std::string, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
+  std::pair<SequenceId, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
   Position localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const;
   Position localToGlobalSeparated(SequenceId seq_id, Position local_masked_pos) const;
 

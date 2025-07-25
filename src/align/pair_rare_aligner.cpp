@@ -160,17 +160,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr forwoard_matches = ref_index->findAnchors(
-							ck.chr_name, seq, search_mode,
+							ck.chr_index, seq, search_mode,
 							Strand::FORWARD,
 							allow_MEM,
 							ck.start,
@@ -195,17 +195,17 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						std::string seq = std::visit([&ck](auto&& manager_ptr) -> std::string {
 							using PtrType = std::decay_t<decltype(manager_ptr)>;
 							if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-								return manager_ptr->getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
 								// 不再使用分隔符，因为chunks已经预分割了
-								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_name, ck.start, ck.length);
+								return manager_ptr->getOriginalManager().getSubSequence(ck.chr_index, ck.start, ck.length);
 							} else {
 								throw std::runtime_error("Unhandled manager type in variant.");
 							}
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr reverse_matches = ref_index->findAnchors(
-							ck.chr_name, seq, FAST_SEARCH,
+							ck.chr_index, seq, FAST_SEARCH,
 							Strand::REVERSE,
 							allow_MEM,
 							ck.start,
@@ -307,8 +307,8 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 	cluster_vec_ptr->clear();
 	std::make_heap(heap.begin(), heap.end(), cmp);
 
-	std::unordered_map<ChrName, IntervalMap> rMaps;
-	std::unordered_map<ChrName, IntervalMap> qMaps;
+	std::vector<IntervalMap> rMaps;
+	std::vector<IntervalMap> qMaps;
 
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
@@ -324,8 +324,8 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_chr_index;
-		const ChrName& qChr = cur.cl.front().qry_chr_index;
+		const ChrIndex refChr = cur.cl.front().ref_chr_index;
+		const ChrIndex qChr = cur.cl.front().qry_chr_index;
 
 		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());
@@ -476,8 +476,11 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 	cluster_vec_ptr->clear();
 	std::make_heap(heap.begin(), heap.end(), cmp);
 
-	std::unordered_map<ChrName, IntervalMap> rMaps;
-	std::unordered_map<ChrName, IntervalMap> qMaps;
+	std::vector<IntervalMap> rMaps;
+	std::vector<IntervalMap> qMaps;
+	
+
+	// 初始化rMaps和qMaps
 
 	MatchClusterVec kept;
 	kept.reserve(heap.size());
@@ -490,8 +493,15 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_chr_index;
-		const ChrName& qChr = cur.cl.front().qry_chr_index;
+		const ChrIndex refChr = cur.cl.front().ref_chr_index;
+		const ChrIndex qChr = cur.cl.front().qry_chr_index;
+
+		if (refChr >= rMaps.size()) {
+			rMaps.resize(refChr + 1);
+		}
+		if (qChr >= qMaps.size()) {
+			qMaps.resize(qChr + 1);
+		}
 
 		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());

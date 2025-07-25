@@ -241,13 +241,13 @@ namespace RaMesh {
             };
         // 1. Locate ends for reference & query chromosomes
 
-        //ChrIndex ref_chr_index = anchor.ref_chr_index;
-        //ChrIndex qry_chr_index = anchor.qry_chr_index;
-        ChrName ref_chr = anchor.ref_chr_index;
-        ChrName qry_chr = anchor.qry_chr_index;
+        ChrIndex ref_chr_index = anchor.ref_chr_index;
+        ChrIndex qry_chr_index = anchor.qry_chr_index;
+        /*ChrName ref_chr = anchor.ref_chr_index;
+        ChrName qry_chr = anchor.qry_chr_index;*/
 
-        //const ChrName& ref_chr = fetchName(ref_mgr, ref_chr_index);
-        //const ChrName& qry_chr = fetchName(qry_mgr, qry_chr_index);
+        const ChrName& ref_chr = fetchName(ref_mgr, ref_chr_index);
+        const ChrName& qry_chr = fetchName(qry_mgr, qry_chr_index);
 
         auto& ref_end = species_graphs[ref_name].chr2end[ref_chr];
         auto& qry_end = species_graphs[qry_name].chr2end[qry_chr];

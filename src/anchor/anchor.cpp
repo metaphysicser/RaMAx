@@ -182,18 +182,14 @@ void groupMatchByQueryRef(
         const Match& first = slice.front().front();
         const uint_t sIdx = (first.strand() == REVERSE ? 1u : 0u);
 
-        uint_t qIdx = std::visit([&first](auto& man) {
-            return man->getSequenceId(first.qry_chr_index);
-            }, query_fasta_manager);
+        ChrIndex qIdx = first.qry_chr_index;
         if (qIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
         // --- 遍历 slice 内的每个 MatchVec（同一 query & strand, 不同 ref）
         for (auto& vec : slice) {
             if (vec.empty()) continue;
 
-            uint_t rIdx = std::visit([&vec](auto& man) {
-                return man->getSequenceId(vec.front().ref_chr_index);
-                }, ref_fasta_manager);
+            ChrIndex rIdx = vec.front().ref_chr_index;
             if (rIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
             MatchVec& dest = (vec.size() == 1)
@@ -744,7 +740,7 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
     // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
     auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
     return std::visit([&](auto& p) {
         using T = std::decay_t<decltype(p)>;
         if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
@@ -759,8 +755,8 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const Match& first = cluster.front();
     Strand strand = first.strand();
     bool   fwd         = (strand == FORWARD); 
-    ChrName ref_chr = first.ref_chr_index;
-    ChrName qry_chr = first.qry_chr_index;
+    ChrIndex ref_chr = first.ref_chr_index;
+    ChrIndex qry_chr = first.qry_chr_index;
 
     Coord_t ref_beg = start1(first);
     Coord_t ref_end = ref_beg;
@@ -945,7 +941,7 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
     // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
     // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
     auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
+        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
             return std::visit([&](auto& p) {
                 using T = std::decay_t<decltype(p)>;
                 if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
@@ -961,8 +957,8 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
     const Match& first = cluster.front();
     Strand strand = first.strand();
     bool   fwd = (strand == FORWARD);
-    ChrName ref_chr = first.ref_chr_index;
-    ChrName qry_chr = first.qry_chr_index;
+    ChrIndex ref_chr = first.ref_chr_index;
+    ChrIndex qry_chr = first.qry_chr_index;
 
     Coord_t ref_beg = start1(first);
     Coord_t ref_end = ref_beg;
