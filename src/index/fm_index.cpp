@@ -490,7 +490,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index,
         const Match& a = lst.front();
         // start = query_length - match_length - total_length + query_offset
         // total_length = query_length - match_length - start + query_offset
-        uint_t L = query_length - a.match_len() - a.ref_start +
+        uint_t L = query_length - a.match_len() - a.qry_start +
             query_offset;
         uint_t n = a.match_len();
         uint_t R = L + n;
