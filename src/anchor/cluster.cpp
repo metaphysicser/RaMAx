@@ -74,7 +74,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
         return clusters;
     }
 
-    const bool is_forward = (unique_match.front().strand == FORWARD);
+    const bool is_forward = (unique_match.front().strand() == FORWARD);
 
 
     // 预排序：按ref起始位置排序，提升局部性
@@ -321,30 +321,16 @@ groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src)
 }
 
 
-// 辅助函数：合并两个overlap的锚点
-inline Match mergeOverlapMatches(const Match& a, const Match& b) {
-    // 选择覆盖范围更大的区域
-    Coord_t ref_start = std::min(a.ref_region.start, b.ref_region.start);
-    Coord_t ref_end = std::max(a.ref_region.start + a.ref_region.length, 
-                               b.ref_region.start + b.ref_region.length);
-    Coord_t query_start = std::min(a.query_region.start, b.query_region.start);
-    Coord_t query_end = std::max(a.query_region.start + a.query_region.length,
-                                 b.query_region.start + b.query_region.length);
-    
-    return Match(a.ref_region.chr_name, ref_start, ref_end - ref_start,
-                 a.query_region.chr_name, query_start, query_end - query_start,
-                 a.strand);
-}
 
 // 检查两个锚点是否overlap
 inline bool isOverlap(const Match& a, const Match& b) {
     // 检查ref维度overlap
-    bool ref_overlap = !(a.ref_region.start + a.ref_region.length <= b.ref_region.start ||
-                        b.ref_region.start + b.ref_region.length <= a.ref_region.start);
+    bool ref_overlap = !(a.ref_start + a.match_len() <= b.ref_start ||
+        b.ref_start + b.match_len() <= a.ref_start);
     
     // 检查query维度overlap
-    bool query_overlap = !(a.query_region.start + a.query_region.length <= b.query_region.start ||
-                          b.query_region.start + b.query_region.length <= a.query_region.start);
+    bool query_overlap = !(a.qry_start + a.match_len() <= b.qry_start ||
+                          b.qry_start + b.match_len() <= a.qry_start);
     
     return ref_overlap && query_overlap;
 }

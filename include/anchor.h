@@ -75,27 +75,39 @@ enum Strand { FORWARD, REVERSE };
 
 // 表示参考与查询序列之间的一段匹配区域
 struct Match {
-    Region ref_region;      // 参考基因组上的区域
-    Region query_region;    // 查询基因组上的区域
-    Strand strand;          // 链接方向
-
-    // 构造函数：使用详细参数创建一个 Match
-    Match(ChrName r_chr, Coord_t r_start, Coord_t r_len,
-        ChrName q_chr, Coord_t q_start, Coord_t q_len,
-        Strand sd = FORWARD)
-        : ref_region(r_chr, r_start, r_len),
-        query_region(q_chr, q_start, q_len),
-        strand(sd) {
-    }
-
-    // 构造函数：使用已构建的 Region
-    Match(Region ref_region, Region query_region, Strand sd = FORWARD)
-        : ref_region(ref_region),
-        query_region(query_region),
-        strand(sd) {
-    }
+    ChrName ref_chr_index;
+    Coord_t  ref_start;
+    ChrName qry_chr_index;
+    Coord_t  qry_start;
+    uint32_t len_and_strand; // 高位存 strand，低 31 位存 length
 
     Match() = default;
+
+    Match(ChrName r_chr, Coord_t r_start,
+        ChrName q_chr, Coord_t q_start,
+        uint32_t len, Strand strand)
+        : ref_chr_index(r_chr),
+        ref_start(r_start),
+        qry_chr_index(q_chr),
+        qry_start(q_start),
+        len_and_strand((len & 0x7FFFFFFF) | (static_cast<uint32_t>(strand) << 31)) {
+    }
+
+    uint32_t match_len() const {
+        return len_and_strand & 0x7FFFFFFF;
+    }
+
+    Strand strand() const {
+        return (len_and_strand >> 31) ? Strand::REVERSE : Strand::FORWARD;
+    }
+
+    void set_match_len(uint32_t len) {
+        len_and_strand = (len & 0x7FFFFFFF) | (static_cast<uint32_t>(strand()) << 31);
+    }
+
+    void set_strand(Strand s) {
+        len_and_strand = (match_len() & 0x7FFFFFFF) | (static_cast<uint32_t>(s) << 31);
+    }
 };
 
 using MatchVec = std::vector<Match>;
@@ -139,10 +151,10 @@ using SpeciesClusterMap =
 std::unordered_map<SpeciesName, ClusterVecPtrByStrandByQueryRefPtr>;
 using SpeciesClusterMapPtr = std::shared_ptr<SpeciesClusterMap>;
 
-inline uint_t start1(const Match& m) { return static_cast<uint_t>(m.ref_region.start); }
-inline uint_t start2(const Match& m) { return static_cast<uint_t>(m.query_region.start); }
-inline uint_t len1(const Match& m) { return static_cast<uint_t>(m.ref_region.length); }
-inline uint_t len2(const Match& m) { return static_cast<uint_t>(m.query_region.length); }
+inline Coord_t start1(const Match& m) { return (m.ref_start); }
+inline Coord_t start2(const Match& m) { return (m.qry_start); }
+inline Length_t len1(const Match& m) { return (m.match_len()); }
+inline Length_t len2(const Match& m) { return (m.match_len()); }
 inline int_t diag(const Match& m) {
     return start2(m) - start1(m);
 }
@@ -368,10 +380,10 @@ namespace cereal {
     }
 
     // Match 的序列化
-    template <class Archive>
-    void serialize(Archive& ar, Match& m) {
-        ar(m.ref_region, m.query_region, m.strand);
-    }
+    //template <class Archive>
+    //void serialize(Archive& ar, Match& m) {
+    //    ar(m.ref_region, m.query_region, m.strand);
+    //}
 
     // Anchor 的序列化
     //template <class Archive>
@@ -387,11 +399,11 @@ namespace cereal {
 // Anchor 文件的读写接口
 // ------------------------------------------------------------------
 
-bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
-bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
-
-bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
-bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
+//bool saveMatchVec3D(const std::string& filename, const MatchVec3DPtr& data);
+//bool loadMatchVec3D(const std::string& filename, MatchVec3DPtr& data);
+//
+//bool loadSpeciesMatchMap(const std::string& filename, SpeciesMatchVec3DPtrMapPtr& map_ptr);
+//bool saveSpeciesMatchMap(const std::string& filename, const SpeciesMatchVec3DPtrMapPtr& map_ptr);
 
 class UnionFind
 {

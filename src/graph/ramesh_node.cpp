@@ -515,13 +515,14 @@ namespace RaMesh {
         const BlockPtr& blk)
     {
         // Create ref segment
-        SegPtr ref_seg = Segment::createFromRegion(const_cast<Region&>(match.ref_region),
-            Strand::FORWARD, Cigar_t{ cigarToInt('M', match.ref_region.length) }, AlignRole::PRIMARY,
+        uint_t match_len = match.match_len();
+        SegPtr ref_seg = Segment::create(match.ref_start, match_len,
+            Strand::FORWARD, Cigar_t{ cigarToInt('M', match_len) }, AlignRole::PRIMARY,
             SegmentRole::SEGMENT, blk);
 
         // Create qry segment
-        SegPtr qry_seg = Segment::createFromRegion(const_cast<Region&>(match.query_region),
-            match.strand, Cigar_t{ cigarToInt('M', match.query_region.length) }, AlignRole::PRIMARY,
+        SegPtr qry_seg = Segment::create(match.qry_start, match_len,
+            match.strand(), Cigar_t{ cigarToInt('M', match_len) }, AlignRole::PRIMARY,
             SegmentRole::SEGMENT, blk);
 
         // Register anchors

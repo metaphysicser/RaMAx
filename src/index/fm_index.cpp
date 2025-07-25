@@ -356,7 +356,8 @@ MatchVec2DPtr FM_Index::findAnchorsMiddle(ChrName query_chr, std::string query, 
             MatchVec anchor_ptr_list;
             anchor_ptr_list.reserve(region_vec.size());
             for (uint_t i = 0; i < region_vec.size(); i++) {
-                Match match(region_vec[i], query_region, strand);
+                // Match match(region_vec[i], query_region, strand);
+                Match match(region_vec[i].chr_name, region_vec[i].start, query_chr, query_region.start, match_length, strand);
                 /*Score_t score = caculateMatchScore(query.c_str() + total_length,
                 match_length); Cigar_t cigar; cigar.push_back(cigarToInt('=',
                 match_length));*/
@@ -419,7 +420,7 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrName query_chr, std::string query,
             // 仅当与上一段区域不重复时才添加
             if (ref_end_pos != last_pos) {
                 for (uint_t i = 0; i < region_vec.size(); i++) {
-                    Match match(region_vec[i], query_region, strand);
+                    Match match(region_vec[i].chr_name, region_vec[i].start, query_chr, query_region.start, match_length, strand);
                     /* Score_t score = caculateMatchScore(query.c_str() + total_length,
                      match_length); Cigar_t cigar; cigar.push_back(cigarToInt('=',
                      match_length)); Anchor p = Anchor(match, match_length, cigar,
@@ -476,9 +477,9 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
         const Match &a = lst.front();
         // start = query_length - match_length - total_length + query_offset
         // total_length = query_length - match_length - start + query_offset
-        uint_t L = query_length - a.query_region.length - a.query_region.start +
+        uint_t L = query_length - a.match_len() - a.qry_start +
                    query_offset;
-        uint_t n = a.query_region.length;
+        uint_t n = a.match_len();
         uint_t R = L + n;
 
         out->push_back(lst); // fast 结果入库
@@ -501,7 +502,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrName query_chr,
             MatchVec anchor_ptr_list;
             anchor_ptr_list.reserve(regs.size());
             for (uint_t i = 0; i < regs.size(); i++) {
-                Match match(regs[i], query_region, strand);
+                Match match(regs[i].chr_name, regs[i].start, query_chr, query_region.start, right_len, strand);
                 /*Score_t score = caculateMatchScore(query.c_str() + right_pos,
                 right_len); Cigar_t cigar; cigar.push_back(cigarToInt('=', right_len));
                 Anchor p = Anchor(match, right_len, cigar, score);*/
@@ -608,10 +609,10 @@ void FM_Index::bisectAnchors(const std::string &query, ChrName query_chr,
         MatchVec lst;
         lst.reserve(regs.size());
         for (auto const &rg: regs) {
-            Match m(rg, qreg, strand);
+            Match match(rg.chr_name, rg.start, query_chr, qreg.start, mid_len, strand);
             /*Score_t sc = caculateMatchScore(query.c_str() + mid, mid_len);
             Cigar_t cg = { cigarToInt('=', mid_len) };*/
-            lst.emplace_back(m);
+            lst.emplace_back(match);
         }
         out.emplace_back(std::move(lst));
     }
