@@ -112,11 +112,11 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 		(prefix + "_" + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
 	/* ---------- 若已存在结果文件，直接加载 ---------- */
-	if (std::filesystem::exists(anchor_file)) {
-		MatchVec3DPtr result = std::make_shared<MatchVec3D>();
-		loadMatchVec3D(anchor_file, result);
-		return result;
-	}
+	//if (std::filesystem::exists(anchor_file)) {
+	//	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
+	//	loadMatchVec3D(anchor_file, result);
+	//	return result;
+	//}
 	// TODO 对于二轮之后，低于20的chunk可以不用输入
 	/* ---------- 读取 FASTA 并分片 ---------- */
 	// 修改：使用新的预分割逻辑，支持多基因组模式
@@ -324,10 +324,10 @@ void PairRareAligner::constructGraphByGreedy(SpeciesName query_name, SeqPro::Man
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
-		const ChrName& qChr = cur.cl.front().query_region.chr_name;
+		const ChrName& refChr = cur.cl.front().ref_chr_index;
+		const ChrName& qChr = cur.cl.front().qry_chr_index;
 
-		Strand strand = cur.cl.front().strand;
+		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());
 		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
 		uint_t qb = 0;
@@ -490,10 +490,10 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 
 		if (cur.span < min_span || cur.cl.empty()) continue;
 
-		const ChrName& refChr = cur.cl.front().ref_region.chr_name;
-		const ChrName& qChr = cur.cl.front().query_region.chr_name;
+		const ChrName& refChr = cur.cl.front().ref_chr_index;
+		const ChrName& qChr = cur.cl.front().qry_chr_index;
 
-		Strand strand = cur.cl.front().strand;
+		Strand strand = cur.cl.front().strand();
 		uint_t rb = start1(cur.cl.front());
 		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
 		uint_t qb = 0;

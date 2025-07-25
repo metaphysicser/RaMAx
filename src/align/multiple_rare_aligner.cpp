@@ -655,13 +655,13 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
         + SearchModeToString(search_mode) + "." + ANCHOR_EXTENSION);
 
     /* ---------- 2. 如果已存在结果文件直接读取 ---------- */
-    if (std::filesystem::exists(anchor_file)) {
-        spdlog::info("[alignMultipleQuerys] Load from {}", anchor_file.string());
-        auto mp = std::make_shared<SpeciesMatchVec3DPtrMap>();
-        if (loadSpeciesMatchMap(anchor_file, mp))
-            return mp;
-        // 如果读取失败则继续重新计算
-    }
+    //if (std::filesystem::exists(anchor_file)) {
+    //    spdlog::info("[alignMultipleQuerys] Load from {}", anchor_file.string());
+    //    auto mp = std::make_shared<SpeciesMatchVec3DPtrMap>();
+    //    if (loadSpeciesMatchMap(anchor_file, mp))
+    //        return mp;
+    //    // 如果读取失败则继续重新计算
+    //}
 
     /* ---------- 3. 准备参考基因组索引 ---------- */
     FilePath ref_index_path = index_dir / ref_name;

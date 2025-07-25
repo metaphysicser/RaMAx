@@ -341,7 +341,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
     if (cluster.empty()) return {};
     if (cluster.size() == 1) return std::move(cluster);
 
-    Strand strand = cluster.front().strand;
+    Strand strand = cluster.front().strand();
 
     std::sort(cluster.begin(), cluster.end(),
         [](const Match& a, const Match& b) { return start1(a) < start1(b); });
@@ -523,7 +523,7 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
         uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
         uint_t qb = start2(cur.cl.front());
         uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
-        const ChrName& qChr = cur.cl.front().query_region.chr_name;
+        const ChrName& qChr = cur.cl.front().qry_chr_index;
 
         int_t RL = 0, RR = 0, QL = 0, QR = 0;
         bool ref_hit = overlap1D(refMap, rb, re, RL, RR);
@@ -595,7 +595,7 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
                     const auto& m = cluster.front();
                     uint32_t qIdx = std::visit([&](auto&& mgr) {
                         return static_cast<uint32_t>(
-                            mgr->getSequenceId(m.query_region.chr_name));
+                            mgr->getSequenceId(m.qry_chr_index));
                         }, query_fasta_manager);
 
                     if (qIdx >= query_cnt) continue;      // 无效或未收录
