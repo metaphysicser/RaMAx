@@ -120,7 +120,7 @@ set(RAMA_COMMON_SOURCES
 )
 
 # ================= 主程序入口文件 =================
-set(MAIN_G "${SOURCE_DIR}/RaMA-G.cpp")
+#set(MAIN_G "${SOURCE_DIR}/RaMA-G.cpp")
 set(MAIN_X "${SOURCE_DIR}/RaMAx.cpp")
 
 # ================= 公共头文件路径 =================
@@ -171,14 +171,14 @@ endfunction()
 add_compile_options(-w)
 
 # ================= 创建两个可执行文件 =================
-add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
-configure_rama_target(RaMA-G)
+# add_executable(RaMA-G ${MAIN_G} ${RAMA_COMMON_SOURCES})
+# configure_rama_target(RaMA-G)
 
 add_executable(RaMAx ${MAIN_X} ${RAMA_COMMON_SOURCES})
 configure_rama_target(RaMAx)
 
 # 如需确保先有 HAL 工具，再编你的程序：
-add_dependencies(RaMA-G hal_tools)
+#add_dependencies(RaMA-G hal_tools)
 add_dependencies(RaMAx  hal_tools)
 
 # ================= 安装规则（可选） =================
@@ -186,7 +186,7 @@ add_dependencies(RaMAx  hal_tools)
 
 # ================= 安装规则 =================
 # 安装主程序
-install(TARGETS RaMA-G RaMAx DESTINATION bin)
+install(TARGETS RaMAx DESTINATION bin)
 
 # 安装 windowmasker 工具
 install(FILES "${BIN_DIR}/windowmasker" 

@@ -74,7 +74,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
         return clusters;
     }
 
-    const bool is_forward = (unique_match.front().strand == FORWARD);
+    const bool is_forward = (unique_match.front().strand() == FORWARD);
 
 
     // 预排序：按ref起始位置排序，提升局部性
@@ -148,10 +148,10 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 ClusterVecPtrByStrandByQueryRefPtr
 clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
     const MatchByStrandByQueryRefPtr& repeat_anchors,
-    ThreadPool& pool)
+    ThreadPool& pool, uint_t min_cluster_length)
 {
     // ---------- 0. 判空 ----------
-    if (unique_anchors->empty() || repeat_anchors->empty()) {
+    if (unique_anchors->empty() && repeat_anchors->empty()) {
         spdlog::warn("[clusterAllChrAnchors] empty anchor ptr");
         return std::make_shared<ClusterVecPtrByStrandByQueryRef>();   // 返回空指针容器
     }
@@ -217,8 +217,8 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
         if (tasks[task_idx].total_size >= MIN_PARALLEL_SIZE) {
             // 大任务：单独处理
             const auto& task = tasks[task_idx];
-            futures.emplace_back(pool.enqueue([task, task_idx]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
-                auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr);
+            futures.emplace_back(pool.enqueue([task, task_idx, min_cluster_length]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
+                auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr, min_cluster_length);
                 return {{task_idx, result}};
             }));
             ++task_idx;
@@ -227,13 +227,13 @@ clusterAllChrMatch(const MatchByStrandByQueryRefPtr& unique_anchors,
             size_t batch_end = std::min(task_idx + BATCH_SIZE, tasks.size());
             std::vector<ClusterTask> batch(tasks.begin() + task_idx, tasks.begin() + batch_end);
             
-            futures.emplace_back(pool.enqueue([batch, task_idx]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
+            futures.emplace_back(pool.enqueue([batch, task_idx, min_cluster_length]() -> std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> {
                 std::vector<std::pair<size_t, std::shared_ptr<MatchClusterVec>>> results;
                 results.reserve(batch.size());
                 
                 for (size_t i = 0; i < batch.size(); ++i) {
                     const auto& task = batch[i];
-                    auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr);
+                    auto result = clusterChrMatch(*task.uniq_ptr, *task.rept_ptr, min_cluster_length);
                     results.emplace_back(task_idx + i, result);
                 }
                 return results;
@@ -321,30 +321,16 @@ groupClustersByRef(const ClusterVecPtrByStrandByQueryRefPtr& src)
 }
 
 
-// 辅助函数：合并两个overlap的锚点
-inline Match mergeOverlapMatches(const Match& a, const Match& b) {
-    // 选择覆盖范围更大的区域
-    Coord_t ref_start = std::min(a.ref_region.start, b.ref_region.start);
-    Coord_t ref_end = std::max(a.ref_region.start + a.ref_region.length, 
-                               b.ref_region.start + b.ref_region.length);
-    Coord_t query_start = std::min(a.query_region.start, b.query_region.start);
-    Coord_t query_end = std::max(a.query_region.start + a.query_region.length,
-                                 b.query_region.start + b.query_region.length);
-    
-    return Match(a.ref_region.chr_name, ref_start, ref_end - ref_start,
-                 a.query_region.chr_name, query_start, query_end - query_start,
-                 a.strand);
-}
 
 // 检查两个锚点是否overlap
 inline bool isOverlap(const Match& a, const Match& b) {
     // 检查ref维度overlap
-    bool ref_overlap = !(a.ref_region.start + a.ref_region.length <= b.ref_region.start ||
-                        b.ref_region.start + b.ref_region.length <= a.ref_region.start);
+    bool ref_overlap = !(a.ref_start + a.match_len() <= b.ref_start ||
+        b.ref_start + b.match_len() <= a.ref_start);
     
     // 检查query维度overlap
-    bool query_overlap = !(a.query_region.start + a.query_region.length <= b.query_region.start ||
-                          b.query_region.start + b.query_region.length <= a.query_region.start);
+    bool query_overlap = !(a.qry_start + a.match_len() <= b.qry_start ||
+                          b.qry_start + b.match_len() <= a.qry_start);
     
     return ref_overlap && query_overlap;
 }
@@ -355,7 +341,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
     if (cluster.empty()) return {};
     if (cluster.size() == 1) return std::move(cluster);
 
-    Strand strand = cluster.front().strand;
+    Strand strand = cluster.front().strand();
 
     std::sort(cluster.begin(), cluster.end(),
         [](const Match& a, const Match& b) { return start1(a) < start1(b); });
@@ -397,7 +383,7 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 /* ───────────────────────────────────────────────────────── *
  * 对外主函数                                              *
  * ───────────────────────────────────────────────────────── */
-MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, int_t max_gap, int_t diagdiff, double diagfactor, int_t min_cluster_length)
+MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_match, uint_t min_cluster_length, int_t max_gap, int_t diagdiff, double diagfactor)
 {
 
     auto best_chain_clusters = std::make_shared<MatchClusterVec>();
@@ -406,6 +392,10 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
     }
     // 1. 聚簇
     MatchClusterVec clusters = buildClusters(unique_match, max_gap, diagdiff, diagfactor);
+
+   // 释放unique_match的内存
+	unique_match.clear();
+	unique_match.shrink_to_fit();  // 释放内存
 
     // 2. 每簇提链 + 长度过滤
     
@@ -520,7 +510,7 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
 
     /* ---------- 2. 两级 interval map ---------- */
     IntervalMap refMap;
-    std::unordered_map<std::string, IntervalMap> qMaps;
+    std::vector<IntervalMap> qMaps;
 
     /* ---------- 3. 贪婪循环 ---------- */
     while (!heap.empty())
@@ -533,7 +523,7 @@ void keepWithSplitGreedy(MatchClusterVecPtr clusters_ptr,
         uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
         uint_t qb = start2(cur.cl.front());
         uint_t qe = start2(cur.cl.back()) + len2(cur.cl.back());
-        const ChrName& qChr = cur.cl.front().query_region.chr_name;
+        const ChrIndex& qChr = cur.cl.front().qry_chr_index;
 
         int_t RL = 0, RR = 0, QL = 0, QR = 0;
         bool ref_hit = overlap1D(refMap, rb, re, RL, RR);
@@ -603,10 +593,7 @@ groupClustersByRefQuery(const ClusterVecPtrByRefPtr& by_ref,
 
                     /* ---- 3-1 计算 query 染色体 ID ---- */
                     const auto& m = cluster.front();
-                    uint32_t qIdx = std::visit([&](auto&& mgr) {
-                        return static_cast<uint32_t>(
-                            mgr->getSequenceId(m.query_region.chr_name));
-                        }, query_fasta_manager);
+                    uint32_t qIdx = m.qry_chr_index;
 
                     if (qIdx >= query_cnt) continue;      // 无效或未收录
 

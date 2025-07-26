@@ -231,6 +231,7 @@ public:
   std::filesystem::path getFastaPath() const { return fasta_path_; }
   SequenceId getSequenceId(const std::string &seq_name) const;
   std::vector<std::string> getSequenceNames() const;
+  std::string getSequenceName(const uint32_t& seq_id) const;
   bool hasAmbiguousBasesAll() const { return has_ambiguous_bases; }
 
   // 序列长度（原始长度）
@@ -369,7 +370,7 @@ public:
   Position localToGlobal(SequenceId seq_id, Position local_masked_pos) const;
 
   // 支持间隔符的全局坐标系统
-  std::pair<std::string, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
+  std::pair<SequenceId, Position> globalToLocalSeparated(Position global_pos_with_separators) const;
   Position localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const;
   Position localToGlobalSeparated(SequenceId seq_id, Position local_masked_pos) const;
 

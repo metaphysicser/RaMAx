@@ -184,7 +184,7 @@ public:
     ChrName getChrName(uint_t global_start, uint_t length);
 
     // 按 chunk_size 和 overlap_size 对所有序列预分段
-    RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
+    //RegionVec preAllocateChunks(uint_t chunk_size, uint_t overlap_size);
 
     // 通用的隐藏区间函数，根据提供的区间数据隐藏指定区间，生成新的FASTA文件和对应的FAI索引
     bool hideIntervalsAndGenerateFai(
@@ -343,6 +343,8 @@ public:
 
     // NewickParser.hpp 里声明
     std::vector<int> orderLeavesGreedyMinSum(int leafRoot);
+
+    std::vector<std::string> getLeafNames() const;
 
 
 

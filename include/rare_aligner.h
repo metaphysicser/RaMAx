@@ -44,13 +44,15 @@ public:
         bool                       allow_MEM,
         bool                       mask_mode=false,
         SeqPro::Length sampling_interval=32,
-        uint_t min_span=50);
+        uint_t min_span=65);
 
     SpeciesMatchVec3DPtrMapPtr alignMultipleGenome(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fasta_manager_map, SearchMode search_mode, bool fast_build, bool allow_MEM, bool allow_short_mum, sdsl::int_vector<0>& ref_global_cache, SeqPro::Length sampling_interval);
 
-    SpeciesClusterMapPtr filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map, SpeciesMatchVec3DPtrMapPtr species_match_map);
+    SpeciesClusterMapPtr filterMultipeSpeciesAnchors(SpeciesName ref_name, std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant>& species_fm_map, SpeciesMatchVec3DPtrMapPtr species_match_map, uint_t min_span);
 
     void constructMultipleGraphsByGreedy(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
+
+    void constructMultipleGraphsByDpByRef(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
     void constructMultipleGraphsByGreedyByRef(std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers, SpeciesName ref_name, const SpeciesClusterMap& species_cluster_map, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
@@ -109,8 +111,11 @@ public:
     void constructGraphByGreedy(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
     void constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, 
-        ThreadPool& pool, uint_t min_span, bool isMultiple=false);
-    ClusterVecPtrByStrandByQueryRefPtr filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph);
+        uint_t min_span, bool isMultiple=false);
+    void constructGraphByDpByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool, uint_t thread_num, uint_t min_span, bool isMultiple);
+    
+    
+    ClusterVecPtrByStrandByQueryRefPtr filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
 };
 

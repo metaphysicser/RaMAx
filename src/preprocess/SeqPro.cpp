@@ -161,7 +161,7 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 
   Position origin_pos = masked_pos;
   
-  Position accumulated_unmasked = 0;
+  size_t accumulated_unmasked = 0;
   if (intervals.size() > 0 && intervals[0].start == 0) {
       accumulated_unmasked = -1;
   }
@@ -183,9 +183,8 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 	  last_unmasked_interval_end = interval.end;
   }
 
-
   // 返回时减去前面遮蔽区间的数量
-  return origin_pos - accumulated_unmasked + last_unmasked_interval_end + seq_id;
+  return origin_pos - accumulated_unmasked + last_unmasked_interval_end;
 }
 
 
@@ -274,7 +273,7 @@ Length MaskManager::getTotalMaskedBases(SequenceId seq_id) const {
   // 如果没有遮蔽区间，则整个序列是一个大的有效区间。
   // 一个有效区间对应一个间隔符。
   if (it == mask_intervals_.end() || it->second.empty()) {
-    return 1;
+    return 0;
   }
 
   const auto &intervals = it->second;
@@ -707,6 +706,12 @@ std::vector<std::string> SequenceManager::getSequenceNames() const {
   return sequence_index_.getSequenceNames();
 }
 
+std::string SequenceManager::getSequenceName(const uint32_t& seq_id) const {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    const auto* info = sequence_index_.getSequenceInfo(seq_id);
+    return info->name;
+}
+
 Length SequenceManager::getSequenceLength(const std::string &seq_name) const {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   const auto *info = sequence_index_.getSequenceInfo(seq_name);
@@ -949,9 +954,10 @@ std::string MaskedSequenceManager::getSubSequence(SequenceId seq_id,
 
   // 转换为原始坐标并获取有效区间
   Position original_start = toOriginalPosition(seq_id, start);
+  // 有分隔符的最后一位碱基局部坐标
   Position original_end = toOriginalPosition(seq_id, start + length - 1);
   
-  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
+  auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end);
   
   std::string result;
   result.reserve(length);
@@ -974,14 +980,10 @@ std::string MaskedSequenceManager::getSubSequenceSeparated(const std::string &se
 }
 
 std::string MaskedSequenceManager::getSubSequenceSeparated(SequenceId seq_id, Position start, Length length, char separator) const {
-  // 验证遮蔽坐标
-  if (!isValidPosition(seq_id, start, length)) {
-    throw SequenceException("Invalid masked position");
-  }
 
   // 转换为原始坐标并获取有效区间
-  Position original_start = toOriginalPosition(seq_id, start);
-  Position original_end = toOriginalPosition(seq_id, start + length - 1);
+  Position original_start = toOriginalPositionSeparated(seq_id, start);
+  Position original_end = toOriginalPositionSeparated(seq_id, start + length - 1);
   
   auto valid_ranges = mask_manager_.getValidRanges(seq_id, original_start, original_end + 1);
   
@@ -1096,7 +1098,7 @@ Position MaskedSequenceManager::toOriginalPositionSeparated(const std::string &s
   }
   return toOriginalPositionSeparated(seq_id, masked_pos);
 }
-
+// 输入拼接序列的局部坐标（包括\01），返回原始的局部坐标(不包含01)
 Position MaskedSequenceManager::toOriginalPositionSeparated(SequenceId seq_id, Position masked_pos) const {
   return mask_manager_.mapToOriginalPositionSeparated(seq_id, masked_pos);
 }
@@ -1171,11 +1173,8 @@ Position MaskedSequenceManager::localToGlobal(SequenceId seq_id, Position local_
   throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
 }
 
-std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
+std::pair<SequenceId, Position> MaskedSequenceManager::globalToLocalSeparated(Position global_pos_with_separators) const {
   ensureCacheValid();
-  if (global_pos_with_separators == 199534) {
-    std::cout<<"test";
-  }
   // 构建包含间隔符的全局坐标映射
   Position current_global_pos = 0;
   auto seq_names = getSequenceNames();
@@ -1192,8 +1191,8 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
       // 需要将包含间隔符的本地位置转换为不含间隔符的遮蔽位置
       //Position local_masked_pos = convertSeparatedToMaskedPosition(seq_id, local_pos_with_separators);
       Position local_original_pos = toOriginalPositionSeparated(seq_id, local_pos_with_separators);
-      local_original_pos -= seq_id;
-      return {seq_name, local_original_pos};
+      // local_original_pos -= seq_id;
+      return {seq_id , local_original_pos};
     }
 
     current_global_pos += seq_length_with_separators;
@@ -1204,14 +1203,14 @@ std::pair<std::string, Position> MaskedSequenceManager::globalToLocalSeparated(P
         // 位置正好在染色体间隔符上，返回下一个序列的开始位置
         auto next_seq_it = std::find(seq_names.begin(), seq_names.end(), seq_name);
         if (next_seq_it != seq_names.end() && ++next_seq_it != seq_names.end()) {
-          return {*next_seq_it, 0};
+          return {getSequenceId(*next_seq_it), 0};
         }
       }
       current_global_pos += 1; // 染色体间隔符
     }
   }
 
-  return {"", INVALID_POSITION};
+  return {SequenceIndex::INVALID_ID, INVALID_POSITION};
 }
 
 Position MaskedSequenceManager::localToGlobalSeparated(const std::string& seq_name, Position local_masked_pos) const {
@@ -1366,20 +1365,20 @@ std::string MaskedSequenceManager::concatSequences(const std::vector<std::string
 
   std::string MaskedSequenceManager::concatSequencesSeparated(const std::vector<std::string> &seq_names, char separator) const {
   std::string result;
-
+  // TODO 性能优化
   // 预估大小
-  size_t estimated_size = 0;
-  for (const auto& seq_name : seq_names) {
-    estimated_size += getSequenceLengthWithSeparators(seq_name);
-    estimated_size += 1;
-  }
-  estimated_size += 1;
-  result.reserve(estimated_size);
+  //size_t estimated_size = 0;
+  //for (const auto& seq_name : seq_names) {
+  //  estimated_size += getSequenceLengthWithSeparators(seq_name);
+  //  estimated_size += 1;
+  //}
+  //estimated_size += 1;
+  //result.reserve(estimated_size);
 
   for (size_t i = 0; i < seq_names.size(); ++i) {
 
-    Length length = getSequenceLength(seq_names[i]);
-    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length, separator);
+    Length length = getSequenceLengthWithSeparators(seq_names[i]);
+    std::string sequence = getSubSequenceSeparated(seq_names[i], 0, length - 1, separator);
     result.append(sequence);
 
     result.push_back('\1');

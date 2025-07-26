@@ -271,3 +271,17 @@ std::vector<int> NewickParser::orderLeavesGreedyMinSum(int rootLeaf) {
     }
     return order;  // 下标 0 是全局距离最小中心，后面依次次优
 }
+
+std::vector<std::string> NewickParser::getLeafNames() const {
+    std::vector<std::string> leaves;
+    leaves.reserve(nodes_.size());
+    for (const auto& node : nodes_) {
+        if (node.isLeaf) {
+            // 只有名称非空才加入
+            if (!node.name.empty()) {
+                leaves.push_back(node.name);
+            }
+        }
+    }
+    return leaves;
+}

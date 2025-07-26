@@ -8,6 +8,7 @@
 #include <atomic>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <map>
 #include <shared_mutex>
@@ -146,20 +147,16 @@ namespace RaMesh {
     // ────────────────────────────────────────────────
     class GenomeEnd {
     public:
-        static constexpr uint_t kSampleStep = 10000;
+        static constexpr uint_t kSampleStep = 100000;
         GenomeEnd();
         GenomeEnd(GenomeEnd&&)            noexcept = default;
         GenomeEnd& operator=(GenomeEnd&&) noexcept = default;
         GenomeEnd(const GenomeEnd&) = delete;
         GenomeEnd& operator=(const GenomeEnd&) = delete;
 
-        std::pair<SegPtr, SegPtr> findSurrounding(uint_t beg, uint_t end);
+        SegPtr findSurrounding(uint_t range_start);
 
-        // Atomically splice an already linked chain [segments.front(), segments.back()] into list
-        void spliceSegmentChain(const std::vector<SegPtr>& segments,
-            uint_t beg, uint_t end);
-
-        void insertSegment(const SegPtr seg, uint_t beg, uint_t end);
+        void insertSegment(const SegPtr seg);
 
         void clearAllSegments();
         
@@ -220,11 +217,11 @@ namespace RaMesh {
 
         explicit RaMeshMultiGenomeGraph(std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_map);
 
-        void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-            const MatchCluster& cluster);
+   //     void insertClusterIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+   //         const MatchCluster& cluster);
 
-        void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
-			const AnchorVec& anchor_vec);
+   //     void insertAnchorVecIntoGraph(SpeciesName ref_name, SpeciesName qry_name,
+			//const AnchorVec& anchor_vec);
 
         void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
 
@@ -285,7 +282,7 @@ namespace RaMesh {
                 enable(VerificationType::LINKED_LIST_INTEGRITY);
                 enable(VerificationType::COORDINATE_OVERLAP);
                 enable(VerificationType::COORDINATE_ORDERING);
-                enable(VerificationType::BLOCK_CONSISTENCY);
+                disable(VerificationType::BLOCK_CONSISTENCY);
                 enable(VerificationType::MEMORY_INTEGRITY);
                 enable(VerificationType::THREAD_SAFETY);
             }
@@ -308,11 +305,25 @@ namespace RaMesh {
             bool is_valid = true;
             std::chrono::microseconds verification_time{0};
 
+            // 优化的错误计数器：避免每次都遍历整个错误向量
+            mutable std::unordered_map<VerificationType, size_t> error_counts;
+
             size_t getErrorCount(VerificationType type) const {
                 return std::count_if(errors.begin(), errors.end(),
                     [type](const VerificationError& error) {
                         return error.type == type;
                     });
+            }
+
+            // 快速错误计数方法
+            size_t getErrorCountFast(VerificationType type) const {
+                auto it = error_counts.find(type);
+                return it != error_counts.end() ? it->second : 0;
+            }
+
+            // 增加错误计数
+            void incrementErrorCount(VerificationType type) {
+                error_counts[type]++;
             }
         };
 
@@ -327,6 +338,10 @@ namespace RaMesh {
         mutable std::shared_mutex                          rw;             // multi‑reader / single‑writer
 
         void exportToMaf(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers, bool only_primary, bool is_pairwise) const;
+
+        void exportToMafWithoutReverse(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
+
+        void exportToMultipleMaf(const std::vector<std::pair<SpeciesName, FilePath>>& outs, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
 
         
         // ――― high-performance deletion methods ―――
@@ -373,6 +388,9 @@ namespace RaMesh {
         void verifyMemoryIntegrity(VerificationResult& result, const VerificationOptions& options) const;
         void verifyThreadSafety(VerificationResult& result, const VerificationOptions& options) const;
         void verifyPerformanceIssues(VerificationResult& result, const VerificationOptions& options) const;
+
+        // 优化的统一遍历函数
+        void verifyWithUnifiedTraversal(VerificationResult& result, const VerificationOptions& options) const;
     };
 
 } // namespace RaMesh
