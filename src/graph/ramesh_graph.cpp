@@ -2147,14 +2147,14 @@ namespace RaMesh {
                                         // 先找到一定存在的overlap_block
                                         for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
                                              anchors) {
-                                            if (species_chr_overlap.first == species_chr.first) {
+                                            if (species_chr_overlap.second == species_chr.second) {
                                                 if (segment->strand == Strand::FORWARD) {
                                                     bool query_has_prefix = false;
                                                     bool query_has_suffix = false;
                                                     if (prev_has_prefix) {
                                                         for (const auto &[species_chr_prefix, segment_prefix]:
                                                              prefix_block->anchors) {
-                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                            if (species_chr_prefix.second == species_chr.second) {
                                                                 query_has_prefix = true;
                                                                 qry_prev->primary_path.next.store(
                                                                     segment_prefix, std::memory_order_release);
@@ -2182,7 +2182,7 @@ namespace RaMesh {
                                                     if (prev_has_suffix) {
                                                         for (const auto &[species_chr_suffix, segment_suffix]:
                                                              suffix_block->anchors) {
-                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                            if (species_chr_suffix.second == species_chr.second) {
                                                                 query_has_suffix = true;
                                                                 segment_overlap->primary_path.next.store(
                                                                     segment_suffix, std::memory_order_release);
@@ -2215,7 +2215,7 @@ namespace RaMesh {
                                                     if (prev_has_suffix) {
                                                         for (const auto &[species_chr_suffix, segment_suffix]:
                                                              suffix_block->anchors) {
-                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                            if (species_chr_suffix.second == species_chr.second) {
                                                                 query_has_suffix = true;
                                                                 segment_suffix->primary_path.next.store(
                                                                     segment_overlap, std::memory_order_release);
@@ -2244,7 +2244,7 @@ namespace RaMesh {
                                                     if (prev_has_prefix) {
                                                         for (const auto &[species_chr_prefix, segment_prefix]:
                                                              prefix_block->anchors) {
-                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                            if (species_chr_prefix.second == species_chr.second) {
                                                                 query_has_prefix = true;
                                                                 segment_prefix->primary_path.prev.store(
                                                                     segment_overlap, std::memory_order_release);
@@ -2284,14 +2284,14 @@ namespace RaMesh {
                                         // 先找到一定存在的overlap_block
                                         for (const auto &[species_chr_overlap, segment_overlap]: overlap_block->
                                              anchors) {
-                                            if (species_chr_overlap.first == species_chr.first) {
+                                            if (species_chr_overlap.second == species_chr.second) {
                                                 if (segment->strand == Strand::FORWARD) {
                                                     bool query_has_prefix = false;
                                                     bool query_has_suffix = false;
                                                     if (curr_has_prefix) {
                                                         for (const auto &[species_chr_prefix, segment_prefix]:
                                                              prefix_block->anchors) {
-                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                            if (species_chr_prefix.second == species_chr.second) {
                                                                 query_has_prefix = true;
                                                                 qry_prev->primary_path.next.store(
                                                                     segment_prefix, std::memory_order_release);
@@ -2319,7 +2319,7 @@ namespace RaMesh {
                                                     if (curr_has_suffix) {
                                                         for (const auto &[species_chr_suffix, segment_suffix]:
                                                              suffix_block->anchors) {
-                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                            if (species_chr_suffix.second == species_chr.second) {
                                                                 query_has_suffix = true;
                                                                 segment_overlap->primary_path.next.store(
                                                                     segment_suffix, std::memory_order_release);
@@ -2352,7 +2352,7 @@ namespace RaMesh {
                                                     if (curr_has_suffix) {
                                                         for (const auto &[species_chr_suffix, segment_suffix]:
                                                              suffix_block->anchors) {
-                                                            if (species_chr_suffix.first == species_chr.first) {
+                                                            if (species_chr_suffix.second == species_chr.second) {
                                                                 query_has_suffix = true;
                                                                 segment_suffix->primary_path.next.store(
                                                                     segment_overlap, std::memory_order_release);
@@ -2381,7 +2381,7 @@ namespace RaMesh {
                                                     if (curr_has_prefix) {
                                                         for (const auto &[species_chr_prefix, segment_prefix]:
                                                              prefix_block->anchors) {
-                                                            if (species_chr_prefix.first == species_chr.first) {
+                                                            if (species_chr_prefix.second == species_chr.second) {
                                                                 query_has_prefix = true;
                                                                 segment_prefix->primary_path.prev.store(
                                                                     segment_overlap, std::memory_order_release);
