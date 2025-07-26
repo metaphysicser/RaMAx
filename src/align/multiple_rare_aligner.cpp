@@ -444,6 +444,55 @@ MultipleRareAligner::MultipleRareAligner(
 
 }
 
+void compareMatchedSequences(
+    const SpeciesMatchVec3DPtrMapPtr& match_ptr,
+    const std::unordered_map<SpeciesName, std::shared_ptr<SeqPro::ManagerVariant>>& seqpro_managers,
+    const SpeciesName& ref_name)
+{
+    // 取片段函数
+    auto subSeq = [&](const SeqPro::ManagerVariant& mv,
+        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
+            return std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return p->getSubSequence(chr, b, l);
+                }
+                else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return p->getOriginalManager().getSubSequence(chr, b, l);
+                }
+                }, mv);
+        };
+
+    // 遍历所有匹配
+    for (auto& kv : *match_ptr) {
+        for (auto& mv2 : *kv.second) {
+            for (auto& mv1 : mv2) {
+                for (auto& m : mv1) {
+                    // 判断参考是否为Masked
+                    if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers.at(ref_name))) {
+                        std::string ref_seq = subSeq(*seqpro_managers.at(ref_name), m.ref_chr_index, m.ref_start, m.match_len());
+                        std::string query_seq = subSeq(*seqpro_managers.at(kv.first), m.qry_chr_index, m.qry_start, m.match_len());
+                        if (m.strand() == Strand::REVERSE) reverseComplement(query_seq);
+                        if (ref_seq != query_seq) {
+                            spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+                                m.qry_chr_index, ref_seq, query_seq, m.ref_start, m.qry_start);
+                        }
+                    }
+                    else {
+                        std::string ref_seq = subSeq(*seqpro_managers.at(ref_name), m.ref_chr_index, m.ref_start, m.match_len());
+                        std::string query_seq = subSeq(*seqpro_managers.at(kv.first), m.qry_chr_index, m.qry_start, m.match_len());
+                        if (m.strand() == Strand::REVERSE) reverseComplement(query_seq);
+                        if (ref_seq != query_seq) {
+                            spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
+                                m.qry_chr_index, ref_seq, query_seq, m.ref_start, m.qry_start);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> MultipleRareAligner::
 starAlignment(
     std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
@@ -485,92 +534,9 @@ starAlignment(
             ref_name, species_fasta_manager_map,
             i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
         );
-//#ifdef _DEBUG_
-//        auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-//            const ChrName& chr, Coord_t b, Coord_t l) -> std::string {
-//                return std::visit([&](auto& p) {
-//                    using T = std::decay_t<decltype(p)>;
-//                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-//                        return p->getSubSequence(chr, b, l);
-//                    }
-//                    else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-//                        return p->getOriginalManager().getSubSequence(chr, b, l);
-//                    }
-//                    }, mv);
-//            };
-//
-//        std::string T = std::visit([](auto&& manager_ptr) -> std::string {
-//            using PtrType = std::decay_t<decltype(manager_ptr)>;
-//            if (!manager_ptr) {
-//                throw std::runtime_error("Manager pointer is null inside variant.");
-//            }
-//            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-//                return manager_ptr->concatAllSequences('\1');
-//            }
-//            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-//                return manager_ptr->concatAllSequencesSeparated('\1');
-//            }
-//            else {
-//                throw std::runtime_error("Unhandled manager type in variant.");
-//            }
-//            }, *seqpro_managers[ref_name]);
-//        
-//
-//        if (true) {
-//            for (auto& kv : *match_ptr) {
-//                for (auto& mv2 : *kv.second) {
-//                    for (auto& mv1 : mv2) {
-//                        for (auto& m : mv1) {
-//                            /*                  if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first])) {
-//                                                  auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[kv.first]);
-//                                                  m.query_region.start = mgr->toOriginalPositionSeparated(m.query_region.chr_name, m.query_region.start);
-//                                              }*/
-//                            if (std::holds_alternative<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name])) {
-//                                auto& mgr = std::get<std::unique_ptr<SeqPro::MaskedSequenceManager>>(*seqpro_managers[ref_name]);
-//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-//  
-//                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-//								//std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-//                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocalSeparated(m.ref_region.start);
-//								//m.ref_region.start = fallback_local_pos;
-//                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-//                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
-//                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
-//                                if (ref_seq != query_seq) {
-//                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-//                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
-//                                }
-//                                else {
-//                                    std::cout << "";
-//                                }
-//                            }
-//                            else {
-//                                auto& mgr = std::get<std::unique_ptr<SeqPro::SequenceManager>>(*seqpro_managers[ref_name]);
-//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-//                                //std::string ref_seq = T.substr(m.ref_region.start, m.ref_region.length);
-//                                //auto [fallback_seq_name, fallback_local_pos] = mgr->globalToLocal(m.ref_region.start);
-//                                //m.ref_region.start = fallback_local_pos;
-//                                //m.ref_region.start = mgr->toOriginalPositionSeparated(m.ref_region.chr_name, m.ref_region.start);
-//                                std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-//                                //std::string ref_seq = subSeq(*seqpro_managers[ref_name], m.ref_region.chr_name, m.ref_region.start, m.ref_region.length);
-//                                std::string query_seq = subSeq(*seqpro_managers[kv.first], m.query_region.chr_name, m.query_region.start, m.query_region.length);
-//                                if (m.strand == Strand::REVERSE) reverseComplement(query_seq);
-//                                if (ref_seq != query_seq) {
-//                                    spdlog::error("Ref and query sequences do not match for {}: {} vs {} (ref_start: {}, query_start: {})",
-//                                        m.ref_region.chr_name, ref_seq, query_seq, m.ref_region.start, m.query_region.start);
-//                                }
-//                                else {
-//                                    std::cout << "";
-//                                }
-//                            }
-//
-//
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//#endif
+#ifdef _DEBUG_
+        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);
+#endif
         spdlog::info("align multiple genome for {} done", ref_name);
 
 
@@ -698,15 +664,29 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
     /* ---------- 6. 收集所有结果 ---------- */
     auto result_map = std::make_shared<SpeciesMatchVec3DPtrMap>();
 
+    size_t total = fut_map.size();
+    size_t count = 0;
+    size_t next_progress = 1;  // 下一次打印进度的“阶段”（1 到 20）
+
     for (auto& kv : fut_map) {
         const SpeciesName& sp = kv.first;
         try {
-            MatchVec3DPtr mv3 = kv.second.get();       // 等待并获取
+            MatchVec3DPtr mv3 = kv.second.get();  // 等待并获取
             (*result_map)[sp] = std::move(mv3);
             spdlog::info("[alignMultipleQuerys] {} aligned.", sp);
         }
         catch (const std::exception& e) {
             spdlog::error("[alignMultipleQuerys] {} failed: {}", sp, e.what());
+        }
+
+        ++count;
+
+        // 计算是否达到下一个进度段（总共 20 段）
+        size_t progress_stage = (count * 20) / total;
+        if (progress_stage >= next_progress) {
+            int percent = static_cast<int>((progress_stage * 100) / 20);
+            spdlog::info("[alignMultipleQuerys] Progress: {}%", percent);
+            next_progress = progress_stage + 1;
         }
     }
 
@@ -817,11 +797,25 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
 
     // shared_pool.waitAllTasksDone();
     // 收集 future
+    size_t total = fut_map.size();
+    size_t count = 0;
+    size_t next_progress = 1;  // 下一个打印阶段（1~20）
+
     for (auto it = fut_map.begin(); it != fut_map.end(); ++it) {
         const SpeciesName& species = it->first;
         ClusterVecPtrByStrandByQueryRefPtr clus_ptr = it->second.get();
         cluster_map.emplace(species, std::move(clus_ptr));
+
+        ++count;
+        size_t progress_stage = (count * 20) / total;
+        if (progress_stage >= next_progress || count == total) {
+            int percent = static_cast<int>((progress_stage * 100) / 20);
+            spdlog::info("[cluster] Progress: {}% ({} of {})", percent, count, total);
+            next_progress = progress_stage + 1;
+        }
     }
+
+
     shared_pool.waitAllTasksDone();                          // —— Phase-3 完
 
     // 返回cluster数据用于后续处理
@@ -1050,9 +1044,8 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
         species_cluster_map.size());
 
-    uint_t t_num = 1;
 
-    ThreadPool pool(t_num);
+    ThreadPool pool(thread_num);
     std::map<SpeciesName, ClusterVecPtrByRefPtr> result_map;
     std::vector<std::future<void>> futures;
 
@@ -1065,7 +1058,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
                 try {
                     // 生成该物种的按 Ref 分组聚簇
                     ClusterVecPtrByRefPtr grouped_ref_clusters =
-                        groupClustersToRefVec(cluster_ptr_3d, pool, t_num);
+                        groupClustersToRefVec(cluster_ptr_3d, pool, thread_num);
 
                     result_map[species_name] = std::move(grouped_ref_clusters);
 
