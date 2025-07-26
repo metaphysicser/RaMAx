@@ -645,49 +645,48 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                 SeqPro::SequenceId seq_id = SeqPro::SequenceIndex::INVALID_ID;
                 SeqPro::Position local_pos = 0;
                 // TODO 用的时候得加个验证看你要转的global坐标和这条染色体的起始全局坐标的差是否小于这条染色体的长度，如果大于的话得切到下一条染色体
-                // TODO 尝试使用缓存快速获取序列ID，避免二分搜索
-                // if (cache_size > 0) {
-                //     auto cache_index = ref_global_pos / sampling_interval;
+                if (cache_size > 0) {
+                    auto cache_index = ref_global_pos / sampling_interval;
 
-                //     if (cache_index < cache_size) {
-                //         auto candidate_seq_id = ref_global_cache[cache_index];
+                    if (cache_index < cache_size) {
+                        auto candidate_seq_id = ref_global_cache[cache_index];
 
-                //         if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
-                //             // 获取候选序列的信息进行快速验证
-                //             using PtrType = std::decay_t<decltype(manager_ptr)>;
-                //             const SeqPro::SequenceInfo *candidate_info = nullptr;
+                        if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
+                            // 获取候选序列的信息进行快速验证
+                            using PtrType = std::decay_t<decltype(manager_ptr)>;
+                            const SeqPro::SequenceInfo *candidate_info = nullptr;
 
-                //             if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                //                 candidate_info = manager_ptr->getIndex().getSequenceInfo(candidate_seq_id);
-                //             } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-                //                 SeqPro::MaskedSequenceManager> >) {
-                //                 candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(
-                //                     candidate_seq_id);
-                //             }
+                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                candidate_info = manager_ptr->getIndex().getSequenceInfo(candidate_seq_id);
+                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                SeqPro::MaskedSequenceManager> >) {
+                                candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(
+                                    candidate_seq_id);
+                            }
 
-                //             // 快速验证：检查全局坐标是否在该序列范围内
-                //             if (candidate_info &&
-                //                 ref_global_pos >= candidate_info->global_start_pos &&
-                //                 ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
-                //                 // 缓存命中！直接计算局部坐标
-                //                 seq_id = candidate_seq_id;
-                //                 //local_pos = ref_global_pos - candidate_info->global_start_pos;
+                            // 快速验证：检查全局坐标是否在该序列范围内
+                            if (candidate_info &&
+                                ref_global_pos >= candidate_info->global_start_pos &&
+                                ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
+                                // 缓存命中！直接计算局部坐标
+                                seq_id = candidate_seq_id;
+                                //local_pos = ref_global_pos - candidate_info->global_start_pos;
 
-                //                 if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                //                     auto [id, pos] = manager_ptr->globalToLocal(ref_global_pos);
-                //                     local_pos = pos;
-                //                     region_vec.emplace_back(candidate_info->name, local_pos, match_length);
-                //                 }
-                //                 else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-                //                     SeqPro::MaskedSequenceManager> >) {
-                //                     auto [fallback_seq_name, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
-                //                     region_vec.emplace_back(fallback_seq_name, fallback_local_pos, match_length);
-                //                 }
+                                if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                    auto [id, pos] = manager_ptr->globalToLocal(ref_global_pos);
+                                    local_pos = pos;
+                                    region_vec.emplace_back(id, local_pos, match_length);
+                                }
+                                else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                    SeqPro::MaskedSequenceManager> >) {
+                                    auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
+                                    region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
+                                }
 
-                //             }
-                //         }
-                //     }
-                // }
+                            }
+                        }
+                    }
+                }
 
                 // 如果缓存未命中，回退到原始的二分搜索
                 if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
