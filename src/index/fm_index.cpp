@@ -699,6 +699,7 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                 }
                 // 如果缓存未命中，回退到原始的二分搜索
                 if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
+                    std::cout<<"test";
                     using PtrType = std::decay_t<decltype(manager_ptr)>;
                     if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
                         const SeqPro::SequenceInfo* candidate_info = nullptr;
