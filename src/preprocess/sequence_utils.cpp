@@ -36,7 +36,7 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                           sdsl::int_vector<0>& ref_global_cache) {
     // 目前没有清空，原理上应该是不用清空的
     auto t_start_cache = std::chrono::steady_clock::now();
-    
+
     // Get total length and calculate cache size
     auto total_length = std::visit([](auto&& manager_ptr) {
         using T = std::decay_t<decltype(manager_ptr)>;
@@ -47,59 +47,72 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
             return manager_ptr->getTotalLengthWithSeparators();
         }
     }, manager_variant);
-   
+
     auto cache_size = (total_length / sampling_interval) + 1;
-    
-    spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}", 
+
+    spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}",
                  sampling_interval, cache_size);
-    
+
     ref_global_cache.resize(cache_size);
-    
+
     std::visit([&](auto&& manager_ptr) {
         using T = std::decay_t<decltype(manager_ptr)>;
-        
+
         // Get all sequence information, sorted by global_start_pos
         auto seq_names = manager_ptr->getSequenceNames();
         std::vector<const SeqPro::SequenceInfo*> seq_infos;
         seq_infos.reserve(seq_names.size());
-        
+
+        // Pre-cache sequence lengths to avoid repeated calls
+        std::unordered_map<SeqPro::SequenceId, SeqPro::Length> seq_length_cache;
+
         for (const auto& name : seq_names) {
             if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
                 const auto* info = manager_ptr->getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
+                if (info) {
+                    seq_infos.push_back(info);
+                    // For SequenceManager, cache the original length
+                    seq_length_cache[info->id] = info->length;
+                }
             } else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
                 const auto* info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(name);
-                if (info) seq_infos.push_back(info);
+                if (info) {
+                    seq_infos.push_back(info);
+                    // For MaskedSequenceManager, cache the length with separators
+                    seq_length_cache[info->id] = manager_ptr->getSequenceLengthWithSeparators(info->id);
+                }
             }
         }
-        
+
         // Sort by global start position
-        std::sort(seq_infos.begin(), seq_infos.end(), 
+        std::sort(seq_infos.begin(), seq_infos.end(),
                   [](const SeqPro::SequenceInfo* a, const SeqPro::SequenceInfo* b) {
                       return a->masked_global_start_pos < b->masked_global_start_pos;
                   });
-        
+
         // Sequential filling: optimized to avoid repeated binary searches
         size_t current_seq_idx = 0;
         for (SeqPro::Position i = 0; i < cache_size; ++i) {
             SeqPro::Position sample_global_pos = i * sampling_interval;
-            
+
             if (sample_global_pos >= total_length) {
                 ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
                 continue;
             }
-            
+
             // Find the sequence containing the current position
             while (current_seq_idx < seq_infos.size()) {
                 const auto* current_seq = seq_infos[current_seq_idx];
                 SeqPro::Position seq_end;
                 if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    seq_end = current_seq->masked_global_start_pos + manager_ptr->getSequenceLengthWithSeparators(current_seq->id) + 1;
+                    // Use cached length instead of calling getSequenceLengthWithSeparators
+                    seq_end = current_seq->masked_global_start_pos + seq_length_cache[current_seq->id] + 1;
                 }
                 else {
-                    seq_end = current_seq->global_start_pos + current_seq->length + 1;
+                    // Use cached length for SequenceManager
+                    seq_end = current_seq->global_start_pos + seq_length_cache[current_seq->id] + 1;
                 }
-                
+
                 if (sample_global_pos >= current_seq->masked_global_start_pos && sample_global_pos < seq_end) {
                     // Found the sequence containing this position
                     ref_global_cache[i] = current_seq->id;
@@ -109,27 +122,27 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                     current_seq_idx++;
                 } else {
                     // sample_global_pos < current_seq->global_start_pos, shouldn't happen
-                    spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}", 
+                    spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}",
                                 sample_global_pos, current_seq->masked_global_start_pos);
                     ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
                     break;
                 }
             }
-            
+
             // If we've gone through all sequences without finding one, mark as invalid
             if (current_seq_idx >= seq_infos.size()) {
                 ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
             }
         }
     }, manager_variant);
-    
+
     // Compress the cache to save memory
     sdsl::util::bit_compress(ref_global_cache);
-    
+
     auto t_end_cache = std::chrono::steady_clock::now();
     std::chrono::duration<double> cache_time = t_end_cache - t_start_cache;
     spdlog::info("ref_global_cache building completed in {:.3f} seconds", cache_time.count());
-    
+
     return cache_time.count();
 }
 
