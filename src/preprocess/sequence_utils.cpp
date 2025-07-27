@@ -50,8 +50,8 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
    
     auto cache_size = (total_length / sampling_interval) + 1;
     
-    // spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}",
-    //              sampling_interval, cache_size);
+    spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}",
+                 sampling_interval, cache_size);
     
     ref_global_cache.resize(cache_size);
     
@@ -99,11 +99,6 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                 else {
                     seq_end = current_seq->masked_global_start_pos + current_seq->masked_length + 1;
                 }
-
-                // 输出当前信息，检验是否死循环
-                spdlog::info("current_seq_idx: {}, sample_global_pos: {}, seq_end: {}", current_seq_idx, sample_global_pos, seq_end);
-                spdlog::info("current_seq->masked_global_start_pos: {}, current_seq->masked_length: {}", current_seq->masked_global_start_pos, current_seq->masked_length);
-                
                 
                 if (sample_global_pos >= current_seq->masked_global_start_pos && sample_global_pos < seq_end) {
                     // Found the sequence containing this position
