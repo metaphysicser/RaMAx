@@ -105,7 +105,7 @@ struct SequenceInfo {
   SequenceInfo(SequenceId seq_id, std::string seq_name, Position len,
                Position g_start_pos, Position m_start_pos, Position offset, uint32_t lw, uint32_t lb)
       : id(seq_id), name(std::move(seq_name)), length(len),
-        global_start_pos(g_start_pos), masked_global_start_pos(m_start_pos), file_offset(offset), line_width(lw),
+        global_start_pos(g_start_pos), masked_global_start_pos(m_start_pos + seq_id), file_offset(offset), line_width(lw),
         line_bytes(lb) {}
 
   template <class Archive> void serialize(Archive &ar) {

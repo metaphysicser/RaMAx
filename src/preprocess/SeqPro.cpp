@@ -161,7 +161,7 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 
   Position origin_pos = masked_pos;
   
-  size_t accumulated_unmasked = 0;
+  long long accumulated_unmasked = 0;
   if (intervals.size() > 0 && intervals[0].start == 0) {
       accumulated_unmasked = -1;
   }
@@ -1553,6 +1553,27 @@ void MaskedSequenceManager::finalizeMaskIntervals() {
   auto sequences_to_finalize = unfinalized_sequences_;
   for (SequenceId seq_id : sequences_to_finalize) {
     finalizeMaskIntervals(seq_id);
+  }
+  Position current_masked_pos = 0;
+  auto seq_names = getSequenceNames();
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    SequenceId seq_id = getSequenceId(seq_names[i]);
+
+    // 获取序列信息并更新masked_global_start_pos
+    auto *seq_info = const_cast<SequenceInfo *>(
+        original_manager_->getIndex().getSequenceInfo(seq_id));
+    if (seq_info) {
+      seq_info->masked_global_start_pos = current_masked_pos;
+    }
+
+    // 累加当前序列的遮蔽后长度（包含间隔符）
+    current_masked_pos += getSequenceLengthWithSeparators(seq_id);
+
+    // 添加染色体间间隔符（除了最后一个序列）
+    if (i < seq_names.size() - 1) {
+      current_masked_pos += 1;
+    }
   }
 }
 

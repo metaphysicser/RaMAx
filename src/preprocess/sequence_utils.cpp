@@ -76,7 +76,7 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
         // Sort by global start position
         std::sort(seq_infos.begin(), seq_infos.end(), 
                   [](const SeqPro::SequenceInfo* a, const SeqPro::SequenceInfo* b) {
-                      return a->global_start_pos < b->global_start_pos;
+                      return a->masked_global_start_pos < b->masked_global_start_pos;
                   });
         
         // Sequential filling: optimized to avoid repeated binary searches
@@ -92,14 +92,15 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
             // Find the sequence containing the current position
             while (current_seq_idx < seq_infos.size()) {
                 const auto* current_seq = seq_infos[current_seq_idx];
-                SeqPro::Position seq_end = current_seq->global_start_pos + current_seq->length + 1;
-                
-                // Add separator count only for MaskedSequenceManager
+                SeqPro::Position seq_end;
                 if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    seq_end += manager_ptr->getSeparatorCount(current_seq->id);
+                    seq_end = current_seq->masked_global_start_pos + manager_ptr->getSequenceLengthWithSeparators(current_seq->id) + 1;
+                }
+                else {
+                    seq_end = current_seq->global_start_pos + current_seq->length + 1;
                 }
                 
-                if (sample_global_pos >= current_seq->global_start_pos && sample_global_pos < seq_end) {
+                if (sample_global_pos >= current_seq->masked_global_start_pos && sample_global_pos < seq_end) {
                     // Found the sequence containing this position
                     ref_global_cache[i] = current_seq->id;
                     break;
@@ -109,7 +110,7 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                 } else {
                     // sample_global_pos < current_seq->global_start_pos, shouldn't happen
                     spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}", 
-                                sample_global_pos, current_seq->global_start_pos);
+                                sample_global_pos, current_seq->masked_global_start_pos);
                     ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
                     break;
                 }
