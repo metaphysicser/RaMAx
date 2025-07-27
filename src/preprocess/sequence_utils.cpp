@@ -50,8 +50,8 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
    
     auto cache_size = (total_length / sampling_interval) + 1;
     
-    spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}", 
-                 sampling_interval, cache_size);
+    // spdlog::info("Building ref_global_cache, sampling_interval={}, cache_size={}",
+    //              sampling_interval, cache_size);
     
     ref_global_cache.resize(cache_size);
     
