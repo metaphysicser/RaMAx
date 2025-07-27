@@ -97,8 +97,13 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                     seq_end = current_seq->masked_global_start_pos + current_seq->masked_length + 1;
                 }
                 else {
-                    seq_end = current_seq->global_start_pos + current_seq->length + 1;
+                    seq_end = current_seq->masked_global_start_pos + current_seq->masked_length + 1;
                 }
+
+                // 输出当前信息，检验是否死循环
+                spdlog::info("current_seq_idx: {}, sample_global_pos: {}, seq_end: {}", current_seq_idx, sample_global_pos, seq_end);
+                spdlog::info("current_seq->masked_global_start_pos: {}, current_seq->masked_length: {}", current_seq->masked_global_start_pos, current_seq->masked_length);
+                
                 
                 if (sample_global_pos >= current_seq->masked_global_start_pos && sample_global_pos < seq_end) {
                     // Found the sequence containing this position
