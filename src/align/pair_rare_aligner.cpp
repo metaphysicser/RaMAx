@@ -227,10 +227,22 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 	MatchVec3DPtr result = std::make_shared<MatchVec3D>();
 
 	result->reserve(futures.size());
+	size_t total = futures.size();
+	size_t count = 0;
+	size_t next_progress = 1; // 1~20
+
 	for (auto& fut : futures) {
 		MatchVec2DPtr part = fut.get();
 		result->emplace_back(std::move(*part));
+		++count;
+		size_t progress_stage = (count * 20) / total;
+		if (progress_stage >= next_progress || count == total) {
+			int percent = static_cast<int>((progress_stage * 100) / 20);
+			spdlog::info("[{}] Progress: {}% ({} of {})", prefix, percent, count, total);
+			next_progress = progress_stage + 1;
+		}
 	}
+
 
 	auto t_search1 = std::chrono::steady_clock::now();
 	double search_ms = std::chrono::duration<double, std::milli>(t_search1 - t_search0).count();
