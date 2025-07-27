@@ -569,7 +569,7 @@ void SequenceManager::buildIndex() {
     if (current_line_length > 0 && file_data[line_start] == '>') {
       // 保存前一个序列
       if (!current_name.empty()) {
-        SequenceInfo info(seq_id++, current_name, current_length, global_offset,
+        SequenceInfo info(seq_id++, current_name, current_length, global_offset,global_offset,
                           sequence_start_offset, line_width, line_bytes);
         sequence_index_.addSequence(info);
         global_offset += current_length;
@@ -606,7 +606,7 @@ void SequenceManager::buildIndex() {
 
   // 保存最后一个序列
   if (!current_name.empty()) {
-    SequenceInfo info(seq_id, current_name, current_length, global_offset,
+    SequenceInfo info(seq_id, current_name, current_length, global_offset,global_offset,
                       sequence_start_offset, line_width, line_bytes);
     sequence_index_.addSequence(info);
   }

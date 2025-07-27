@@ -684,6 +684,7 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                                         region_vec.emplace_back(seq_id,local_pos,match_length);
                                     }
                                     else {
+                                        local_pos = ref_global_pos - candidate_info->global_start_pos - seq_id;
                                         auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
                                         region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
                                     }
