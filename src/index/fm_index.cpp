@@ -664,65 +664,31 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                                     candidate_seq_id);
                             }
 
-                            // 对于MaskedSequenceManager，使用高效的缓存优化
-                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager> >) {
-                                // 现在缓存是基于正确的包含间隔符的坐标系统构建的
-                                // 我们可以直接使用缓存的序列ID进行快速计算
-                                if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
-                                    // 计算该序列在包含间隔符坐标系统中的起始位置
-                                    // 使用静态缓存来避免重复计算
-                                    static std::unordered_map<SeqPro::SequenceId, SeqPro::Position> separated_offset_cache;
-                                    static bool cache_built = false;
+                            // 快速验证：检查全局坐标是否在该序列范围内
+                            if (candidate_info &&
+                                ref_global_pos >= candidate_info->global_start_pos &&
+                                ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
+                                // 缓存命中！直接计算局部坐标
+                                seq_id = candidate_seq_id;
+                                //local_pos = ref_global_pos - candidate_info->global_start_pos;
 
-                                    if (!cache_built) {
-                                        // 构建间隔符坐标偏移缓存
-                                        auto seq_names = manager_ptr->getSequenceNames();
-                                        SeqPro::Position accumulated_offset = 0;
-
-                                        for (const auto& seq_name : seq_names) {
-                                            SeqPro::SequenceId current_seq_id = manager_ptr->getSequenceId(seq_name);
-                                            separated_offset_cache[current_seq_id] = accumulated_offset;
-
-                                            // 累加当前序列的长度（包含间隔符）
-                                            accumulated_offset += manager_ptr->getSequenceLengthWithSeparators(current_seq_id);
-
-                                            // 添加染色体间的间隔符（除了最后一个序列）
-                                            if (seq_name != seq_names.back()) {
-                                                accumulated_offset += 1;
-                                            }
-                                        }
-                                        cache_built = true;
+                                if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                    auto [id, pos] = manager_ptr->globalToLocal(ref_global_pos);
+                                    local_pos = pos;
+                                    region_vec.emplace_back(id, local_pos, match_length);
+                                }
+                                else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                    SeqPro::MaskedSequenceManager> >) {
+                                    if (manager_ptr->getMaskManager().hasData() == false) {
+                                        local_pos = ref_global_pos - candidate_info->global_start_pos - seq_id;
+                                        region_vec.emplace_back(seq_id,local_pos,match_length);
                                     }
-
-                                    // 使用缓存进行快速计算
-                                    auto cache_it = separated_offset_cache.find(candidate_seq_id);
-                                    if (cache_it != separated_offset_cache.end()) {
-                                        SeqPro::Position seq_separated_start = cache_it->second;
-                                        SeqPro::Length seq_length_with_separators = manager_ptr->getSequenceLengthWithSeparators(candidate_seq_id);
-
-                                        // 验证ref_global_pos是否在该序列的范围内
-                                        if (ref_global_pos >= seq_separated_start &&
-                                            ref_global_pos < seq_separated_start + seq_length_with_separators) {
-                                            // 缓存命中！计算局部坐标
-                                            seq_id = candidate_seq_id;
-                                            SeqPro::Position local_pos_with_separators = ref_global_pos - seq_separated_start;
-                                            local_pos = manager_ptr->toOriginalPositionSeparated(seq_id, local_pos_with_separators);
-                                            region_vec.emplace_back(seq_id, local_pos, match_length);
-                                        }
+                                    else {
+                                        auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
+                                        region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
                                     }
                                 }
-                                // 如果验证失败，seq_id保持INVALID_ID，会触发回退逻辑
-                            }
-                            else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                                // 对于SequenceManager，使用原始的快速验证逻辑
-                                if (candidate_info &&
-                                    ref_global_pos >= candidate_info->global_start_pos &&
-                                    ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
-                                    // 缓存命中！直接计算局部坐标
-                                    seq_id = candidate_seq_id;
-                                    local_pos = ref_global_pos - candidate_info->global_start_pos;
-                                    region_vec.emplace_back(seq_id, local_pos, match_length);
-                                }
+
                             }
                         }
                     }
@@ -732,18 +698,24 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                 if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
                     using PtrType = std::decay_t<decltype(manager_ptr)>;
                     if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                        const SeqPro::SequenceInfo* candidate_info = nullptr;
                         auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocal(ref_global_pos);
-                        if (fallback_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
-                            region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
-                        }
+                        //candidate_info = manager_ptr->getIndex().getSequenceInfo(fallback_seq_id);
+                        region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
+                        //region_vec.emplace_back(candidate_info->name, ref_global_pos, match_length);
+
                     }
                     else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
                         SeqPro::MaskedSequenceManager> >) {
                         auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
-                        if (fallback_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
-                            region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
-                        }
+                        region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
+
+                        //region_vec.emplace_back(fallback_seq_name, ref_global_pos, match_length);
                     }
+                }
+
+                if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
+                    return;
                 }
                 }, fasta_manager);
         }

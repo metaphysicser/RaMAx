@@ -410,6 +410,7 @@ public:
   // === 访问原始管理器 ===
 
   const SequenceManager& getOriginalManager() const { return *original_manager_; }
+  const MaskManager& getMaskManager() const { return mask_manager_; }
 
   // === 实用功能 ===
 

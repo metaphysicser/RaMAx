@@ -80,90 +80,44 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                   });
         
         // Sequential filling: optimized to avoid repeated binary searches
-        if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-            // 对于MaskedSequenceManager，使用包含间隔符的坐标系统构建缓存
-            // 这确保缓存与实际使用的坐标系统一致
-            auto seq_names = manager_ptr->getSequenceNames();
-            SeqPro::Position current_separated_pos = 0;
-            size_t current_seq_idx = 0;
-
-            for (SeqPro::Position i = 0; i < cache_size; ++i) {
-                SeqPro::Position sample_global_pos = i * sampling_interval;
-
-                if (sample_global_pos >= total_length) {
-                    ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                    continue;
+        size_t current_seq_idx = 0;
+        for (SeqPro::Position i = 0; i < cache_size; ++i) {
+            SeqPro::Position sample_global_pos = i * sampling_interval;
+            
+            if (sample_global_pos >= total_length) {
+                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
+                continue;
+            }
+            
+            // Find the sequence containing the current position
+            while (current_seq_idx < seq_infos.size()) {
+                const auto* current_seq = seq_infos[current_seq_idx];
+                SeqPro::Position seq_end = current_seq->global_start_pos + current_seq->length + 1;
+                
+                // Add separator count only for MaskedSequenceManager
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    seq_end += manager_ptr->getSeparatorCount(current_seq->id);
                 }
-
-                // 在包含间隔符的坐标系统中查找序列
-                while (current_seq_idx < seq_names.size()) {
-                    const auto& seq_name = seq_names[current_seq_idx];
-                    SeqPro::SequenceId current_seq_id = manager_ptr->getSequenceId(seq_name);
-                    SeqPro::Length seq_length_with_separators = manager_ptr->getSequenceLengthWithSeparators(current_seq_id);
-                    SeqPro::Position seq_end = current_separated_pos + seq_length_with_separators;
-
-                    if (sample_global_pos >= current_separated_pos && sample_global_pos < seq_end) {
-                        // 找到包含该位置的序列
-                        ref_global_cache[i] = current_seq_id;
-                        break;
-                    } else if (sample_global_pos >= seq_end) {
-                        // 当前序列已过，移动到下一个序列
-                        current_separated_pos = seq_end;
-                        // 添加染色体间的间隔符（除了最后一个序列）
-                        if (current_seq_idx < seq_names.size() - 1) {
-                            current_separated_pos += 1;
-                        }
-                        current_seq_idx++;
-                    } else {
-                        // sample_global_pos < current_separated_pos，不应该发生
-                        spdlog::warn("Unexpected coordinate order in MaskedSequenceManager: sample_pos={}, seq_start={}",
-                                    sample_global_pos, current_separated_pos);
-                        ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                        break;
-                    }
-                }
-
-                // 如果遍历完所有序列都没找到，标记为无效
-                if (current_seq_idx >= seq_names.size()) {
+                
+                if (sample_global_pos >= current_seq->global_start_pos && sample_global_pos < seq_end) {
+                    // Found the sequence containing this position
+                    ref_global_cache[i] = current_seq->id;
+                    break;
+                } else if (sample_global_pos >= seq_end) {
+                    // Current sequence is past, move to next sequence
+                    current_seq_idx++;
+                } else {
+                    // sample_global_pos < current_seq->global_start_pos, shouldn't happen
+                    spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}", 
+                                sample_global_pos, current_seq->global_start_pos);
                     ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
+                    break;
                 }
             }
-        } else {
-            // 对于SequenceManager，使用原始的逻辑
-            size_t current_seq_idx = 0;
-            for (SeqPro::Position i = 0; i < cache_size; ++i) {
-                SeqPro::Position sample_global_pos = i * sampling_interval;
-
-                if (sample_global_pos >= total_length) {
-                    ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                    continue;
-                }
-
-                // Find the sequence containing the current position
-                while (current_seq_idx < seq_infos.size()) {
-                    const auto* current_seq = seq_infos[current_seq_idx];
-                    SeqPro::Position seq_end = current_seq->global_start_pos + current_seq->length;
-
-                    if (sample_global_pos >= current_seq->global_start_pos && sample_global_pos < seq_end) {
-                        // Found the sequence containing this position
-                        ref_global_cache[i] = current_seq->id;
-                        break;
-                    } else if (sample_global_pos >= seq_end) {
-                        // Current sequence is past, move to next sequence
-                        current_seq_idx++;
-                    } else {
-                        // sample_global_pos < current_seq->global_start_pos, shouldn't happen
-                        spdlog::warn("Unexpected coordinate order: sample_pos={}, seq_start={}",
-                                    sample_global_pos, current_seq->global_start_pos);
-                        ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                        break;
-                    }
-                }
-
-                // If we've gone through all sequences without finding one, mark as invalid
-                if (current_seq_idx >= seq_infos.size()) {
-                    ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
-                }
+            
+            // If we've gone through all sequences without finding one, mark as invalid
+            if (current_seq_idx >= seq_infos.size()) {
+                ref_global_cache[i] = SeqPro::SequenceIndex::INVALID_ID;
             }
         }
     }, manager_variant);
