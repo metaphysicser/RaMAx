@@ -95,6 +95,7 @@ struct SequenceInfo {
   SequenceId id;
   std::string name;
   Position length;
+  Position masked_length;
   Position global_start_pos; // 全局起始位置 (0-based)
   Position masked_global_start_pos; // 遮蔽全局起始位置 (0-based)
   Position file_offset;      // 在文件中的偏移量
@@ -104,7 +105,7 @@ struct SequenceInfo {
   SequenceInfo() = default;
   SequenceInfo(SequenceId seq_id, std::string seq_name, Position len,
                Position g_start_pos, Position m_start_pos, Position offset, uint32_t lw, uint32_t lb)
-      : id(seq_id), name(std::move(seq_name)), length(len),
+      : id(seq_id), name(std::move(seq_name)), length(len), masked_length(len),
         global_start_pos(g_start_pos), masked_global_start_pos(m_start_pos + seq_id), file_offset(offset), line_width(lw),
         line_bytes(lb) {}
 

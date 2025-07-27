@@ -94,7 +94,7 @@ double buildRefGlobalCache(const SeqPro::ManagerVariant& manager_variant,
                 const auto* current_seq = seq_infos[current_seq_idx];
                 SeqPro::Position seq_end;
                 if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    seq_end = current_seq->masked_global_start_pos + manager_ptr->getSequenceLengthWithSeparators(current_seq->id) + 1;
+                    seq_end = current_seq->masked_global_start_pos + current_seq->masked_length + 1;
                 }
                 else {
                     seq_end = current_seq->global_start_pos + current_seq->length + 1;

@@ -1565,6 +1565,7 @@ void MaskedSequenceManager::finalizeMaskIntervals() {
         original_manager_->getIndex().getSequenceInfo(seq_id));
     if (seq_info) {
       seq_info->masked_global_start_pos = current_masked_pos;
+      seq_info->masked_length = getSequenceLengthWithSeparators(seq_id);
     }
 
     // 累加当前序列的遮蔽后长度（包含间隔符）
