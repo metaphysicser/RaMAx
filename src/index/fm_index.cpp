@@ -614,6 +614,7 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
     SAInterval next_I = { 0, total_size - 1 };
 
     while (match_length < query_length) {
+        if (query[match_length] == 'N' || query[match_length] == 'n') break;
         next_I = backwardExtend(I, query[match_length]);
         if (next_I.l == next_I.r) break;
         match_length++;
