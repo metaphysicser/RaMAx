@@ -95,16 +95,18 @@ struct SequenceInfo {
   SequenceId id;
   std::string name;
   Position length;
+  Position masked_length;
   Position global_start_pos; // 全局起始位置 (0-based)
+  Position masked_global_start_pos; // 遮蔽全局起始位置 (0-based)
   Position file_offset;      // 在文件中的偏移量
   uint32_t line_width;       // FASTA行宽
   uint32_t line_bytes;       // 每行字节数(包括换行符)
 
   SequenceInfo() = default;
   SequenceInfo(SequenceId seq_id, std::string seq_name, Position len,
-               Position g_start_pos, Position offset, uint32_t lw, uint32_t lb)
-      : id(seq_id), name(std::move(seq_name)), length(len),
-        global_start_pos(g_start_pos), file_offset(offset), line_width(lw),
+               Position g_start_pos, Position m_start_pos, Position offset, uint32_t lw, uint32_t lb)
+      : id(seq_id), name(std::move(seq_name)), length(len), masked_length(len),
+        global_start_pos(g_start_pos), masked_global_start_pos(m_start_pos + seq_id), file_offset(offset), line_width(lw),
         line_bytes(lb) {}
 
   template <class Archive> void serialize(Archive &ar) {
@@ -410,6 +412,7 @@ public:
   // === 访问原始管理器 ===
 
   const SequenceManager& getOriginalManager() const { return *original_manager_; }
+  const MaskManager& getMaskManager() const { return mask_manager_; }
 
   // === 实用功能 ===
 
