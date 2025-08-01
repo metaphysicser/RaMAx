@@ -77,7 +77,6 @@ public:
 struct MaskInterval {
   Position start; // 0-based start position
   Position end;   // 0-based end position (exclusive)
-
   MaskInterval() = default;
   MaskInterval(Position s, Position e) : start(s), end(e) {}
 

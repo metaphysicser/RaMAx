@@ -8,7 +8,11 @@
 #include <filesystem>
 #include <unordered_map>
 #include <exception>
+#include <map>
+#include <vector>
 #include <spdlog/spdlog.h>
+#include <optional>
+#include "halAlignmentInstance.h"
 
 // ============================================================
 // emitMafBlock —— 所有导出函数共享的“写一个 MAF 块”实现
@@ -195,4 +199,64 @@ namespace RaMesh {
         }
     }
 
+    void RaMeshMultiGenomeGraph::exportToHal(const FilePath& hal_path, 
+                                            const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                                            const std::optional<std::string>& newick_tree,
+                                            bool only_primary) const 
+    {
+        spdlog::info("Starting minimal HAL export to: {}", hal_path.string());
+        
+        // ========================================
+        // 1. 基础验证
+        // ========================================
+        if (seqpro_managers.empty()) {
+            throw std::runtime_error("No sequence managers provided for HAL export");
+        }
+        
+        spdlog::info("Creating minimal HAL file for {} species", seqpro_managers.size());
+        
+        // ========================================
+        // 2. 创建最简单的HAL文件
+        // ========================================
+        try {
+            // 获取绝对路径
+            std::filesystem::path abs_hal_path = std::filesystem::absolute(hal_path);
+            spdlog::info("Absolute HAL path: {}", abs_hal_path.string());
+            
+            // 确保输出目录存在
+            if (abs_hal_path.has_parent_path() && !abs_hal_path.parent_path().empty()) {
+                spdlog::info("Creating directory: {}", abs_hal_path.parent_path().string());
+                std::filesystem::create_directories(abs_hal_path.parent_path());
+            }
+            
+            // 尝试最简单的HAL创建方式
+            spdlog::info("Creating basic HAL structure...");
+            
+            hal::AlignmentPtr alignment = hal::openHalAlignment(abs_hal_path.string(), nullptr, hal::CREATE_ACCESS);
+            if (!alignment) {
+                throw std::runtime_error("Failed to create HAL alignment instance");
+            }
+            
+            spdlog::info("Successfully created HAL alignment file");
+            
+            // 立即关闭，不进行任何其他操作
+            spdlog::info("Closing HAL file immediately...");
+            alignment->close();
+            spdlog::info("HAL file closed successfully");
+            
+        } catch (const hal_exception& e) {
+            spdlog::error("HAL API error: {}", e.what());
+            throw;
+        } catch (const std::filesystem::filesystem_error& e) {
+            spdlog::error("Filesystem error: {}", e.what());
+            spdlog::error("Path: {}", e.path1().string());
+            throw;
+        } catch (const std::exception& e) {
+            spdlog::error("Unexpected error: {}", e.what());
+            throw;
+        }
+        
+        spdlog::info("Minimal HAL export completed: {}", hal_path.string());
+        spdlog::info("This is a minimal empty HAL file. Tree and genome data will be added in future versions.");
+    }
 } // namespace RaMesh

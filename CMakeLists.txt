@@ -10,8 +10,8 @@ if(POLICY CMP0141)
     "$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-# 设置 C++20 标准
-set(CMAKE_CXX_STANDARD 20)
+# 设置 C++23 标准
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -40,25 +40,25 @@ find_program(MAKE_EXE NAMES make gmake REQUIRED)
 # ================= HAL tools =================
 # 只要 maf2hal / hal2fasta 缺失或过期，就重新 make -C hal
 add_custom_command(
-    OUTPUT ${SONLIB_DIR}/lib/sonLib.h
+    OUTPUT ${SONLIB_DIR}/lib/sonLib.h ${SONLIB_DIR}/lib/sonLib.a
     COMMAND ${MAKE_EXE} -C ${SONLIB_DIR} -j
     WORKING_DIRECTORY ${SONLIB_DIR}
     COMMENT "Building sonLib…"
 )
 
 add_custom_target(sonLib_build
-    DEPENDS ${SONLIB_DIR}/lib/sonLib.h
+    DEPENDS ${SONLIB_DIR}/lib/sonLib.a
 )
 
 add_custom_command(
-    OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
+    OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA} ${HAL_DIR}/lib/libHal.a
     COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j
     WORKING_DIRECTORY ${HAL_DIR}
     COMMENT "Building HAL tools…"
 )
 
 add_custom_target(hal_tools
-    DEPENDS ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
+    DEPENDS ${HAL_DIR}/lib/libHal.a
 )
 
 add_dependencies(hal_tools sonLib_build)
@@ -90,6 +90,7 @@ find_package(ZLIB REQUIRED)
 find_package(OpenMP)
 find_package(Threads REQUIRED)
 find_package(TBB REQUIRED)
+find_package(HDF5 REQUIRED COMPONENTS CXX)
 
 # ================= 公共源文件 =================
 set(RAMA_COMMON_SOURCES
@@ -136,6 +137,9 @@ set(RAMA_INCLUDE_DIRS
     "${CMAKE_BINARY_DIR}/submodule/libdivsufsort/include"
     "${SUBMODULE_DIR}/WFA2-lib"
     "${SUBMODULE_DIR}/parlaylib/include"
+    "${HAL_DIR}/api/inc"
+    "${SONLIB_DIR}/C/inc"
+    ${HDF5_CXX_INCLUDE_DIRS}
 )
 
 # ================= 编译配置函数 =================
@@ -154,6 +158,9 @@ function(configure_rama_target target)
         wfa2cpp_static
         TBB::tbb
         OpenMP::OpenMP_CXX
+        ${HAL_DIR}/lib/libHal.a
+        ${SONLIB_DIR}/lib/sonLib.a
+        ${HDF5_CXX_LIBRARIES}
     )
 
     # 确保在构建目标前先构建libdivsufsort（生成头文件）
