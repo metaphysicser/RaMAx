@@ -118,6 +118,7 @@ set(RAMA_COMMON_SOURCES
     "${GRAPH_DIR}/ramesh_node.cpp"
     "${GRAPH_DIR}/ramesh_graph.cpp"
     "${GRAPH_DIR}/ramesh_export.cpp"
+    "${GRAPH_DIR}/hal_converter.cpp"
 )
 
 # ================= 主程序入口文件 =================

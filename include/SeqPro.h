@@ -283,6 +283,11 @@ public:
   void setMaxThreads(size_t max_threads);
   size_t getMaxThreads() const { return max_threads_; }
 
+  // === 遮蔽区间管理 ===
+
+  // 清理所有遮蔽区间（对于SequenceManager为空操作）
+  void clearMaskedRegions();
+
   // === 内部访问（供MaskedSequenceManager使用） ===
 
   const SequenceIndex& getIndex() const { return sequence_index_; }
@@ -438,6 +443,9 @@ public:
   // 清除特定序列的mask区间
   void clearMaskIntervals(const std::string &seq_name);
   void clearMaskIntervals(SequenceId seq_id);
+
+  // 清除所有序列的遮蔽区间
+  void clearMaskedRegions();
 
   // 状态查询
   bool hasUnfinalizedIntervals() const;

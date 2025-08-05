@@ -732,6 +732,13 @@ int main(int argc, char **argv) {
         species_maf_files.emplace_back(sp, p);
     }
 
+    // 清理seqpro_managers的所有遮蔽区间
+    for (const auto &[species_name, seq_mgr_variant] : seqpro_managers) {
+        std::visit([&](const auto& seq_mgr) {
+            seq_mgr->clearMaskedRegions();
+        }, *seq_mgr_variant);
+    }
+
     // 根据输出格式选择导出方法
     switch (common_args.output_format) {
         case MultipleGenomeOutputFormat::MAF:

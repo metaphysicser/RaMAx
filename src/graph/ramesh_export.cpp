@@ -3,6 +3,7 @@
 // 统一导出实现：emitMafBlock + 三个外层接口
 // ------------------------------------------------------------
 #include "ramesh.h"
+#include "hal_converter.h"
 #include <fstream>
 #include <iomanip>
 #include <filesystem>
@@ -12,7 +13,9 @@
 #include <vector>
 #include <spdlog/spdlog.h>
 #include <optional>
-#include "halAlignmentInstance.h"
+#include <variant>
+#include <functional>
+#include "../../submodule/hal/api/inc/hal.h"
 
 // ============================================================
 // emitMafBlock —— 所有导出函数共享的“写一个 MAF 块”实现
@@ -204,45 +207,74 @@ namespace RaMesh {
                                             const std::optional<std::string>& newick_tree,
                                             bool only_primary) const 
     {
-        spdlog::info("Starting minimal HAL export to: {}", hal_path.string());
+        spdlog::info("Starting HAL export to: {}", hal_path.string());
         
-        // ========================================
-        // 1. 基础验证
-        // ========================================
+        // 基础验证
         if (seqpro_managers.empty()) {
             throw std::runtime_error("No sequence managers provided for HAL export");
         }
         
-        spdlog::info("Creating minimal HAL file for {} species", seqpro_managers.size());
+        spdlog::info("Creating HAL file for {} species", seqpro_managers.size());
         
-        // ========================================
-        // 2. 创建最简单的HAL文件
-        // ========================================
         try {
-            // 获取绝对路径
+            // 第一步：创建HAL文件结构
             std::filesystem::path abs_hal_path = std::filesystem::absolute(hal_path);
-            spdlog::info("Absolute HAL path: {}", abs_hal_path.string());
+            spdlog::info("Creating HAL file: {}", abs_hal_path.string());
             
-            // 确保输出目录存在
             if (abs_hal_path.has_parent_path() && !abs_hal_path.parent_path().empty()) {
-                spdlog::info("Creating directory: {}", abs_hal_path.parent_path().string());
                 std::filesystem::create_directories(abs_hal_path.parent_path());
             }
-            
-            // 尝试最简单的HAL创建方式
-            spdlog::info("Creating basic HAL structure...");
             
             hal::AlignmentPtr alignment = hal::openHalAlignment(abs_hal_path.string(), nullptr, hal::CREATE_ACCESS);
             if (!alignment) {
                 throw std::runtime_error("Failed to create HAL alignment instance");
             }
             
-            spdlog::info("Successfully created HAL alignment file");
+            // 第二步：创建基本基因组结构
+            hal_converter::createBasicGenomeStructure(alignment, seqpro_managers);
             
-            // 立即关闭，不进行任何其他操作
-            spdlog::info("Closing HAL file immediately...");
+            // 第三步：设置序列数据
+            hal_converter::setupGenomeSequences(alignment, seqpro_managers);
+            
+            // 第四步：祖先重建阶段
+            spdlog::info("Starting ancestor reconstruction phase...");
+            
+            std::vector<hal_converter::AncestorNode> ancestor_nodes;
+            std::vector<hal_converter::AncestorBlock> ancestor_blocks;
+            
+            if (newick_tree.has_value()) {
+                // 解析系统发育树，识别祖先节点
+                ancestor_nodes = hal_converter::parsePhylogeneticTree(newick_tree.value(), seqpro_managers);
+                
+                // 收集与祖先相关的比对块
+                ancestor_blocks = hal_converter::collectAncestorBlocks(this->blocks, ancestor_nodes);
+                
+                // 重建祖先序列
+                hal_converter::reconstructAncestorSequences(ancestor_blocks, seqpro_managers);
+                
+                // 应用系统发育树到HAL
+                hal_converter::applyNewickTree(alignment, newick_tree.value());
+                
+                // 将祖先数据写入HAL
+                hal_converter::writeAncestorDataToHAL(alignment, ancestor_blocks);
+                
+            } else {
+                spdlog::info("No phylogenetic tree provided, using default star topology");
+                // 为星形拓扑创建简单的根祖先
+                ancestor_nodes = hal_converter::parsePhylogeneticTree("", seqpro_managers);  // 空字符串将创建星形树
+                ancestor_blocks = hal_converter::collectAncestorBlocks(this->blocks, ancestor_nodes);
+                hal_converter::reconstructAncestorSequences(ancestor_blocks, seqpro_managers);
+                hal_converter::writeAncestorDataToHAL(alignment, ancestor_blocks);
+            }
+            
+            // TODO: 第五步：建立比对关系（Top/Bottom segments）
+            // 这是HAL格式的关键部分，需要建立父子基因组间的比对关系
+            
+            // 验证和关闭HAL文件
+            hal_converter::validateHalFile(alignment, hal_path);
             alignment->close();
-            spdlog::info("HAL file closed successfully");
+            
+            spdlog::info("HAL export completed successfully");
             
         } catch (const hal_exception& e) {
             spdlog::error("HAL API error: {}", e.what());
@@ -255,8 +287,5 @@ namespace RaMesh {
             spdlog::error("Unexpected error: {}", e.what());
             throw;
         }
-        
-        spdlog::info("Minimal HAL export completed: {}", hal_path.string());
-        spdlog::info("This is a minimal empty HAL file. Tree and genome data will be added in future versions.");
     }
 } // namespace RaMesh
