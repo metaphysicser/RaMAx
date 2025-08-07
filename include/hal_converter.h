@@ -145,6 +145,40 @@ namespace hal_converter {
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
         RaMeshMultiGenomeGraph& graph);
 
+    // ========================================
+    // 祖先序列构建
+    // ========================================
+
+    /**
+     * 从segment信息中提取DNA序列
+     * @param segment 祖先segment信息
+     * @param seqpro_managers 序列管理器映射
+     * @param reference_leaf 参考叶子名称
+     * @return 提取的DNA序列
+     */
+    std::string extractSegmentDNA(const AncestorSegmentInfo& segment,
+                                 const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                                 const std::string& reference_leaf);
+
+    /**
+     * 根据重建数据构建完整的祖先序列
+     * @param data 祖先重建数据
+     * @param seqpro_managers 序列管理器映射
+     * @return 构建的完整序列
+     */
+    std::string buildAncestorSequence(const AncestorReconstructionData& data,
+                                     const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    /**
+     * 为所有祖先构建序列
+     * @param ancestor_reconstruction_data 所有祖先的重建数据
+     * @param seqpro_managers 序列管理器映射
+     * @return 祖先名称到序列的映射
+     */
+    std::map<std::string, std::string> buildAllAncestorSequences(
+        const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
     /**
      * 从NewickParser提取祖先节点信息
      * @param parser 已解析的Newick树

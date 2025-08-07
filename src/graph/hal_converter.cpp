@@ -458,8 +458,8 @@ namespace hal_converter {
                         data.segments.push_back(gap_segment);
                         data.processed_blocks.insert(species_next->parent_block);
 
-                        spdlog::debug("    Added gap segment from species '{}' at {}:{}",
-                                     species, gap_segment.start, gap_segment.start + gap_segment.length);
+                        // spdlog::debug("    Added gap segment from species '{}' at {}:{}",
+                        //              species, gap_segment.start, gap_segment.start + gap_segment.length);
                     }
                     species_next = species_next->primary_path.next.load(std::memory_order_acquire);
                 } else {
@@ -509,9 +509,9 @@ namespace hal_converter {
                 data.processed_blocks.insert(current->parent_block);
                 segment_count++;
 
-                spdlog::debug("    Added ref segment at {}:{} (gap_before: {})",
-                             segment_info.start, segment_info.start + segment_info.length,
-                             segment_info.need_gap_before);
+                // spdlog::debug("    Added ref segment at {}:{} (gap_before: {})",
+                //              segment_info.start, segment_info.start + segment_info.length,
+                //              segment_info.need_gap_before);
 
                 // 3. 检查并填补缺失区域
                 fillGapsForAncestor(current, ancestor, data, chr_id);
@@ -617,6 +617,112 @@ namespace hal_converter {
         }
 
         return ancestor_reconstruction_data;
+    }
+
+    // ========================================
+    // 祖先序列构建实现
+    // ========================================
+
+    std::string extractSegmentDNA(const AncestorSegmentInfo& segment,
+                                 const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                                 const std::string& reference_leaf) {
+
+        auto it = seqpro_managers.find(reference_leaf);
+        if (it == seqpro_managers.end()) {
+            throw std::runtime_error("Reference leaf not found: " + reference_leaf);
+        }
+
+        return std::visit([&](const auto& mgr) -> std::string {
+            using PtrType = std::decay_t<decltype(mgr)>;
+            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                return mgr->getSubSequence(segment.chr_id, segment.start, segment.length);
+            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                return mgr->getSubSequence(segment.chr_id, segment.start, segment.length);
+            } else {
+                throw std::runtime_error("Unhandled manager type in variant.");
+            }
+        }, *it->second);
+    }
+
+    std::string buildAncestorSequence(const AncestorReconstructionData& data,
+                                     const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::debug("Building ancestor sequence from {} segments", data.segments.size());
+
+        std::string full_sequence;
+        size_t total_segments = data.segments.size();
+        size_t gaps_added = 0;
+
+        for (size_t i = 0; i < total_segments; ++i) {
+            const auto& segment = data.segments[i];
+
+            // 处理gap_before（避免重复N）
+            if (segment.need_gap_before) {
+                if (full_sequence.back() != 'N') {
+                    full_sequence += 'N';
+                    gaps_added++;
+                }
+            }
+
+            // 提取并添加segment的DNA序列
+            try {
+                std::string segment_dna = extractSegmentDNA(segment, seqpro_managers, data.reference_leaf);
+                full_sequence += segment_dna;
+
+                // spdlog::debug("  Added segment {} ({}:{}) length={}, is_from_ref={}",
+                //              i, segment.start, segment.start + segment.length,
+                //              segment.length, segment.is_from_ref);
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to extract DNA for segment {}: {}", i, e.what());
+                throw;
+            }
+
+            // 处理gap_after（避免重复N）
+            if (segment.need_gap_after) {
+                full_sequence += 'N';
+                gaps_added++;
+            }
+        }
+
+        spdlog::info("Built ancestor sequence: {} segments, {} gaps, {} total length",
+                    total_segments, gaps_added, full_sequence.length());
+
+        return full_sequence;
+    }
+
+    std::map<std::string, std::string> buildAllAncestorSequences(
+        const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::info("Building sequences for {} ancestors", ancestor_reconstruction_data.size());
+
+        std::map<std::string, std::string> ancestor_sequences;
+
+        for (const auto& [ancestor_name, data] : ancestor_reconstruction_data) {
+            spdlog::info("Building sequence for ancestor '{}'", ancestor_name);
+
+            try {
+                std::string sequence = buildAncestorSequence(data, seqpro_managers);
+                ancestor_sequences[ancestor_name] = std::move(sequence);
+
+                spdlog::info("Successfully built sequence for ancestor '{}': {} bp",
+                            ancestor_name, ancestor_sequences[ancestor_name].length());
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to build sequence for ancestor '{}': {}", ancestor_name, e.what());
+                throw;
+            }
+        }
+
+        // 输出统计信息
+        spdlog::info("Ancestor sequence construction completed:");
+        size_t total_length = 0;
+        for (const auto& [ancestor_name, sequence] : ancestor_sequences) {
+            spdlog::info("  Ancestor '{}': {} bp", ancestor_name, sequence.length());
+            total_length += sequence.length();
+        }
+        spdlog::info("  Total ancestor sequence length: {} bp", total_length);
+
+        return ancestor_sequences;
     }
 
     std::pair<bool, std::string> validateLeafNames(

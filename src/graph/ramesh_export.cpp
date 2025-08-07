@@ -285,7 +285,7 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.1 completed successfully");
 
                 // ========================================
-                // 第二阶段：执行祖先序列重建
+                // 第二阶段：执行祖先节点重建
                 // ========================================
                 spdlog::info("  Phase 2.2: Executing ancestor sequence reconstruction...");
 
@@ -294,8 +294,17 @@ namespace RaMesh {
 
                 spdlog::info("  Phase 2.2 completed successfully");
 
-                // TODO: 第三阶段 - 创建祖先的segment链表和HAL映射
-                spdlog::info("  TODO: Phase 2.3 - Create ancestor segment chains and HAL mappings");
+                // ========================================
+                // 第三阶段：构建祖先序列
+                // ========================================
+                spdlog::info("  Phase 2.3: Building ancestor sequences...");
+
+                auto ancestor_sequences = hal_converter::buildAllAncestorSequences(
+                    ancestor_reconstruction_data, seqpro_managers);
+                spdlog::info("  Phase 2.3 completed successfully");
+
+                // TODO: 第四阶段 - 设置HAL基因组的序列内容和创建segment映射
+                spdlog::info("  TODO: Phase 2.4 - Set HAL genome sequences and create segment mappings");
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");
             }
