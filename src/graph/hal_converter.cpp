@@ -223,6 +223,402 @@ namespace hal_converter {
         return ancestor_nodes;
     }
 
+    // ========================================
+    // 祖先序列重建规划
+    // ========================================
+
+    std::vector<std::pair<std::string, std::string>> planAncestorReconstruction(
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const NewickParser& parser) {
+
+        spdlog::debug("Planning ancestor sequence reconstruction...");
+
+        // 第一步：按树深度排序祖先节点（深度大的先处理，即叶子优先）
+        std::vector<AncestorNode> sorted_ancestors = ancestor_nodes;
+        std::sort(sorted_ancestors.begin(), sorted_ancestors.end(),
+            [](const AncestorNode& a, const AncestorNode& b) {
+                return a.tree_depth > b.tree_depth; // 深度大的先处理
+            });
+
+        spdlog::debug("Sorted {} ancestors by tree depth (deepest first)", sorted_ancestors.size());
+        for (const auto& ancestor : sorted_ancestors) {
+            spdlog::debug("  Ancestor '{}' at depth {}", ancestor.node_name, ancestor.tree_depth);
+        }
+
+        // 第二步：为每个祖先确定参考叶子
+        std::vector<std::pair<std::string, std::string>> reconstruction_plan;
+
+        for (const auto& ancestor : sorted_ancestors) {
+            std::string reference_leaf = findClosestLeafForAncestor(ancestor, parser);
+
+            if (!reference_leaf.empty()) {
+                reconstruction_plan.emplace_back(ancestor.node_name, reference_leaf);
+                spdlog::debug("  Ancestor '{}' -> Reference leaf '{}'",
+                             ancestor.node_name, reference_leaf);
+            } else {
+                spdlog::warn("  Could not find reference leaf for ancestor '{}'", ancestor.node_name);
+            }
+        }
+
+        spdlog::info("Reconstruction plan created for {} ancestors", reconstruction_plan.size());
+        return reconstruction_plan;
+    }
+
+    std::string findClosestLeafForAncestor(
+        const AncestorNode& ancestor,
+        const NewickParser& parser) {
+
+        spdlog::debug("Finding closest leaf for ancestor '{}'", ancestor.node_name);
+
+        // 如果祖先没有后代叶子，返回空
+        if (ancestor.descendant_leaves.empty()) {
+            spdlog::debug("  No descendant leaves found for ancestor '{}'", ancestor.node_name);
+            return "";
+        }
+
+        // 策略1：简单版本 - 选择第一个后代叶子作为参考
+        // 在更复杂的实现中，可以基于分支长度计算真正的系统发育距离
+        std::string closest_leaf = ancestor.descendant_leaves[0];
+
+        spdlog::debug("  Selected '{}' as reference leaf for ancestor '{}' (simple strategy)",
+                     closest_leaf, ancestor.node_name);
+
+        // 策略2：基于分支长度的选择（如果需要更精确的选择）
+        // 这里可以扩展为计算从祖先到每个后代叶子的累积分支长度
+        // 并选择距离最短的叶子
+
+        // TODO: 实现基于分支长度的精确距离计算
+        // double min_distance = std::numeric_limits<double>::max();
+        // std::string best_leaf;
+        // for (const auto& leaf : ancestor.descendant_leaves) {
+        //     double distance = calculatePhylogeneticDistance(ancestor.node_name, leaf, parser);
+        //     if (distance < min_distance) {
+        //         min_distance = distance;
+        //         best_leaf = leaf;
+        //     }
+        // }
+
+        return closest_leaf;
+    }
+
+    // ========================================
+    // 祖先序列重建实现
+    // ========================================
+
+    /**
+     * 获取染色体ID的辅助函数
+     */
+    SequenceId getChrId(const std::string& chr_name, const std::string& species_name,
+                       const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+        auto it = seqpro_managers.find(species_name);
+        if (it == seqpro_managers.end()) {
+            return SeqPro::SequenceIndex::INVALID_ID;
+        }
+
+        return std::visit([&chr_name](const auto& mgr) -> SequenceId {
+            return mgr->getSequenceId(chr_name);
+        }, *it->second);
+    }
+
+    /**
+     * 根据名称查找祖先节点
+     */
+    const AncestorNode* findAncestorByName(const std::string& ancestor_name,
+                                          const std::vector<AncestorNode>& ancestor_nodes) {
+        for (const auto& ancestor : ancestor_nodes) {
+            if (ancestor.node_name == ancestor_name) {
+                return &ancestor;
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * 检查block是否包含指定物种
+     */
+    bool blockContainsSpecies(BlockPtr block, const std::string& species_name) {
+        if (!block) return false;
+
+        std::shared_lock lock(block->rw);
+        for (const auto& [species_chr, segment] : block->anchors) {
+            if (species_chr.first == species_name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 在block中查找指定物种的segment
+     */
+    SegPtr findSegmentInBlock(BlockPtr block, const std::string& species_name) {
+        if (!block) return nullptr;
+
+        std::shared_lock lock(block->rw);
+        for (const auto& [species_chr, segment] : block->anchors) {
+            if (species_chr.first == species_name) {
+                return segment;
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * 获取当前block中属于该祖先的其他物种（直接子节点）
+     */
+    std::set<std::string> getAncestorSpeciesInBlock(BlockPtr block, const AncestorNode& ancestor) {
+        std::set<std::string> result;
+        if (!block) return result;
+
+        std::shared_lock lock(block->rw);
+
+        for (const auto& [species_chr, segment] : block->anchors) {
+            // 检查是否是祖先的直接子节点
+            if (std::find(ancestor.children_names.begin(), ancestor.children_names.end(),
+                         species_chr.first) != ancestor.children_names.end()) {
+                result.insert(species_chr.first);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 创建来自参考segment的祖先segment信息
+     */
+    AncestorSegmentInfo createFromRefSegment(SegPtr segment, SequenceId chr_id, bool is_from_ref) {
+        return {
+            .start = segment->start,
+            .length = segment->length,
+            .chr_id = chr_id,
+            .source_block = segment->parent_block,
+            .is_from_ref = is_from_ref,
+            .need_gap_before = false,
+            .need_gap_after = false
+        };
+    }
+
+    /**
+     * 检查并设置间隙信息
+     */
+    void checkAndSetGapInfo(AncestorSegmentInfo& segment_info,
+                           SegPtr prev_segment, SegPtr current_segment,
+                           bool is_gap_before) {
+
+        uint_t prev_end = prev_segment->start + prev_segment->length;
+        uint_t current_start = current_segment->start;
+
+        if (current_start > prev_end) {
+            // 有间隙，需要添加N
+            if (is_gap_before) {
+                segment_info.need_gap_before = true;
+            } else {
+                segment_info.need_gap_after = true;
+            }
+        }
+    }
+
+    /**
+     * 为祖先填补缺失区域
+     */
+    void fillGapsForAncestor(SegPtr ref_segment, const AncestorNode& ancestor,
+                            AncestorReconstructionData& data, SequenceId chr_id) {
+
+        // 获取当前block中属于该祖先的其他物种
+        auto other_species = getAncestorSpeciesInBlock(ref_segment->parent_block, ancestor);
+
+        SegPtr ref_next = ref_segment->primary_path.next.load(std::memory_order_acquire);
+        if (!ref_next || ref_next->isTail()) return;
+
+        // 检查其他物种的next segment路径
+        for (const auto& species : other_species) {
+            SegPtr species_segment = findSegmentInBlock(ref_segment->parent_block, species);
+            if (!species_segment) continue;
+
+            SegPtr species_next = species_segment->primary_path.next.load(std::memory_order_acquire);
+
+            // 沿着species的next链遍历，直到找到包含ref的block
+            while (species_next && !species_next->isTail()) {
+                if (!blockContainsSpecies(species_next->parent_block, data.reference_leaf)) {
+                    // 这是一个gap block，需要添加
+                    if (data.processed_blocks.find(species_next->parent_block) == data.processed_blocks.end()) {
+
+                        AncestorSegmentInfo gap_segment = createFromRefSegment(species_next, chr_id, false);
+
+                        // 检查gap segment的间隙信息
+                        SegPtr gap_prev = species_next->primary_path.prev.load(std::memory_order_acquire);
+                        SegPtr gap_next = species_next->primary_path.next.load(std::memory_order_acquire);
+
+                        if (gap_prev && !gap_prev->isHead()) {
+                            checkAndSetGapInfo(gap_segment, gap_prev, species_next, true);
+                        }
+                        if (gap_next && !gap_next->isTail()) {
+                            checkAndSetGapInfo(gap_segment, species_next, gap_next, false);
+                        }
+
+                        data.segments.push_back(gap_segment);
+                        data.processed_blocks.insert(species_next->parent_block);
+
+                        spdlog::debug("    Added gap segment from species '{}' at {}:{}",
+                                     species, gap_segment.start, gap_segment.start + gap_segment.length);
+                    }
+                    species_next = species_next->primary_path.next.load(std::memory_order_acquire);
+                } else {
+                    break; // 找到了包含ref的block，停止
+                }
+            }
+        }
+    }
+
+    /**
+     * 重建单个染色体的祖先序列
+     */
+    void reconstructAncestorChromosome(
+        const std::string& ancestor_name,
+        const std::string& ref_leaf,
+        const std::string& chr_name,
+        const GenomeEnd& ref_genome_end,
+        const AncestorNode& ancestor,
+        AncestorReconstructionData& data) {
+
+        SequenceId chr_id = data.getSequenceId(chr_name);
+        if (chr_id == SeqPro::SequenceIndex::INVALID_ID) {
+            spdlog::warn("Cannot get chromosome ID for {} in ancestor {}", chr_name, ancestor_name);
+            return;
+        }
+
+        spdlog::debug("  Reconstructing chromosome '{}' for ancestor '{}'", chr_name, ancestor_name);
+
+        std::shared_lock end_lock(ref_genome_end.rw);
+
+        // 遍历参考叶子的segment链表
+        SegPtr current = ref_genome_end.head->primary_path.next.load(std::memory_order_acquire);
+        SegPtr prev_segment = nullptr;
+        size_t segment_count = 0;
+
+        while (current && !current->isTail()) {
+            if (current->isSegment()) {
+                // 1. 添加当前ref segment
+                AncestorSegmentInfo segment_info = createFromRefSegment(current, chr_id, true);
+
+                // 2. 检查与前一个segment的间隙
+                if (prev_segment && !prev_segment->isHead()) {
+                    checkAndSetGapInfo(segment_info, prev_segment, current, true); // gap_before
+                }
+
+                data.segments.push_back(segment_info);
+                data.processed_blocks.insert(current->parent_block);
+                segment_count++;
+
+                spdlog::debug("    Added ref segment at {}:{} (gap_before: {})",
+                             segment_info.start, segment_info.start + segment_info.length,
+                             segment_info.need_gap_before);
+
+                // 3. 检查并填补缺失区域
+                fillGapsForAncestor(current, ancestor, data, chr_id);
+
+                prev_segment = current;
+            }
+            current = current->primary_path.next.load(std::memory_order_acquire);
+        }
+
+        // 检查最后一个segment的gap_after
+        if (!data.segments.empty() && prev_segment) {
+            auto& last_segment = data.segments.back();
+            SegPtr next_segment = prev_segment->primary_path.next.load(std::memory_order_acquire);
+            if (next_segment && !next_segment->isTail()) {
+                checkAndSetGapInfo(last_segment, prev_segment, next_segment, false); // gap_after
+                spdlog::debug("    Last segment gap_after: {}", last_segment.need_gap_after);
+            }
+        }
+
+        spdlog::debug("  Completed chromosome '{}': {} segments", chr_name, segment_count);
+    }
+
+    /**
+     * 重建单个祖先的序列
+     */
+    void reconstructSingleAncestor(
+        const std::string& ancestor_name,
+        const std::string& ref_leaf,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        RaMeshMultiGenomeGraph& graph,
+        AncestorReconstructionData& data) {
+
+        spdlog::info("Reconstructing ancestor '{}' using reference leaf '{}'", ancestor_name, ref_leaf);
+
+        const AncestorNode* ancestor = findAncestorByName(ancestor_name, ancestor_nodes);
+        if (!ancestor) {
+            spdlog::error("Cannot find ancestor node: {}", ancestor_name);
+            return;
+        }
+
+        // 遍历参考叶子的所有染色体
+        auto& ref_genome = graph.species_graphs[ref_leaf];
+        std::shared_lock ref_lock(ref_genome.rw);
+
+        size_t total_segments = 0;
+        for (const auto& [chr_name, genome_end] : ref_genome.chr2end) {
+            size_t segments_before = data.segments.size();
+
+            reconstructAncestorChromosome(ancestor_name, ref_leaf, chr_name,
+                                        genome_end, *ancestor, data);
+
+            size_t segments_added = data.segments.size() - segments_before;
+            total_segments += segments_added;
+
+            spdlog::debug("  Chromosome '{}': added {} segments", chr_name, segments_added);
+        }
+
+        spdlog::info("Completed ancestor '{}': {} total segments across {} chromosomes",
+                    ancestor_name, total_segments, ref_genome.chr2end.size());
+    }
+
+    /**
+     * 执行祖先序列重建的第二阶段
+     */
+    std::map<std::string, AncestorReconstructionData> reconstructAncestorSequences(
+        const std::vector<std::pair<std::string, std::string>>& reconstruction_plan,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        RaMeshMultiGenomeGraph& graph) {
+
+        spdlog::info("Starting ancestor sequence reconstruction for {} ancestors", reconstruction_plan.size());
+
+        std::map<std::string, AncestorReconstructionData> ancestor_reconstruction_data;
+
+        // 初始化每个祖先的重建数据
+        for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
+            auto& data = ancestor_reconstruction_data[ancestor_name];
+            data.reference_leaf = ref_leaf;
+
+            // 设置染色体ID获取函数
+            data.getSequenceId = [&ref_leaf, &seqpro_managers](const std::string& chr_name) {
+                return getChrId(chr_name, ref_leaf, seqpro_managers);
+            };
+
+            spdlog::debug("Initialized reconstruction data for ancestor '{}' with reference '{}'",
+                         ancestor_name, ref_leaf);
+        }
+
+        // 按重建计划顺序处理每个祖先（深度优先）
+        for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
+            auto& data = ancestor_reconstruction_data[ancestor_name];
+
+            reconstructSingleAncestor(ancestor_name, ref_leaf, ancestor_nodes,
+                                    seqpro_managers, graph, data);
+        }
+
+        // 输出统计信息
+        spdlog::info("Ancestor sequence reconstruction completed:");
+        for (const auto& [ancestor_name, data] : ancestor_reconstruction_data) {
+            spdlog::info("  Ancestor '{}': {} segments, {} processed blocks",
+                        ancestor_name, data.segments.size(), data.processed_blocks.size());
+        }
+
+        return ancestor_reconstruction_data;
+    }
+
     std::pair<bool, std::string> validateLeafNames(
         const NewickParser& parser,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {

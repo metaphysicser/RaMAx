@@ -19,6 +19,16 @@
 #include "SeqPro.h"
 #include "data_process.h"  // 使用现有的NewickParser
 
+// 前向声明
+namespace RaMesh {
+    class RaMeshMultiGenomeGraph;
+    class Block;
+    struct Segment;
+    using BlockPtr = std::shared_ptr<Block>;
+    using SegPtr = std::shared_ptr<Segment>;
+    using SequenceId = SeqPro::SequenceId;
+}
+
 namespace RaMesh {
 
 namespace hal_converter {
@@ -65,6 +75,75 @@ namespace hal_converter {
      */
     bool ensureRootNode(NewickParser& parser,
                        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    // ========================================
+    // 祖先序列重建规划
+    // ========================================
+
+    /**
+     * 规划祖先序列重建的顺序和参考叶子选择
+     * @param ancestor_nodes 祖先节点列表
+     * @param parser 系统发育树解析器
+     * @return 重建计划：ancestor_name -> reference_leaf_name 的映射
+     */
+    std::vector<std::pair<std::string, std::string>> planAncestorReconstruction(
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const NewickParser& parser);
+
+    /**
+     * 为指定祖先节点找到系统发育距离最近的叶子节点
+     * @param ancestor 祖先节点
+     * @param parser 系统发育树解析器
+     * @return 最近叶子节点的名称，如果找不到则返回空字符串
+     */
+    std::string findClosestLeafForAncestor(
+        const AncestorNode& ancestor,
+        const NewickParser& parser);
+
+    // ========================================
+    // 祖先序列重建数据结构
+    // ========================================
+
+    /**
+     * 祖先segment信息，用于重建序列
+     */
+    struct AncestorSegmentInfo {
+        uint_t start;
+        uint_t length;
+        SequenceId chr_id;              // 使用ID而不是字符串，节省内存
+        BlockPtr source_block;          // 来源block
+        bool is_from_ref;               // 是否直接来自参考叶子
+
+        // 间隙信息（用于序列重建时添加N）
+        bool need_gap_before;           // 前面是否需要添加N
+        bool need_gap_after;            // 后面是否需要添加N
+    };
+
+    /**
+     * 祖先重建数据
+     */
+    struct AncestorReconstructionData {
+        std::vector<AncestorSegmentInfo> segments;
+        std::set<BlockPtr> processed_blocks;        // 避免重复添加
+        std::string reference_leaf;                 // 参考叶子名称
+
+        // 染色体ID映射函数
+        std::function<SequenceId(const std::string&)> getSequenceId;
+    };
+
+    /**
+     * 执行祖先序列重建的第二阶段
+     * @param reconstruction_plan 第一阶段生成的重建计划
+     * @param ancestor_nodes 祖先节点列表
+     * @param seqpro_managers 序列管理器映射
+     * @param graph 多基因组图
+     * @return 祖先重建数据映射
+     */
+    std::map<std::string, AncestorReconstructionData> reconstructAncestorSequences(
+        const std::vector<std::pair<std::string, std::string>>& reconstruction_plan,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        RaMeshMultiGenomeGraph& graph);
 
     /**
      * 从NewickParser提取祖先节点信息

@@ -270,10 +270,32 @@ namespace RaMesh {
             spdlog::info("Phase 2: Reconstructing ancestor sequences...");
 
             if (!ancestor_nodes.empty() && !blocks.empty()) {
-                // TODO: 实现完整的祖先序列重建
-                // 这里应该分析比对块，重建祖先序列，确定序列长度和内容
-                spdlog::info("  TODO: Implement ancestor sequence reconstruction");
-                spdlog::info("  This should analyze alignment blocks and reconstruct ancestor sequences");
+                // ========================================
+                // 第一阶段：确定重建顺序和参考叶子
+                // ========================================
+                spdlog::info("  Phase 2.1: Determining reconstruction order and reference leaves...");
+
+                auto reconstruction_plan = planAncestorReconstruction(ancestor_nodes, parser);
+                spdlog::info("  Planned reconstruction for {} ancestors", reconstruction_plan.size());
+
+                for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
+                    spdlog::debug("    Ancestor '{}' -> Reference leaf '{}'", ancestor_name, ref_leaf);
+                }
+
+                spdlog::info("  Phase 2.1 completed successfully");
+
+                // ========================================
+                // 第二阶段：执行祖先序列重建
+                // ========================================
+                spdlog::info("  Phase 2.2: Executing ancestor sequence reconstruction...");
+
+                auto ancestor_reconstruction_data = hal_converter::reconstructAncestorSequences(
+                    reconstruction_plan, ancestor_nodes, seqpro_managers, const_cast<RaMeshMultiGenomeGraph&>(*this));
+
+                spdlog::info("  Phase 2.2 completed successfully");
+
+                // TODO: 第三阶段 - 创建祖先的segment链表和HAL映射
+                spdlog::info("  TODO: Phase 2.3 - Create ancestor segment chains and HAL mappings");
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");
             }
