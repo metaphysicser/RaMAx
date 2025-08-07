@@ -769,7 +769,7 @@ int main(int argc, char **argv) {
                 } else {
                     // 如果无法读取输入文件，则使用空的newick字符串（让exportToHal自动推断）
                     spdlog::warn("Cannot read input file to extract Newick tree, will use automatic tree inference");
-                    graph->exportToHal(common_args.output_path, seqpro_managers, std::nullopt, true);
+                    graph->exportToHal(common_args.output_path, seqpro_managers, "", true);
                 }
             }
             break;

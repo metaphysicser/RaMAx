@@ -343,9 +343,9 @@ namespace RaMesh {
 
         void exportToMultipleMaf(const std::vector<std::pair<SpeciesName, FilePath>>& outs, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
 
-        void exportToHal(const FilePath& hal_path, 
+        void exportToHal(const FilePath& hal_path,
                         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
-                        const std::optional<std::string>& newick_tree = std::nullopt,
+                        const std::string& newick_tree = "",
                         bool only_primary = true) const;
 
         
