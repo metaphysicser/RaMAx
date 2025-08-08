@@ -725,6 +725,286 @@ namespace hal_converter {
         return ancestor_sequences;
     }
 
+    // ========================================
+    // 投票法祖先序列重建实现
+    // ========================================
+
+    std::pair<std::unordered_map<std::string, std::string>, std::unordered_map<ChrName, Cigar_t>>
+    extractSequencesAndCigarsFromBlock(
+        BlockPtr block,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        std::unordered_map<std::string, std::string> sequences;
+        std::unordered_map<ChrName, Cigar_t> cigars;
+
+        if (!block) {
+            return {sequences, cigars};
+        }
+
+        std::shared_lock lock(block->rw);
+
+        // 遍历block中的所有物种segment
+        for (const auto& [species_chr, segment] : block->anchors) {
+            const std::string& species_name = species_chr.first;
+            const std::string& chr_name = species_chr.second;
+
+            auto it = seqpro_managers.find(species_name);
+            if (it == seqpro_managers.end()) {
+                spdlog::warn("Species '{}' not found in seqpro_managers", species_name);
+                continue;
+            }
+
+            try {
+                // 提取DNA序列
+                std::string sequence = std::visit([&](const auto& mgr) -> std::string {
+                    using PtrType = std::decay_t<decltype(mgr)>;
+                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                        auto chr_id = mgr->getSequenceId(chr_name);
+                        return mgr->getSubSequence(chr_id, segment->start, segment->length);
+                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                        auto chr_id = mgr->getSequenceId(chr_name);
+                        return mgr->getOriginalManager().getSubSequence(chr_id, segment->start, segment->length);
+                    } else {
+                        throw std::runtime_error("Unhandled manager type in variant.");
+                    }
+                }, *it->second);
+
+                sequences[species_name] = sequence;
+
+                // 直接使用segment中已有的CIGAR数据
+                if (!segment->cigar.empty()) {
+                    cigars[species_name] = segment->cigar;
+                }
+
+                // spdlog::debug("Extracted sequence for species '{}': {} bp, CIGAR: {} ops",
+                //              species_name, sequence.length(), segment->cigar.size());
+
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to extract sequence for species '{}': {}", species_name, e.what());
+            }
+        }
+
+        // spdlog::debug("Extracted {} sequences and {} CIGARs from block",
+        //              sequences.size(), cigars.size());
+
+        return {sequences, cigars};
+    }
+
+    std::string voteForAncestorSequence(
+        const std::unordered_map<std::string, std::string>& aligned_sequences,
+        const AncestorNode& ancestor) {
+
+        if (aligned_sequences.empty()) {
+            return "";
+        }
+
+        // 获取比对长度
+        size_t alignment_length = aligned_sequences.begin()->second.length();
+        std::string ancestor_sequence;
+        ancestor_sequence.reserve(alignment_length);
+
+        // spdlog::debug("Voting for ancestor sequence from {} aligned sequences, length: {}",
+        //              aligned_sequences.size(), alignment_length);
+
+        // 按列进行投票
+        for (size_t pos = 0; pos < alignment_length; ++pos) {
+            std::map<char, int> base_counts;
+
+            // 统计该位置所有后代叶子的碱基
+            for (const std::string& leaf : ancestor.descendant_leaves) {
+                auto it = aligned_sequences.find(leaf);
+                if (it != aligned_sequences.end() && pos < it->second.length()) {
+                    char base = std::toupper(it->second[pos]);
+
+                    // 只统计有效碱基，忽略gap和N
+                    if (base != '-' && base != 'N' &&
+                        (base == 'A' || base == 'C' || base == 'G' || base == 'T')) {
+                        base_counts[base]++;
+                    }
+                }
+            }
+
+            // 选择出现次数最多的碱基
+            char best_base = 'N';
+            int max_count = 0;
+
+            for (const auto& [base, count] : base_counts) {
+                if (count > max_count) {
+                    max_count = count;
+                    best_base = base;
+                }
+            }
+
+            // 只添加非gap字符到最终序列
+            if (best_base != '-') {
+                ancestor_sequence += best_base;
+            }
+        }
+
+        // spdlog::debug("Voting completed: {} -> {} bp", alignment_length, ancestor_sequence.length());
+        return ancestor_sequence;
+    }
+
+    std::string reconstructSegmentByVoting(
+        const AncestorSegmentInfo& segment,
+        const AncestorNode& ancestor,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        // 1. 从block中提取所有物种的序列和CIGAR
+        auto [sequences, cigars] = extractSequencesAndCigarsFromBlock(segment.source_block, seqpro_managers);
+
+        if (sequences.empty()) {
+            spdlog::warn("No sequences extracted from block for segment");
+            return "";
+        }
+
+        // 如果只有一个序列，直接返回（优先选择祖先后代叶子）
+        if (sequences.size() == 1) {
+            return sequences.begin()->second;
+        }
+
+        // 2. 选择参考序列：直接使用 source_block 的参考染色体对应的物种
+        std::string ref_key;
+        if (segment.source_block) {
+            std::shared_lock blk_lock(segment.source_block->rw);
+            const auto& ref_chr = segment.source_block->ref_chr;
+            for (const auto& [species_chr, _head] : segment.source_block->anchors) {
+                if (species_chr.second == ref_chr) {
+                    // 以物种名作为 key（与 sequences/cigars 的 key 一致）
+                    const std::string& species_name = species_chr.first;
+                    if (sequences.find(species_name) != sequences.end()) {
+                        ref_key = species_name;
+                        break;
+                    }
+                }
+            }
+        }
+        // 回退：若异常未找到，退到任意一个已提取的序列，避免崩溃
+        if (ref_key.empty()) {
+            ref_key = sequences.begin()->first;
+            spdlog::debug("Selected reference '{}' (fallback to any)", ref_key);
+        }
+
+        // 3. 准备CIGAR数据
+        std::unordered_map<ChrName, Cigar_t> final_cigars;
+        for (const auto& [species, cigar] : cigars) {
+            final_cigars[species] = cigar;
+        }
+
+        // spdlog::debug("Using {} sequences for alignment, {} CIGARs for non-reference",
+        //              sequences.size(), final_cigars.size());
+
+        // 4. 使用mergeAlignmentByRef创建多序列比对
+        try {
+            mergeAlignmentByRef(ref_key, sequences, final_cigars);
+        } catch (const std::exception& e) {
+            spdlog::warn("mergeAlignmentByRef failed for segment: {}", e.what());
+            // 回退到参考序列
+            auto it = sequences.find(ref_key);
+            return it != sequences.end() ? it->second : "";
+        }
+
+        // 5. 按列投票重建祖先序列
+        return voteForAncestorSequence(sequences, ancestor);
+    }
+
+    std::string buildAncestorSequenceByVoting(
+        const AncestorReconstructionData& data,
+        const AncestorNode& ancestor,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::debug("Building ancestor sequence using voting method from {} segments", data.segments.size());
+
+        std::string full_sequence;
+        size_t total_segments = data.segments.size();
+        size_t gaps_added = 0;
+
+        for (size_t i = 0; i < total_segments; ++i) {
+            const auto& segment = data.segments[i];
+
+            // 处理gap_before
+            if (segment.need_gap_before) {
+                if (full_sequence.empty() || full_sequence.back() != 'N') {
+                    full_sequence += 'N';
+                    gaps_added++;
+                }
+            }
+
+            // 使用投票法重建该segment的序列
+            try {
+                std::string segment_sequence = reconstructSegmentByVoting(segment, ancestor, seqpro_managers);
+                full_sequence += segment_sequence;
+
+                // spdlog::debug("  Added segment {} using voting: {} bp", i, segment_sequence.length());
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to reconstruct segment {} using voting: {}", i, e.what());
+                throw;
+            }
+
+            // 处理gap_after
+            if (segment.need_gap_after) {
+                full_sequence += 'N';
+                gaps_added++;
+            }
+        }
+
+        spdlog::info("Built ancestor sequence using voting: {} segments, {} gaps, {} total length",
+                    total_segments, gaps_added, full_sequence.length());
+
+        return full_sequence;
+    }
+
+    std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
+        const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::info("Building sequences for {} ancestors using voting method", ancestor_reconstruction_data.size());
+
+        std::map<std::string, std::string> ancestor_sequences;
+
+        for (const auto& [ancestor_name, data] : ancestor_reconstruction_data) {
+            spdlog::info("Building sequence for ancestor '{}' using voting", ancestor_name);
+
+            // 找到对应的祖先节点
+            const AncestorNode* ancestor = nullptr;
+            for (const auto& node : ancestor_nodes) {
+                if (std::find(node.descendant_leaves.begin(), node.descendant_leaves.end(),
+                             data.reference_leaf) != node.descendant_leaves.end()) {
+                    ancestor = &node;
+                    break;
+                }
+            }
+
+            if (!ancestor) {
+                spdlog::error("Cannot find ancestor node containing reference leaf: {}", data.reference_leaf);
+                continue;
+            }
+
+            try {
+                std::string sequence = buildAncestorSequenceByVoting(data, *ancestor, seqpro_managers);
+                ancestor_sequences[ancestor_name] = std::move(sequence);
+
+                spdlog::info("Successfully built sequence for ancestor '{}' using voting: {} bp",
+                            ancestor_name, ancestor_sequences[ancestor_name].length());
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to build sequence for ancestor '{}' using voting: {}", ancestor_name, e.what());
+                throw;
+            }
+        }
+
+        // 输出统计信息
+        spdlog::info("Ancestor sequence construction using voting completed:");
+        size_t total_length = 0;
+        for (const auto& [ancestor_name, sequence] : ancestor_sequences) {
+            spdlog::info("  Ancestor '{}': {} bp", ancestor_name, sequence.length());
+            total_length += sequence.length();
+        }
+        spdlog::info("  Total ancestor sequence length: {} bp", total_length);
+
+        return ancestor_sequences;
+    }
+
     std::pair<bool, std::string> validateLeafNames(
         const NewickParser& parser,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {

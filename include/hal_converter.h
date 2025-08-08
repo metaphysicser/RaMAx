@@ -170,13 +170,64 @@ namespace hal_converter {
                                      const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
-     * 为所有祖先构建序列
+     * 为所有祖先构建序列（使用投票法）
      * @param ancestor_reconstruction_data 所有祖先的重建数据
+     * @param ancestor_nodes 祖先节点信息
      * @param seqpro_managers 序列管理器映射
      * @return 祖先名称到序列的映射
      */
-    std::map<std::string, std::string> buildAllAncestorSequences(
+    std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    // ========================================
+    // 投票法祖先序列重建
+    // ========================================
+
+    /**
+     * 从block中提取所有物种的序列和CIGAR信息
+     * @param block 比对块
+     * @param seqpro_managers 序列管理器映射
+     * @return {序列映射, CIGAR映射}
+     */
+    std::pair<std::unordered_map<std::string, std::string>, std::unordered_map<ChrName, Cigar_t>>
+    extractSequencesAndCigarsFromBlock(
+        BlockPtr block,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    /**
+     * 按列投票重建祖先序列
+     * @param aligned_sequences 对齐后的序列映射
+     * @param ancestor 祖先节点信息
+     * @return 重建的祖先序列（不含gap）
+     */
+    std::string voteForAncestorSequence(
+        const std::unordered_map<std::string, std::string>& aligned_sequences,
+        const AncestorNode& ancestor);
+
+    /**
+     * 使用投票法重建单个segment的序列
+     * @param segment 祖先segment信息
+     * @param ancestor 祖先节点信息
+     * @param seqpro_managers 序列管理器映射
+     * @return 重建的segment序列
+     */
+    std::string reconstructSegmentByVoting(
+        const AncestorSegmentInfo& segment,
+        const AncestorNode& ancestor,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    /**
+     * 使用投票法构建完整的祖先序列
+     * @param data 祖先重建数据
+     * @param ancestor 祖先节点信息
+     * @param seqpro_managers 序列管理器映射
+     * @return 构建的完整序列
+     */
+    std::string buildAncestorSequenceByVoting(
+        const AncestorReconstructionData& data,
+        const AncestorNode& ancestor,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
