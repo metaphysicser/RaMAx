@@ -911,29 +911,60 @@ namespace hal_converter {
     std::string buildAncestorSequenceByVoting(
         const AncestorReconstructionData& data,
         const AncestorNode& ancestor,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& chr_name) {
 
-        spdlog::debug("Building ancestor sequence using voting method from {} segments", data.segments.size());
+        spdlog::debug("Building ancestor sequence using voting method from {} segments for chr '{}'",
+                     data.segments.size(), chr_name);
 
         std::string full_sequence;
         size_t total_segments = data.segments.size();
         size_t gaps_added = 0;
+        size_t segments_with_blocks_added = 0;
+        hal_index_t current_pos = 0;  // 在祖先序列中的当前位置
 
         for (size_t i = 0; i < total_segments; ++i) {
-            const auto& segment = data.segments[i];
+            const auto& segment_info = data.segments[i];
 
             // 处理gap_before
-            if (segment.need_gap_before) {
+            if (segment_info.need_gap_before) {
                 if (full_sequence.empty() || full_sequence.back() != 'N') {
                     full_sequence += 'N';
+                    current_pos++;
                     gaps_added++;
                 }
             }
 
             // 使用投票法重建该segment的序列
             try {
-                std::string segment_sequence = reconstructSegmentByVoting(segment, ancestor, seqpro_managers);
+                std::string segment_sequence = reconstructSegmentByVoting(segment_info, ancestor, seqpro_managers);
+
+                // 创建祖先segment并加入到block中
+                if (segment_info.source_block && !segment_sequence.empty()) {
+                    SegPtr ancestor_seg = Segment::create(
+                        current_pos,                    // 在祖先序列中的位置
+                        segment_sequence.length(),      // 实际重建的长度
+                        Strand::FORWARD,               // 祖先序列总是正向
+                        Cigar_t{},                     // 祖先segment没有CIGAR
+                        AlignRole::PRIMARY,
+                        SegmentRole::SEGMENT,
+                        segment_info.source_block
+                    );
+
+                    // 将祖先segment注册到block中
+                    {
+                        std::unique_lock lk(segment_info.source_block->rw);
+                        SpeciesChrPair ancestor_key{ancestor.node_name, chr_name};
+                        segment_info.source_block->anchors[ancestor_key] = ancestor_seg;
+                    }
+
+                    segments_with_blocks_added++;
+                    spdlog::debug("  Added ancestor segment to block: pos={}, len={}",
+                                 current_pos, segment_sequence.length());
+                }
+
                 full_sequence += segment_sequence;
+                current_pos += segment_sequence.length();
 
                 // spdlog::debug("  Added segment {} using voting: {} bp", i, segment_sequence.length());
             } catch (const std::exception& e) {
@@ -942,14 +973,15 @@ namespace hal_converter {
             }
 
             // 处理gap_after
-            if (segment.need_gap_after) {
+            if (segment_info.need_gap_after) {
                 full_sequence += 'N';
+                current_pos++;
                 gaps_added++;
             }
         }
 
-        spdlog::info("Built ancestor sequence using voting: {} segments, {} gaps, {} total length",
-                    total_segments, gaps_added, full_sequence.length());
+        spdlog::info("Built ancestor sequence using voting: {} segments, {} gaps, {} total length, {} segments added to blocks",
+                    total_segments, gaps_added, full_sequence.length(), segments_with_blocks_added);
 
         return full_sequence;
     }
@@ -969,24 +1001,64 @@ namespace hal_converter {
             // 找到对应的祖先节点
             const AncestorNode* ancestor = nullptr;
             for (const auto& node : ancestor_nodes) {
-                if (std::find(node.descendant_leaves.begin(), node.descendant_leaves.end(),
-                             data.reference_leaf) != node.descendant_leaves.end()) {
+                if (node.node_name == ancestor_name) {
                     ancestor = &node;
                     break;
                 }
             }
 
             if (!ancestor) {
-                spdlog::error("Cannot find ancestor node containing reference leaf: {}", data.reference_leaf);
+                spdlog::error("Cannot find ancestor node: {}", ancestor_name);
                 continue;
             }
 
             try {
-                std::string sequence = buildAncestorSequenceByVoting(data, *ancestor, seqpro_managers);
-                ancestor_sequences[ancestor_name] = std::move(sequence);
+                // 获取参考叶子的所有染色体名称
+                std::vector<std::string> chr_names;
+                auto ref_it = seqpro_managers.find(data.reference_leaf);
+                if (ref_it != seqpro_managers.end()) {
+                    std::visit([&chr_names](const auto& mgr) {
+                        chr_names = mgr->getSequenceNames();
+                    }, *ref_it->second);
+                }
 
-                spdlog::info("Successfully built sequence for ancestor '{}' using voting: {} bp",
-                            ancestor_name, ancestor_sequences[ancestor_name].length());
+                if (chr_names.empty()) {
+                    spdlog::error("No chromosomes found for reference leaf: {}", data.reference_leaf);
+                    continue;
+                }
+
+                // 按染色体分别构建序列
+                std::string full_ancestor_sequence;
+                for (const auto& chr_name : chr_names) {
+                    spdlog::debug("  Building sequence for chromosome '{}' of ancestor '{}'", chr_name, ancestor_name);
+
+                    // 从data.segments中筛选出属于当前染色体的segments
+                    AncestorReconstructionData chr_data;
+                    chr_data.reference_leaf = data.reference_leaf;
+                    chr_data.getSequenceId = data.getSequenceId;
+
+                    SequenceId chr_id = data.getSequenceId(chr_name);
+                    for (const auto& segment : data.segments) {
+                        if (segment.chr_id == chr_id) {
+                            chr_data.segments.push_back(segment);
+                        }
+                    }
+
+                    if (!chr_data.segments.empty()) {
+                        std::string chr_sequence = buildAncestorSequenceByVoting(chr_data, *ancestor, seqpro_managers, chr_name);
+                        full_ancestor_sequence += chr_sequence;
+
+                        spdlog::debug("    Chromosome '{}': {} segments, {} bp",
+                                     chr_name, chr_data.segments.size(), chr_sequence.length());
+                    } else {
+                        spdlog::debug("    Chromosome '{}': no segments found", chr_name);
+                    }
+                }
+
+                ancestor_sequences[ancestor_name] = std::move(full_ancestor_sequence);
+
+                spdlog::info("Successfully built sequence for ancestor '{}' using voting: {} chromosomes, {} bp total",
+                            ancestor_name, chr_names.size(), ancestor_sequences[ancestor_name].length());
             } catch (const std::exception& e) {
                 spdlog::error("Failed to build sequence for ancestor '{}' using voting: {}", ancestor_name, e.what());
                 throw;

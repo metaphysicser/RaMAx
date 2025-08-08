@@ -219,16 +219,18 @@ namespace hal_converter {
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
-     * 使用投票法构建完整的祖先序列
+     * 使用投票法构建完整的祖先序列，同时创建祖先segment并加入到对应的block中
      * @param data 祖先重建数据
      * @param ancestor 祖先节点信息
      * @param seqpro_managers 序列管理器映射
+     * @param chr_name 染色体名称
      * @return 构建的完整序列
      */
     std::string buildAncestorSequenceByVoting(
         const AncestorReconstructionData& data,
         const AncestorNode& ancestor,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& chr_name);
 
     /**
      * 从NewickParser提取祖先节点信息
