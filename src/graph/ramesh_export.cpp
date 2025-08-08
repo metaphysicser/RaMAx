@@ -274,7 +274,7 @@ namespace RaMesh {
 
             if (!ancestor_nodes.empty() && !blocks.empty()) {
                 // ========================================
-                // 第一阶段：确定重建顺序和参考叶子
+                // 子阶段 2.1：确定重建顺序与参考叶
                 // ========================================
                 spdlog::info("  Phase 2.1: Determining reconstruction order and reference leaves...");
 
@@ -288,7 +288,7 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.1 completed successfully");
 
                 // ========================================
-                // 第二阶段：执行祖先节点重建
+                // 子阶段 2.2：执行祖先节点重建
                 // ========================================
                 spdlog::info("  Phase 2.2: Executing ancestor sequence reconstruction...");
 
@@ -298,7 +298,7 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.2 completed successfully");
 
                 // ========================================
-                // 第三阶段：构建祖先序列（使用投票法）
+                // 子阶段 2.3：构建祖先序列（投票法）
                 // ========================================
                 spdlog::info("  Phase 2.3: Building ancestor sequences using voting method...");
 
