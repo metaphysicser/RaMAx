@@ -567,7 +567,7 @@ namespace hal_converter {
             size_t segments_added = data.segments.size() - segments_before;
             total_segments += segments_added;
 
-            spdlog::debug("  Chromosome '{}': added {} segments", chr_name, segments_added);
+            // spdlog::debug("  Chromosome '{}': added {} segments", chr_name, segments_added);
         }
 
         spdlog::info("Completed ancestor '{}': {} total segments across {} chromosomes",
@@ -647,7 +647,7 @@ namespace hal_converter {
     std::string buildAncestorSequence(const AncestorReconstructionData& data,
                                      const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
 
-        spdlog::debug("Building ancestor sequence from {} segments", data.segments.size());
+        // spdlog::debug("Building ancestor sequence from {} segments", data.segments.size());
 
         std::string full_sequence;
         size_t total_segments = data.segments.size();
@@ -750,7 +750,7 @@ namespace hal_converter {
 
             auto it = seqpro_managers.find(species_name);
             if (it == seqpro_managers.end()) {
-                spdlog::warn("Species '{}' not found in seqpro_managers", species_name);
+                // spdlog::warn("Species '{}' not found in seqpro_managers", species_name);
                 continue;
             }
 
@@ -914,8 +914,8 @@ namespace hal_converter {
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
         const std::string& chr_name) {
 
-        spdlog::debug("Building ancestor sequence using voting method from {} segments for chr '{}'",
-                     data.segments.size(), chr_name);
+        // spdlog::debug("Building ancestor sequence using voting method from {} segments for chr '{}'",
+        //              data.segments.size(), chr_name);
 
         std::string full_sequence;
         size_t total_segments = data.segments.size();
@@ -959,8 +959,8 @@ namespace hal_converter {
                     }
 
                     segments_with_blocks_added++;
-                    spdlog::debug("  Added ancestor segment to block: pos={}, len={}",
-                                 current_pos, segment_sequence.length());
+                    // spdlog::debug("  Added ancestor segment to block: pos={}, len={}",
+                    //              current_pos, segment_sequence.length());
                 }
 
                 full_sequence += segment_sequence;
@@ -980,8 +980,8 @@ namespace hal_converter {
             }
         }
 
-        spdlog::info("Built ancestor sequence using voting: {} segments, {} gaps, {} total length, {} segments added to blocks",
-                    total_segments, gaps_added, full_sequence.length(), segments_with_blocks_added);
+        // spdlog::info("Built ancestor sequence using voting: {} segments, {} gaps, {} total length, {} segments added to blocks",
+        //             total_segments, gaps_added, full_sequence.length(), segments_with_blocks_added);
 
         return full_sequence;
     }
@@ -1029,8 +1029,12 @@ namespace hal_converter {
 
                 // 按染色体分别构建序列
                 std::string full_ancestor_sequence;
+                size_t chr_index = 0; // 为祖先染色体生成序号，从1开始
                 for (const auto& chr_name : chr_names) {
-                    spdlog::debug("  Building sequence for chromosome '{}' of ancestor '{}'", chr_name, ancestor_name);
+                    ++chr_index;
+                    // 祖先染色体命名：<ancestor_name>chr<N>
+                    std::string ancestor_chr_name = ancestor_name + ".chr" + std::to_string(chr_index);
+                    // spdlog::debug("  Building sequence for chromosome '{}' of ancestor '{}'", chr_name, ancestor_name);
 
                     // 从data.segments中筛选出属于当前染色体的segments
                     AncestorReconstructionData chr_data;
@@ -1045,13 +1049,14 @@ namespace hal_converter {
                     }
 
                     if (!chr_data.segments.empty()) {
-                        std::string chr_sequence = buildAncestorSequenceByVoting(chr_data, *ancestor, seqpro_managers, chr_name);
+                        std::string chr_sequence = buildAncestorSequenceByVoting(
+                            chr_data, *ancestor, seqpro_managers, ancestor_chr_name);
                         full_ancestor_sequence += chr_sequence;
 
-                        spdlog::debug("    Chromosome '{}': {} segments, {} bp",
-                                     chr_name, chr_data.segments.size(), chr_sequence.length());
+                        // spdlog::debug("    Chromosome '{}': {} segments, {} bp",
+                        //              ancestor_chr_name, chr_data.segments.size(), chr_sequence.length());
                     } else {
-                        spdlog::debug("    Chromosome '{}': no segments found", chr_name);
+                        // spdlog::debug("    Chromosome '{}': no segments found", chr_name);
                     }
                 }
 
