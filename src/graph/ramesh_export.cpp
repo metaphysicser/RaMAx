@@ -261,6 +261,10 @@ namespace RaMesh {
             if (!ancestor_nodes.empty()) {
                 hal_converter::createAncestorGenomes(alignment, ancestor_nodes, parser);
                 spdlog::info("  Created {} ancestor genomes", ancestor_nodes.size());
+
+                // 1.4 应用系统发育树结构
+                spdlog::info("  Applying phylogenetic tree structure to HAL alignment...");
+                hal_converter::applyPhylogeneticTree(alignment, parser);
             }
             spdlog::info("Phase 1 completed successfully");
 

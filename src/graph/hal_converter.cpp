@@ -1,6 +1,7 @@
 #include "hal_converter.h"
 #include "align.h"
 #include <spdlog/spdlog.h>
+#include "../submodule/hal/api/inc/halCommon.h"
 
 namespace RaMesh {
 namespace hal_converter {
@@ -743,6 +744,23 @@ namespace hal_converter {
 
         std::shared_lock lock(block->rw);
 
+        // lambda函数：提取序列（复用ramesh_export.cpp中的逻辑）
+        auto fetchSeq = [](const SeqPro::SharedManagerVariant& shared_mv,
+            const ChrName& chr, Coord_t start, Coord_t length) -> std::string {
+                return std::visit([&](const auto& mgr) -> std::string {
+                    using PtrType = std::decay_t<decltype(mgr)>;
+                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                        auto chr_id = mgr->getSequenceId(chr);
+                        return mgr->getSubSequence(chr_id, start, length);
+                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                        auto chr_id = mgr->getSequenceId(chr);
+                        return mgr->getOriginalManager().getSubSequence(chr_id, start, length);
+                    } else {
+                        throw std::runtime_error("Unhandled manager type in variant.");
+                    }
+                }, *shared_mv);
+            };
+
         // 遍历block中的所有物种segment
         for (const auto& [species_chr, segment] : block->anchors) {
             const std::string& species_name = species_chr.first;
@@ -756,18 +774,12 @@ namespace hal_converter {
 
             try {
                 // 提取DNA序列
-                std::string sequence = std::visit([&](const auto& mgr) -> std::string {
-                    using PtrType = std::decay_t<decltype(mgr)>;
-                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-                        auto chr_id = mgr->getSequenceId(chr_name);
-                        return mgr->getSubSequence(chr_id, segment->start, segment->length);
-                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                        auto chr_id = mgr->getSequenceId(chr_name);
-                        return mgr->getOriginalManager().getSubSequence(chr_id, segment->start, segment->length);
-                    } else {
-                        throw std::runtime_error("Unhandled manager type in variant.");
-                    }
-                }, *it->second);
+                std::string sequence = fetchSeq(it->second, chr_name, segment->start, segment->length);
+
+                // 关键修复：如果是反向链，进行反向互补转换
+                if (segment->strand == Strand::REVERSE) {
+                    hal::reverseComplement(sequence);
+                }
 
                 sequences[species_name] = sequence;
 
@@ -776,8 +788,9 @@ namespace hal_converter {
                     cigars[species_name] = segment->cigar;
                 }
 
-                // spdlog::debug("Extracted sequence for species '{}': {} bp, CIGAR: {} ops",
-                //              species_name, sequence.length(), segment->cigar.size());
+                // spdlog::debug("Extracted sequence for species '{}': {} bp, CIGAR: {} ops, strand: {}",
+                //              species_name, sequence.length(), segment->cigar.size(),
+                //              (segment->strand == Strand::REVERSE ? "REVERSE" : "FORWARD"));
 
             } catch (const std::exception& e) {
                 spdlog::error("Failed to extract sequence for species '{}': {}", species_name, e.what());
@@ -1270,17 +1283,103 @@ namespace hal_converter {
         }
     }
 
+    std::string reconstructNewickFromParser(const NewickParser& parser) {
+        const auto& nodes = parser.getNodes();
+        if (nodes.empty()) {
+            return "";
+        }
+
+        // 找到根节点
+        int root_id = -1;
+        for (const auto& node : nodes) {
+            if (node.father == -1) {
+                root_id = node.id;
+                break;
+            }
+        }
+
+        if (root_id == -1) {
+            return "";
+        }
+
+        // 递归构建Newick字符串
+        std::function<std::string(int)> buildNewick = [&](int node_id) -> std::string {
+            // 找到对应的节点
+            const NewickTreeNode* current_node = nullptr;
+            for (const auto& node : nodes) {
+                if (node.id == node_id) {
+                    current_node = &node;
+                    break;
+                }
+            }
+
+            if (!current_node) {
+                return "";
+            }
+
+            std::string result;
+
+            // 如果不是叶节点，需要处理子节点
+            if (!current_node->isLeaf) {
+                result += "(";
+                std::vector<std::string> children_strs;
+
+                // 收集所有子节点
+                for (const auto& node : nodes) {
+                    if (node.father == node_id) {
+                        std::string child_str = buildNewick(node.id);
+                        if (!child_str.empty()) {
+                            children_strs.push_back(child_str);
+                        }
+                    }
+                }
+
+                // 连接子节点字符串
+                for (size_t i = 0; i < children_strs.size(); ++i) {
+                    if (i > 0) result += ",";
+                    result += children_strs[i];
+                }
+
+                result += ")";
+            }
+
+            // 添加节点名称
+            if (!current_node->name.empty()) {
+                result += current_node->name;
+            }
+
+            // 添加分支长度（除了根节点）
+            if (current_node->father != -1) {
+                result += ":" + std::to_string(current_node->branchLength);
+            }
+
+            return result;
+        };
+
+        std::string newick = buildNewick(root_id) + ";";
+        return newick;
+    }
+
     void applyPhylogeneticTree(
         hal::AlignmentPtr alignment,
         const NewickParser& parser) {
 
         spdlog::info("Applying phylogenetic tree structure to HAL alignment...");
 
-        // 注意：NewickParser没有直接获取原始字符串的方法
-        // 这个函数需要在调用时传递原始的newick字符串
-        // 这里我们先跳过树的应用，因为我们已经在parsePhylogeneticTree中处理了树结构
+        try {
+            // 重建Newick字符串从解析的树结构
+            std::string newick_tree = reconstructNewickFromParser(parser);
 
-        spdlog::info("Tree structure already processed during parsing phase");
+            if (!newick_tree.empty()) {
+                // 使用HAL API设置树结构
+                alignment->replaceNewickTree(newick_tree);
+                spdlog::info("Successfully applied phylogenetic tree: {}", newick_tree);
+            } else {
+                spdlog::warn("Failed to reconstruct Newick tree from parser");
+            }
+        } catch (const std::exception& e) {
+            spdlog::error("Failed to apply phylogenetic tree: {}", e.what());
+        }
     }
 
     // ========================================

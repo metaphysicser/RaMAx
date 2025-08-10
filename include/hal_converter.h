@@ -286,6 +286,13 @@ namespace hal_converter {
         const NewickParser& parser);
 
     /**
+     * 从NewickParser重建Newick字符串
+     * @param parser 已解析的Newick树
+     * @return 重建的Newick字符串
+     */
+    std::string reconstructNewickFromParser(const NewickParser& parser);
+
+    /**
      * 应用系统发育树结构到HAL alignment
      * @param alignment HAL alignment对象
      * @param parser 已解析的Newick树
