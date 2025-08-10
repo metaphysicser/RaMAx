@@ -999,10 +999,13 @@ namespace hal_converter {
         return full_sequence;
     }
 
+
+
     std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        hal::AlignmentPtr alignment) {
 
         spdlog::info("Building sequences for {} ancestors using voting method", ancestor_reconstruction_data.size());
 
@@ -1025,6 +1028,15 @@ namespace hal_converter {
                 continue;
             }
 
+            // 如果提供了alignment，打开祖先基因组用于直接存储
+            hal::Genome* genome = nullptr;
+            if (alignment) {
+                genome = alignment->openGenome(ancestor_name);
+                if (!genome) {
+                    spdlog::warn("Cannot open ancestor genome '{}' for direct storage", ancestor_name);
+                }
+            }
+
             try {
                 // 获取参考叶子的所有染色体名称
                 std::vector<std::string> chr_names;
@@ -1037,18 +1049,13 @@ namespace hal_converter {
 
                 if (chr_names.empty()) {
                     spdlog::error("No chromosomes found for reference leaf: {}", data.reference_leaf);
+                    if (genome) alignment->closeGenome(genome);
                     continue;
                 }
 
                 // 按染色体分别构建序列
                 std::string full_ancestor_sequence;
-                size_t chr_index = 0; // 为祖先染色体生成序号，从1开始
                 for (const auto& chr_name : chr_names) {
-                    ++chr_index;
-                    // 祖先染色体命名：<ancestor_name>chr<N>
-                    std::string ancestor_chr_name = ancestor_name + ".chr" + std::to_string(chr_index);
-                    // spdlog::debug("  Building sequence for chromosome '{}' of ancestor '{}'", chr_name, ancestor_name);
-
                     // 从data.segments中筛选出属于当前染色体的segments
                     AncestorReconstructionData chr_data;
                     chr_data.reference_leaf = data.reference_leaf;
@@ -1063,13 +1070,37 @@ namespace hal_converter {
 
                     if (!chr_data.segments.empty()) {
                         std::string chr_sequence = buildAncestorSequenceByVoting(
-                            chr_data, *ancestor, seqpro_managers, ancestor_chr_name);
-                        full_ancestor_sequence += chr_sequence;
+                            chr_data, *ancestor, seqpro_managers, chr_name);
 
-                        // spdlog::debug("    Chromosome '{}': {} segments, {} bp",
-                        //              ancestor_chr_name, chr_data.segments.size(), chr_sequence.length());
-                    } else {
-                        // spdlog::debug("    Chromosome '{}': no segments found", chr_name);
+                        // 如果有HAL基因组，检查并记录真实的序列长度
+                        if (genome) {
+                            hal::Sequence* hal_sequence = genome->getSequence(chr_name);
+                            if (hal_sequence) {
+                                hal_size_t old_length = hal_sequence->getSequenceLength();
+                                hal_size_t new_length = chr_sequence.length();
+
+                                if (old_length != new_length) {
+                                    spdlog::warn("    Chromosome '{}' length mismatch: allocated {} bp, actual {} bp",
+                                               chr_name, old_length, new_length);
+                                    spdlog::warn("    HAL does not support dynamic resizing, will truncate/pad sequence");
+
+                                    // 由于HAL不支持动态修改长度，我们只能适应现有空间
+                                    if (new_length > old_length) {
+                                        spdlog::warn("    Truncating sequence from {} to {} bp", new_length, old_length);
+                                        chr_sequence = chr_sequence.substr(0, old_length);
+                                    } else if (new_length < old_length) {
+                                        spdlog::warn("    Padding sequence from {} to {} bp with N", new_length, old_length);
+                                        chr_sequence.append(old_length - new_length, 'N');
+                                    }
+                                }
+
+                                hal_sequence->setString(chr_sequence);
+                                spdlog::debug("    Stored chromosome '{}': {} segments, {} bp (allocated: {} bp)",
+                                            chr_name, chr_data.segments.size(), new_length, old_length);
+                            }
+                        }
+
+                        full_ancestor_sequence += chr_sequence;
                     }
                 }
 
@@ -1081,6 +1112,8 @@ namespace hal_converter {
                 spdlog::error("Failed to build sequence for ancestor '{}' using voting: {}", ancestor_name, e.what());
                 throw;
             }
+
+            if (genome) alignment->closeGenome(genome);
         }
 
         // 输出统计信息
@@ -1094,6 +1127,8 @@ namespace hal_converter {
 
         return ancestor_sequences;
     }
+
+
 
     std::pair<bool, std::string> validateLeafNames(
         const NewickParser& parser,
@@ -1191,151 +1226,27 @@ namespace hal_converter {
         }
     }
 
-    void setupAncestorGenomeDimensions(
-        hal::AlignmentPtr alignment,
-        const std::vector<AncestorNode>& ancestor_nodes,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
 
-        spdlog::info("Setting up initial dimensions for ancestor genomes...");
 
-        // 获取参考基因组的染色体信息作为模板
-        std::vector<hal::Sequence::Info> reference_dimensions;
-        if (!seqpro_managers.empty()) {
-            const auto& [ref_species, ref_mgr] = *seqpro_managers.begin();
-            std::visit([&](const auto& mgr) {
-                auto chr_names = mgr->getSequenceNames();
-                for (const auto& chr_name : chr_names) {
-                    hal_size_t length = mgr->getSequenceLength(chr_name);
-                    // 为祖先基因组预留一些额外空间（比参考基因组大20%）
-                    hal_size_t estimated_length = static_cast<hal_size_t>(length * 1.2);
-                    reference_dimensions.emplace_back(chr_name, estimated_length, 0, 0);
-                }
-            }, *ref_mgr);
-            spdlog::info("  Using {} as reference for ancestor dimensions ({} chromosomes)",
-                        ref_species, reference_dimensions.size());
-        }
 
-        // 为每个祖先基因组设置初始维度
-        for (const auto& ancestor : ancestor_nodes) {
-            hal::Genome* genome = alignment->openGenome(ancestor.node_name);
-            if (!genome) {
-                spdlog::warn("Cannot open ancestor genome: {}", ancestor.node_name);
-                continue;
-            }
 
-            if (genome->getNumSequences() == 0 && !reference_dimensions.empty()) {
-                // 设置初始维度（基于参考基因组的估计）
-                genome->setDimensions(reference_dimensions);
-
-                // 用N填充初始DNA序列
-                std::string placeholder_dna(genome->getSequenceLength(), 'N');
-                genome->setString(placeholder_dna);
-
-                spdlog::info("  Set initial dimensions for ancestor '{}': {} sequences, {} bp",
-                           ancestor.node_name, genome->getNumSequences(), genome->getSequenceLength());
-            } else {
-                spdlog::debug("  Ancestor '{}' already has dimensions set", ancestor.node_name);
-            }
-
-            alignment->closeGenome(genome);
-        }
-    }
-
-    void updateAncestorSequences(
-        hal::AlignmentPtr alignment,
-        const std::map<std::string, std::string>& ancestor_sequences) {
-
-        spdlog::info("Updating ancestor genomes with reconstructed sequences...");
-
-        for (const auto& [ancestor_name, sequence] : ancestor_sequences) {
-            hal::Genome* genome = alignment->openGenome(ancestor_name);
-            if (!genome) {
-                spdlog::warn("Cannot open ancestor genome: {}", ancestor_name);
-                continue;
-            }
-
-            try {
-                // 检查序列长度是否超过预分配的空间
-                hal_size_t current_length = genome->getSequenceLength();
-                hal_size_t required_length = sequence.length();
-
-                if (required_length > current_length) {
-                    spdlog::warn("  Ancestor '{}' sequence ({} bp) exceeds allocated space ({} bp), truncating",
-                               ancestor_name, required_length, current_length);
-                    // 截断序列以适应预分配的空间
-                    std::string truncated_sequence = sequence.substr(0, current_length);
-                    genome->setString(truncated_sequence);
-                } else {
-                    // 序列适合预分配的空间
-                    std::string padded_sequence = sequence;
-                    // 如果序列较短，用N填充剩余空间
-                    if (required_length < current_length) {
-                        padded_sequence.append(current_length - required_length, 'N');
-                    }
-                    genome->setString(padded_sequence);
-                }
-
-                spdlog::info("  Updated ancestor '{}': {} bp sequence set",
-                           ancestor_name, sequence.length());
-
-            } catch (const std::exception& e) {
-                spdlog::error("Failed to update ancestor '{}' sequence: {}", ancestor_name, e.what());
-            }
-
-            alignment->closeGenome(genome);
-        }
-    }
-
-    void createAncestorGenomes(
+    void createLeafGenomes(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
         const NewickParser& parser) {
 
-        spdlog::info("Creating all genomes (ancestors and leaves)...");
+        spdlog::info("Creating leaf genomes only (ancestors will be created later)...");
 
-        // 首先创建根节点
-        for (const auto& ancestor : ancestor_nodes) {
-            if (ancestor.parent_name.empty()) {
-                // 这是根节点
-                hal::Genome* existing = alignment->openGenome(ancestor.node_name);
-                if (existing) {
-                    alignment->closeGenome(existing);
-                    spdlog::debug("Root genome '{}' already exists", ancestor.node_name);
-                    continue;
-                }
-
-                hal::Genome* root_genome = alignment->addRootGenome(ancestor.node_name);
-                if (!root_genome) {
-                    throw std::runtime_error("Failed to create root genome: " + ancestor.node_name);
-                }
-                spdlog::info("Created root genome: {}", ancestor.node_name);
-                break; // 只应该有一个根节点
-            }
+        // 创建一个临时根节点（如果需要的话）
+        std::string temp_root_name = "temp_root";
+        hal::Genome* temp_root = alignment->addRootGenome(temp_root_name);
+        if (!temp_root) {
+            throw std::runtime_error("Failed to create temporary root genome");
         }
+        spdlog::info("Created temporary root genome: {}", temp_root_name);
 
-        // 然后创建内部节点（祖先）
-        for (const auto& ancestor : ancestor_nodes) {
-            if (!ancestor.parent_name.empty()) {
-                // 跳过已经存在的基因组
-                hal::Genome* existing = alignment->openGenome(ancestor.node_name);
-                if (existing) {
-                    alignment->closeGenome(existing);
-                    spdlog::debug("Ancestor genome '{}' already exists", ancestor.node_name);
-                    continue;
-                }
-
-                // 这是内部节点
-                hal::Genome* ancestor_genome = alignment->addLeafGenome(ancestor.node_name, ancestor.parent_name, ancestor.branch_length);
-                if (!ancestor_genome) {
-                    spdlog::error("Failed to create ancestor genome: {}", ancestor.node_name);
-                    continue;
-                }
-
-                spdlog::info("Created ancestor genome: {}", ancestor.node_name);
-            }
-        }
-
-        // 最后创建叶节点基因组
+        // 创建所有叶节点基因组
+        std::set<std::string> leaf_names;
         for (const auto& ancestor : ancestor_nodes) {
             for (const auto& child_name : ancestor.children_names) {
                 // 检查这个child是否是叶节点（不在ancestor_nodes中）
@@ -1347,17 +1258,8 @@ namespace hal_converter {
                     }
                 }
 
-                if (is_leaf) {
-                    // 跳过已经存在的基因组
-                    hal::Genome* existing = alignment->openGenome(child_name);
-                    if (existing) {
-                        alignment->closeGenome(existing);
-                        spdlog::debug("Leaf genome '{}' already exists", child_name);
-                        continue;
-                    }
-
-                    // 创建叶节点基因组
-                    // 从NewickParser中获取叶节点的正确分支长度
+                if (is_leaf && leaf_names.find(child_name) == leaf_names.end()) {
+                    // 创建叶节点基因组，暂时连接到临时根节点
                     double leaf_branch_length = 1.0; // 默认分支长度
                     const auto& nodes = parser.getNodes();
                     for (const auto& node : nodes) {
@@ -1366,16 +1268,145 @@ namespace hal_converter {
                             break;
                         }
                     }
-                    hal::Genome* leaf_genome = alignment->addLeafGenome(child_name, ancestor.node_name, leaf_branch_length);
+                    hal::Genome* leaf_genome = alignment->addLeafGenome(child_name, temp_root_name, leaf_branch_length);
                     if (!leaf_genome) {
                         spdlog::error("Failed to create leaf genome: {}", child_name);
                         continue;
                     }
 
+                    leaf_names.insert(child_name);
                     spdlog::info("Created leaf genome: {}", child_name);
                 }
             }
         }
+    }
+
+    void createAncestorGenomesWithCorrectDimensions(
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, std::string>& ancestor_sequences,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::info("Creating ancestor genomes with correct dimensions...");
+
+        // 获取参考基因组的染色体信息
+        std::vector<std::string> chr_names;
+        if (!seqpro_managers.empty()) {
+            const auto& [ref_species, ref_mgr] = *seqpro_managers.begin();
+            std::visit([&chr_names](const auto& mgr) {
+                chr_names = mgr->getSequenceNames();
+            }, *ref_mgr);
+        }
+
+        // 首先创建根节点
+        for (const auto& ancestor : ancestor_nodes) {
+            if (ancestor.parent_name.empty()) {
+                // 这是根节点，替换临时根节点
+                std::string temp_root_name = "temp_root";
+
+                // 计算根节点的正确维度
+                auto seq_it = ancestor_sequences.find(ancestor.node_name);
+                if (seq_it == ancestor_sequences.end()) {
+                    spdlog::error("No sequence found for root ancestor: {}", ancestor.node_name);
+                    continue;
+                }
+
+                std::vector<hal::Sequence::Info> root_dimensions;
+                hal_size_t total_length = seq_it->second.length();
+
+                // 按比例分配到各个染色体
+                hal_size_t offset = 0;
+                for (size_t i = 0; i < chr_names.size(); ++i) {
+                    hal_size_t chr_length;
+                    if (i == chr_names.size() - 1) {
+                        chr_length = total_length - offset;
+                    } else {
+                        chr_length = total_length / chr_names.size(); // 简单平均分配
+                    }
+                    root_dimensions.emplace_back(chr_names[i], chr_length, 0, 0);
+                    offset += chr_length;
+                }
+
+                // 创建真正的根节点
+                hal::Genome* root_genome = alignment->addRootGenome(ancestor.node_name);
+                if (!root_genome) {
+                    throw std::runtime_error("Failed to create root genome: " + ancestor.node_name);
+                }
+
+                // 设置正确的维度
+                root_genome->setDimensions(root_dimensions);
+
+                // 设置DNA序列
+                offset = 0;
+                for (size_t i = 0; i < chr_names.size(); ++i) {
+                    hal::Sequence* sequence = root_genome->getSequence(chr_names[i]);
+                    if (sequence) {
+                        hal_size_t chr_length = root_dimensions[i]._length;
+                        std::string chr_sequence = seq_it->second.substr(offset, chr_length);
+                        sequence->setString(chr_sequence);
+                        offset += chr_length;
+                    }
+                }
+
+                spdlog::info("Created root genome '{}' with correct dimensions: {} bp",
+                           ancestor.node_name, total_length);
+                break;
+            }
+        }
+
+        // 然后创建内部节点（祖先）
+        for (const auto& ancestor : ancestor_nodes) {
+            if (!ancestor.parent_name.empty()) {
+                auto seq_it = ancestor_sequences.find(ancestor.node_name);
+                if (seq_it == ancestor_sequences.end()) {
+                    spdlog::error("No sequence found for ancestor: {}", ancestor.node_name);
+                    continue;
+                }
+
+                // 计算正确的维度
+                std::vector<hal::Sequence::Info> ancestor_dimensions;
+                hal_size_t total_length = seq_it->second.length();
+
+                hal_size_t offset = 0;
+                for (size_t i = 0; i < chr_names.size(); ++i) {
+                    hal_size_t chr_length;
+                    if (i == chr_names.size() - 1) {
+                        chr_length = total_length - offset;
+                    } else {
+                        chr_length = total_length / chr_names.size();
+                    }
+                    ancestor_dimensions.emplace_back(chr_names[i], chr_length, 0, 0);
+                    offset += chr_length;
+                }
+
+                // 创建祖先基因组
+                hal::Genome* ancestor_genome = alignment->addLeafGenome(ancestor.node_name, ancestor.parent_name, ancestor.branch_length);
+                if (!ancestor_genome) {
+                    spdlog::error("Failed to create ancestor genome: {}", ancestor.node_name);
+                    continue;
+                }
+
+                // 设置正确的维度
+                ancestor_genome->setDimensions(ancestor_dimensions);
+
+                // 设置DNA序列
+                offset = 0;
+                for (size_t i = 0; i < chr_names.size(); ++i) {
+                    hal::Sequence* sequence = ancestor_genome->getSequence(chr_names[i]);
+                    if (sequence) {
+                        hal_size_t chr_length = ancestor_dimensions[i]._length;
+                        std::string chr_sequence = seq_it->second.substr(offset, chr_length);
+                        sequence->setString(chr_sequence);
+                        offset += chr_length;
+                    }
+                }
+
+                spdlog::info("Created ancestor genome '{}' with correct dimensions: {} bp",
+                           ancestor.node_name, total_length);
+            }
+        }
+
+        spdlog::info("All ancestor genomes created with correct dimensions");
     }
 
     std::string reconstructNewickFromParser(const NewickParser& parser) {

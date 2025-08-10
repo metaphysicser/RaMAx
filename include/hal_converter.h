@@ -174,12 +174,14 @@ namespace hal_converter {
      * @param ancestor_reconstruction_data 所有祖先的重建数据
      * @param ancestor_nodes 祖先节点信息
      * @param seqpro_managers 序列管理器映射
+     * @param alignment 可选的HAL alignment对象，如果提供则直接存储到HAL中
      * @return 祖先名称到序列的映射
      */
     std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        hal::AlignmentPtr alignment = nullptr);
 
     // ========================================
     // 投票法祖先序列重建
@@ -274,36 +276,33 @@ namespace hal_converter {
         hal::AlignmentPtr alignment,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
-    /**
-     * 为祖先基因组设置初始维度
-     * @param alignment HAL alignment对象
-     * @param ancestor_nodes 祖先节点信息
-     * @param seqpro_managers 序列管理器映射（用作参考）
-     */
-    void setupAncestorGenomeDimensions(
-        hal::AlignmentPtr alignment,
-        const std::vector<AncestorNode>& ancestor_nodes,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+
+
 
     /**
-     * 更新祖先基因组的DNA序列
-     * @param alignment HAL alignment对象
-     * @param ancestor_sequences 祖先名称到序列的映射
-     */
-    void updateAncestorSequences(
-        hal::AlignmentPtr alignment,
-        const std::map<std::string, std::string>& ancestor_sequences);
-
-    /**
-     * 根据祖先节点信息创建祖先基因组
+     * 创建叶节点基因组（祖先基因组稍后创建）
      * @param alignment HAL alignment对象
      * @param ancestor_nodes 祖先节点列表
      * @param parser NewickParser对象，用于获取叶节点的分支长度
      */
-    void createAncestorGenomes(
+    void createLeafGenomes(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
         const NewickParser& parser);
+
+    /**
+     * 用正确的维度创建祖先基因组
+     * @param alignment HAL alignment对象
+     * @param ancestor_sequences 重建的祖先序列
+     * @param ancestor_nodes 祖先节点列表
+     * @param seqpro_managers 序列管理器映射
+     */
+    void createAncestorGenomesWithCorrectDimensions(
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, std::string>& ancestor_sequences,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
      * 从NewickParser重建Newick字符串

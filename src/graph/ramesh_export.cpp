@@ -257,18 +257,10 @@ namespace RaMesh {
                 }
             }
 
-            // 1.3 创建祖先基因组
+            // 1.3 创建叶节点基因组（祖先基因组稍后创建）
             if (!ancestor_nodes.empty()) {
-                hal_converter::createAncestorGenomes(alignment, ancestor_nodes, parser);
-                spdlog::info("  Created {} ancestor genomes", ancestor_nodes.size());
-
-                // 1.4 设置祖先基因组的初始维度
-                spdlog::info("  Setting up initial dimensions for ancestor genomes...");
-                hal_converter::setupAncestorGenomeDimensions(alignment, ancestor_nodes, seqpro_managers);
-
-                // 1.5 应用系统发育树结构
-                spdlog::info("  Applying phylogenetic tree structure to HAL alignment...");
-                hal_converter::applyPhylogeneticTree(alignment, parser);
+                hal_converter::createLeafGenomes(alignment, ancestor_nodes, parser);
+                spdlog::info("  Created leaf genomes");
             }
             spdlog::info("Phase 1 completed successfully");
 
@@ -315,13 +307,19 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.3 completed successfully");
 
                 // ========================================
-                // 子阶段 2.4：更新祖先基因组序列
+                // 子阶段 2.4：用正确维度创建祖先基因组
                 // ========================================
-                if (!ancestor_sequences.empty()) {
-                    spdlog::info("  Phase 2.4: Updating ancestor genome sequences...");
-                    hal_converter::updateAncestorSequences(alignment, ancestor_sequences);
-                    spdlog::info("  Phase 2.4 completed successfully");
-                }
+                spdlog::info("  Phase 2.4: Creating ancestor genomes with correct dimensions...");
+                hal_converter::createAncestorGenomesWithCorrectDimensions(
+                    alignment, ancestor_sequences, ancestor_nodes, seqpro_managers);
+                spdlog::info("  Phase 2.4 completed successfully");
+
+                // ========================================
+                // 子阶段 2.5：应用系统发育树结构
+                // ========================================
+                spdlog::info("  Phase 2.5: Applying phylogenetic tree structure to HAL alignment...");
+                hal_converter::applyPhylogeneticTree(alignment, parser);
+                spdlog::info("  Phase 2.5 completed successfully");
 
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");
