@@ -275,6 +275,26 @@ namespace hal_converter {
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
+     * 为祖先基因组设置初始维度
+     * @param alignment HAL alignment对象
+     * @param ancestor_nodes 祖先节点信息
+     * @param seqpro_managers 序列管理器映射（用作参考）
+     */
+    void setupAncestorGenomeDimensions(
+        hal::AlignmentPtr alignment,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
+    /**
+     * 更新祖先基因组的DNA序列
+     * @param alignment HAL alignment对象
+     * @param ancestor_sequences 祖先名称到序列的映射
+     */
+    void updateAncestorSequences(
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, std::string>& ancestor_sequences);
+
+    /**
      * 根据祖先节点信息创建祖先基因组
      * @param alignment HAL alignment对象
      * @param ancestor_nodes 祖先节点列表

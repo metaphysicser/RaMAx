@@ -262,7 +262,11 @@ namespace RaMesh {
                 hal_converter::createAncestorGenomes(alignment, ancestor_nodes, parser);
                 spdlog::info("  Created {} ancestor genomes", ancestor_nodes.size());
 
-                // 1.4 应用系统发育树结构
+                // 1.4 设置祖先基因组的初始维度
+                spdlog::info("  Setting up initial dimensions for ancestor genomes...");
+                hal_converter::setupAncestorGenomeDimensions(alignment, ancestor_nodes, seqpro_managers);
+
+                // 1.5 应用系统发育树结构
                 spdlog::info("  Applying phylogenetic tree structure to HAL alignment...");
                 hal_converter::applyPhylogeneticTree(alignment, parser);
             }
@@ -309,6 +313,15 @@ namespace RaMesh {
                 ancestor_sequences = hal_converter::buildAllAncestorSequencesByVoting(
                     ancestor_reconstruction_data, ancestor_nodes, seqpro_managers);
                 spdlog::info("  Phase 2.3 completed successfully");
+
+                // ========================================
+                // 子阶段 2.4：更新祖先基因组序列
+                // ========================================
+                if (!ancestor_sequences.empty()) {
+                    spdlog::info("  Phase 2.4: Updating ancestor genome sequences...");
+                    hal_converter::updateAncestorSequences(alignment, ancestor_sequences);
+                    spdlog::info("  Phase 2.4 completed successfully");
+                }
 
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");

@@ -1191,6 +1191,101 @@ namespace hal_converter {
         }
     }
 
+    void setupAncestorGenomeDimensions(
+        hal::AlignmentPtr alignment,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        spdlog::info("Setting up initial dimensions for ancestor genomes...");
+
+        // 获取参考基因组的染色体信息作为模板
+        std::vector<hal::Sequence::Info> reference_dimensions;
+        if (!seqpro_managers.empty()) {
+            const auto& [ref_species, ref_mgr] = *seqpro_managers.begin();
+            std::visit([&](const auto& mgr) {
+                auto chr_names = mgr->getSequenceNames();
+                for (const auto& chr_name : chr_names) {
+                    hal_size_t length = mgr->getSequenceLength(chr_name);
+                    // 为祖先基因组预留一些额外空间（比参考基因组大20%）
+                    hal_size_t estimated_length = static_cast<hal_size_t>(length * 1.2);
+                    reference_dimensions.emplace_back(chr_name, estimated_length, 0, 0);
+                }
+            }, *ref_mgr);
+            spdlog::info("  Using {} as reference for ancestor dimensions ({} chromosomes)",
+                        ref_species, reference_dimensions.size());
+        }
+
+        // 为每个祖先基因组设置初始维度
+        for (const auto& ancestor : ancestor_nodes) {
+            hal::Genome* genome = alignment->openGenome(ancestor.node_name);
+            if (!genome) {
+                spdlog::warn("Cannot open ancestor genome: {}", ancestor.node_name);
+                continue;
+            }
+
+            if (genome->getNumSequences() == 0 && !reference_dimensions.empty()) {
+                // 设置初始维度（基于参考基因组的估计）
+                genome->setDimensions(reference_dimensions);
+
+                // 用N填充初始DNA序列
+                std::string placeholder_dna(genome->getSequenceLength(), 'N');
+                genome->setString(placeholder_dna);
+
+                spdlog::info("  Set initial dimensions for ancestor '{}': {} sequences, {} bp",
+                           ancestor.node_name, genome->getNumSequences(), genome->getSequenceLength());
+            } else {
+                spdlog::debug("  Ancestor '{}' already has dimensions set", ancestor.node_name);
+            }
+
+            alignment->closeGenome(genome);
+        }
+    }
+
+    void updateAncestorSequences(
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, std::string>& ancestor_sequences) {
+
+        spdlog::info("Updating ancestor genomes with reconstructed sequences...");
+
+        for (const auto& [ancestor_name, sequence] : ancestor_sequences) {
+            hal::Genome* genome = alignment->openGenome(ancestor_name);
+            if (!genome) {
+                spdlog::warn("Cannot open ancestor genome: {}", ancestor_name);
+                continue;
+            }
+
+            try {
+                // 检查序列长度是否超过预分配的空间
+                hal_size_t current_length = genome->getSequenceLength();
+                hal_size_t required_length = sequence.length();
+
+                if (required_length > current_length) {
+                    spdlog::warn("  Ancestor '{}' sequence ({} bp) exceeds allocated space ({} bp), truncating",
+                               ancestor_name, required_length, current_length);
+                    // 截断序列以适应预分配的空间
+                    std::string truncated_sequence = sequence.substr(0, current_length);
+                    genome->setString(truncated_sequence);
+                } else {
+                    // 序列适合预分配的空间
+                    std::string padded_sequence = sequence;
+                    // 如果序列较短，用N填充剩余空间
+                    if (required_length < current_length) {
+                        padded_sequence.append(current_length - required_length, 'N');
+                    }
+                    genome->setString(padded_sequence);
+                }
+
+                spdlog::info("  Updated ancestor '{}': {} bp sequence set",
+                           ancestor_name, sequence.length());
+
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to update ancestor '{}' sequence: {}", ancestor_name, e.what());
+            }
+
+            alignment->closeGenome(genome);
+        }
+    }
+
     void createAncestorGenomes(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
