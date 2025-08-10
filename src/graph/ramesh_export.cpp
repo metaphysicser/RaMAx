@@ -327,20 +327,29 @@ namespace RaMesh {
             spdlog::info("Phase 2 completed successfully");
 
             // ========================================
-            // 第三阶段：比对结构分析
+            // 第三阶段：遍历blocks分析segment映射关系
             // ========================================
-            spdlog::info("Phase 3: Analyzing alignment structure...");
+            spdlog::info("Phase 3: Analyzing blocks and building segment mappings...");
 
             size_t processed_blocks = 0;
             std::map<std::string, size_t> species_block_count;
+            std::map<std::string, std::map<std::string, size_t>> top_segment_counts;
+            std::map<std::string, std::map<std::string, size_t>> bottom_segment_counts;
+            // std::map<std::string, std::vector<SegmentMappingInfo>> segment_mappings; // TODO: 定义SegmentMappingInfo结构
 
             if (!blocks.empty()) {
-                spdlog::info("  Analyzing {} alignment blocks...", blocks.size());
+                spdlog::info("  Analyzing {} alignment blocks for segment relationships...", blocks.size());
 
-                // 分析比对块，收集统计信息
+                // 3.1 遍历所有blocks，分析segment关系和映射
                 for (const auto& weak_block : blocks) {
                     auto block = weak_block.lock();
                     if (!block) continue;
+
+                    // TODO: 分析这个block中的segment关系
+                    // - 确定每个基因组在这个block中的segment
+                    // - 计算parent-child segment映射关系
+                    // - 统计每个基因组需要的TopSegment和BottomSegment数量
+                    // analyzeBlockSegmentRelationships(block, segment_mappings, top_segment_counts, bottom_segment_counts);
 
                     for (const auto& [species_chr, segment] : block->anchors) {
                         species_block_count[species_chr.first]++;
@@ -353,104 +362,137 @@ namespace RaMesh {
                     spdlog::info("    Species {}: {} segments", species, count);
                 }
 
-                // TODO: 实现完整的比对结构分析
-                // - 分析segment边界和坐标关系
-                // - 计算Top/Bottom segment的数量和坐标
-                // - 建立parent-child segment关系映射
-                // - 准备HAL segment结构规划
-                spdlog::info("  TODO: Implement detailed alignment structure analysis");
-                spdlog::info("  TODO: Calculate segment boundaries and coordinate relationships");
-                spdlog::info("  TODO: Plan HAL segment structure");
+                // 3.2 建立完整的parent-child segment映射
+                spdlog::info("  Building parent-child segment mappings...");
+                // TODO: buildParentChildSegmentMappings(ancestor_nodes, segment_mappings);
+
+                spdlog::info("  TODO: Implement block segment relationship analysis");
+                spdlog::info("  TODO: Calculate TopSegment and BottomSegment counts for each genome");
+                spdlog::info("  TODO: Build parent-child segment mapping tables");
             } else {
                 spdlog::info("  No alignment blocks to analyze");
             }
             spdlog::info("Phase 3 completed successfully");
 
             // ========================================
-            // 第四阶段：完整HAL结构建立
+            // 第四阶段：更新HAL维度为正确维度
             // ========================================
-            spdlog::info("Phase 4: Building complete HAL structure...");
+            spdlog::info("Phase 4: Updating HAL dimensions to correct values...");
 
-            if (!blocks.empty() || !ancestor_nodes.empty()) {
-                // 4.1 设置所有基因组的序列维度（使用准确长度）
-                spdlog::info("  4.1: Setting genome dimensions with accurate lengths...");
+            if (!blocks.empty() && !ancestor_nodes.empty()) {
+                spdlog::info("  Updating genome segment dimensions based on block analysis...");
 
-                // 设置叶节点基因组的序列维度
-                spdlog::info("    Setting leaf genome dimensions...");
-                hal_converter::setupGenomeSequences(alignment, seqpro_managers);
+                // 4.1 更新叶节点基因组的segment维度
+                spdlog::info("  4.1: Updating leaf genome segment dimensions...");
+                // TODO: 遍历所有叶节点基因组，使用updateTopDimensions()和updateBottomDimensions()
+                // for (const auto& [genome_name, segment_counts] : top_segment_counts) {
+                //     if (isLeafGenome(genome_name, ancestor_nodes)) {
+                //         hal_converter::updateGenomeTopSegmentDimensions(alignment, genome_name, segment_counts);
+                //         hal_converter::updateGenomeBottomSegmentDimensions(alignment, genome_name, bottom_segment_counts[genome_name]);
+                //     }
+                // }
+                spdlog::info("    TODO: Implement leaf genome segment dimension updates");
 
-                // 设置祖先基因组的序列维度（使用重建的序列长度）
-                if (!ancestor_nodes.empty() && ancestor_sequences.size() > 0) {
-                    spdlog::info("    Setting ancestor genome dimensions...");
-                    // TODO: 实现基于重建序列的祖先基因组维度设置
-                    // hal_converter::setAncestorGenomeDimensions(alignment, ancestor_sequences);
-                    spdlog::info("    TODO: Implement ancestor genome dimension setting");
-                }
+                // 4.2 更新祖先基因组的segment维度
+                spdlog::info("  4.2: Updating ancestor genome segment dimensions...");
+                // TODO: 遍历所有祖先基因组，使用updateTopDimensions()和updateBottomDimensions()
+                // for (const auto& ancestor : ancestor_nodes) {
+                //     hal_converter::updateGenomeTopSegmentDimensions(alignment, ancestor.node_name, top_segment_counts[ancestor.node_name]);
+                //     hal_converter::updateGenomeBottomSegmentDimensions(alignment, ancestor.node_name, bottom_segment_counts[ancestor.node_name]);
+                // }
+                spdlog::info("    TODO: Implement ancestor genome segment dimension updates");
 
-                // 4.2 创建所有segment结构
-                spdlog::info("  4.2: Creating segment structures...");
-                // TODO: 实现完整的segment结构创建
-                // - 创建Top/Bottom segment结构
-                // - 设置segment坐标和关系
-                // - 建立parent-child segment映射
-                spdlog::info("    TODO: Implement Top/Bottom segment creation");
-                spdlog::info("    TODO: Set segment coordinates and relationships");
+                // 4.3 验证维度更新结果
+                spdlog::info("  4.3: Validating dimension updates...");
+                // TODO: 验证所有基因组的segment维度是否正确设置
+                // hal_converter::validateSegmentDimensions(alignment, top_segment_counts, bottom_segment_counts);
+                spdlog::info("    TODO: Validate segment dimension updates");
 
-                // 4.3 设置所有DNA序列内容
-                spdlog::info("  4.3: Setting DNA sequence content...");
-                if (!ancestor_nodes.empty() && ancestor_sequences.size() > 0) {
-                    // TODO: 设置祖先基因组的DNA序列
-                    // hal_converter::setAncestorSequences(alignment, ancestor_sequences);
-                    spdlog::info("    TODO: Set ancestor DNA sequences");
-                } else {
-                    spdlog::info("    No ancestor sequences to set");
-                }
+                spdlog::info("  TODO: Implement updateGenomeTopSegmentDimensions() using genome->updateTopDimensions()");
+                spdlog::info("  TODO: Implement updateGenomeBottomSegmentDimensions() using genome->updateBottomDimensions()");
+                spdlog::info("  TODO: Calculate correct segment counts for each chromosome based on block analysis");
             } else {
-                spdlog::info("  Skipping HAL structure building (no blocks or ancestors)");
+                spdlog::info("  Skipping dimension updates (no blocks or ancestors)");
             }
             spdlog::info("Phase 4 completed successfully");
 
             // ========================================
-            // 第五阶段：验证和优化
+            // 第五阶段：填充segment数据
             // ========================================
-            spdlog::info("Phase 5: Validation and optimization...");
+            spdlog::info("Phase 5: Populating segment data...");
 
-            // TODO: 实现HAL文件验证
-            // - 检查所有基因组的序列长度
-            // - 验证segment关系的一致性
-            // - 检查DNA序列的完整性
-            spdlog::info("  TODO: Implement HAL file validation");
-            spdlog::info("  TODO: Verify genome sequence lengths");
-            spdlog::info("  TODO: Validate segment relationship consistency");
+            if (!blocks.empty() && !ancestor_nodes.empty()) {
+                spdlog::info("  Creating and populating HAL segments...");
 
-            // TODO: 生成统计报告
-            spdlog::info("  TODO: Generate export statistics");
+                // 5.1 创建并填充TopSegment和BottomSegment
+                spdlog::info("  5.1: Creating and populating TopSegment and BottomSegment objects...");
+                // TODO: 遍历所有基因组，创建实际的segment对象
+                // for (const auto& [genome_name, segments] : segment_mappings) {
+                //     hal_converter::populateGenomeSegments(alignment, genome_name, segments);
+                // }
+                spdlog::info("    TODO: Create TopSegment objects for each genome");
+                spdlog::info("    TODO: Create BottomSegment objects for each genome");
+                spdlog::info("    TODO: Set segment coordinates and lengths");
 
+                // 5.2 建立segment之间的parent-child关系
+                spdlog::info("  5.2: Establishing segment parent-child relationships...");
+                // TODO: 根据之前分析的映射关系，建立segment之间的连接
+                // hal_converter::establishSegmentRelationships(alignment, parent_child_mappings);
+                spdlog::info("    TODO: Link TopSegments to their parent BottomSegments");
+                spdlog::info("    TODO: Link BottomSegments to their child TopSegments");
+                spdlog::info("    TODO: Set segment indices and array positions");
+
+                // 5.3 填充比对信息和坐标
+                spdlog::info("  5.3: Populating alignment information and coordinates...");
+                // TODO: 将RaMesh的比对块信息转换为HAL segment的比对信息
+                // hal_converter::populateSegmentAlignments(alignment, blocks);
+                spdlog::info("    TODO: Convert RaMesh blocks to HAL segment alignments");
+                spdlog::info("    TODO: Set segment start/end coordinates");
+                spdlog::info("    TODO: Handle gaps and insertions");
+
+                spdlog::info("  TODO: Implement populateGenomeSegments()");
+                spdlog::info("  TODO: Implement establishSegmentRelationships()");
+                spdlog::info("  TODO: Implement populateSegmentAlignments()");
+            } else {
+                spdlog::info("  Skipping segment data population (no blocks or ancestors)");
+            }
             spdlog::info("Phase 5 completed successfully");
 
             // ========================================
-            // 第六阶段：验证和优化
+            // 第六阶段：验证和完成
             // ========================================
-            spdlog::info("Phase 6: Final validation and optimization...");
+            spdlog::info("Phase 6: Final validation and completion...");
 
-            // 6.1 HAL文件完整性验证
+            // 6.1 验证HAL结构完整性
+            spdlog::info("  6.1: Validating HAL structure integrity...");
             try {
+                // TODO: 实现完整的HAL结构验证
+                // hal_converter::validateHalStructure(alignment);
+                spdlog::info("    TODO: Validate segment continuity");
+                spdlog::info("    TODO: Verify parent-child relationships");
+                spdlog::info("    TODO: Ensure coordinate consistency");
+                spdlog::info("    TODO: Check DNA sequence integrity");
+
                 hal_converter::validateHalFile(alignment, hal_path);
-                spdlog::info("  HAL file validation passed");
+                spdlog::info("    HAL file validation passed");
             } catch (const std::exception& e) {
-                spdlog::error("  HAL file validation failed: {}", e.what());
+                spdlog::error("    HAL file validation failed: {}", e.what());
                 throw;
             }
 
             // 6.2 生成导出统计报告
-            spdlog::info("  Export statistics:");
-            spdlog::info("    Total genomes: {}", alignment->getNumGenomes());
-            spdlog::info("    Leaf genomes: {}", seqpro_managers.size());
-            spdlog::info("    Ancestor genomes: {}", ancestor_nodes.size());
-            spdlog::info("    Alignment blocks processed: {}", processed_blocks);
+            spdlog::info("  6.2: Generating export statistics...");
+            // TODO: 生成详细的导出统计信息
+            // hal_converter::generateExportStatistics(alignment, processed_blocks);
+            spdlog::info("    TODO: Generate genome statistics");
+            spdlog::info("    TODO: Generate segment statistics");
+            spdlog::info("    TODO: Generate alignment coverage statistics");
 
-            // 6.3 关闭HAL文件
+            // 6.3 关闭文件和清理
+            spdlog::info("  6.3: Closing files and cleanup...");
             alignment->close();
+            spdlog::info("    HAL file closed successfully");
+
             spdlog::info("Phase 6 completed successfully");
 
             spdlog::info("HAL export completed successfully: {}", abs_hal_path.string());
