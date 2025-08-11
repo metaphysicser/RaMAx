@@ -5,15 +5,14 @@
 #include <map>
 #include <memory>
 #include <functional>
-#include <filesystem>
-#include <algorithm>
 #include <cctype>
-#include <stdexcept>
+#include "../submodule/hal/api/inc/halDefs.h"
 #include <unordered_map>
 #include <set>
 
 #include <spdlog/spdlog.h>
-#include "../submodule/hal/api/inc/hal.h"
+// forward declare hal types where possible to reduce direct includes in header
+// keep heavy HAL headers in .cpp to avoid header bloat
 
 #include "ramesh.h"
 #include "SeqPro.h"
@@ -46,7 +45,8 @@ namespace hal_converter {
         // 树结构信息
         int tree_depth;                                     // 在树中的深度
         std::string parent_name;                            // 父节点名称
-        std::vector<std::string> children_names;            // 子节点名称
+        std::vector<std::string> children_names;            // 子节点名称（所有后代）
+        std::vector<std::string> direct_children_names;     // 直接子节点名称
         bool is_generated_root;                             // 是否为自动生成的根节点
         double branch_length;                               // 到父节点的分支长度
 
@@ -281,12 +281,13 @@ namespace hal_converter {
 
 
     /**
-     * 创建叶节点基因组（祖先基因组稍后创建）
+     * 基于系统发育树创建基因组骨架（根/中间祖先/叶）
+     * 仅创建拓扑结构，不设置维度或DNA；后续阶段再 setDimensions/setString
      * @param alignment HAL alignment对象
-     * @param ancestor_nodes 祖先节点列表
-     * @param parser NewickParser对象，用于获取叶节点的分支长度
+     * @param ancestor_nodes 祖先节点列表（内部祖先信息）
+     * @param parser NewickParser对象（用于解析叶节点父子与分支长度）
      */
-    void createLeafGenomes(
+    void createGenomesFromPhylogeny(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
         const NewickParser& parser);
@@ -319,6 +320,110 @@ namespace hal_converter {
     void applyPhylogeneticTree(
         hal::AlignmentPtr alignment,
         const NewickParser& parser);
+
+    // ========================================
+    // 合并的blocks分析和HAL结构构建
+    // ========================================
+
+    /**
+     * 当前block的segment映射信息（临时结构，用完即释放）
+     */
+    struct CurrentBlockMapping {
+        std::string parent_genome;
+        std::string child_genome;
+        std::string parent_chr_name;  // parent基因组的染色体名称
+        std::string child_chr_name;   // child基因组的染色体名称
+        hal_size_t parent_start;
+        hal_size_t parent_length;
+        hal_size_t child_start;
+        hal_size_t child_length;
+        bool is_reversed;
+    };
+
+    /**
+     * HAL segment索引管理器
+     */
+    struct SegmentIndexManager {
+        // genome_name -> chr_name -> current_index
+        std::map<std::string, std::map<std::string, hal_index_t>> top_segment_indices;
+        std::map<std::string, std::map<std::string, hal_index_t>> bottom_segment_indices;
+
+        // genome_name -> chr_name -> total_count
+        std::map<std::string, std::map<std::string, hal_size_t>> top_segment_counts;
+        std::map<std::string, std::map<std::string, hal_size_t>> bottom_segment_counts;
+
+        // 已更新维度的基因组记录
+        std::set<std::string> dimensions_updated_genomes;
+    };
+
+    /**
+     * 流式分析blocks并直接构建HAL结构（合并第3、4、5阶段）
+     * @param blocks 所有的alignment blocks
+     * @param ancestor_nodes 祖先节点信息
+     * @param alignment HAL alignment对象
+     */
+    void analyzeBlocksAndBuildHalStructure(
+        const std::vector<std::weak_ptr<Block>>& blocks,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        hal::AlignmentPtr alignment);
+
+    /**
+     * 分析当前block中的segment关系（按你的算法思路）
+     * @param block 当前block
+     * @param ancestor_nodes 祖先节点信息
+     * @return 当前block的映射关系
+     */
+    std::vector<CurrentBlockMapping> analyzeCurrentBlock(
+        BlockPtr block,
+        const std::vector<AncestorNode>& ancestor_nodes);
+
+    /**
+     * 更新segment计数器
+     * @param mappings 当前block的映射关系
+     * @param index_manager segment索引管理器
+     */
+    void updateSegmentCounts(
+        const std::vector<CurrentBlockMapping>& mappings,
+        SegmentIndexManager& index_manager);
+
+    /**
+     * 检查并更新HAL维度（批量处理）
+     * @param alignment HAL alignment对象
+     * @param index_manager segment索引管理器
+     * @param force_update 是否强制更新所有未更新的基因组
+     */
+    void checkAndUpdateHalDimensions(
+        hal::AlignmentPtr alignment,
+        SegmentIndexManager& index_manager,
+        bool force_update = false);
+
+    /**
+     * 为当前block创建HAL segments
+     * @param alignment HAL alignment对象
+     * @param mappings 当前block的映射关系
+     * @param index_manager segment索引管理器
+     */
+    void createSegmentsForCurrentBlock(
+        hal::AlignmentPtr alignment,
+        const std::vector<CurrentBlockMapping>& mappings,
+        SegmentIndexManager& index_manager);
+
+    /**
+     * 辅助函数：检查是否为叶节点
+     */
+    bool isLeafGenome(const std::string& genome_name, const std::vector<AncestorNode>& ancestor_nodes);
+
+    /**
+     * 辅助函数：检查是否为根节点
+     */
+    bool isRootGenome(const std::string& genome_name, const std::vector<AncestorNode>& ancestor_nodes);
+
+    /**
+     * 辅助函数：从block中获取指定物种的segment
+     */
+    SegPtr getSegmentFromBlock(BlockPtr block, const std::string& species_name);
+
+
 
     // ========================================
     // 验证和工具函数

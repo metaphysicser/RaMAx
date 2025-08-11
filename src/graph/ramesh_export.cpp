@@ -259,8 +259,8 @@ namespace RaMesh {
 
             // 1.3 创建叶节点基因组（祖先基因组稍后创建）
             if (!ancestor_nodes.empty()) {
-                hal_converter::createLeafGenomes(alignment, ancestor_nodes, parser);
-                spdlog::info("  Created leaf genomes");
+                hal_converter::createGenomesFromPhylogeny(alignment, ancestor_nodes, parser);
+                spdlog::info("  Created genomes from phylogeny (topology only)");
             }
             spdlog::info("Phase 1 completed successfully");
 

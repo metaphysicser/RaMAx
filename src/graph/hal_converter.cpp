@@ -1,6 +1,7 @@
 #include "hal_converter.h"
 #include "align.h"
 #include <spdlog/spdlog.h>
+#include "../submodule/hal/api/inc/hal.h"
 #include "../submodule/hal/api/inc/halCommon.h"
 
 namespace RaMesh {
@@ -19,26 +20,7 @@ namespace hal_converter {
         std::vector<AncestorNode> ancestor_nodes;
 
         if (newick_tree.empty()) {
-            spdlog::info("Empty Newick tree provided, creating star topology");
-
-            // 创建星形拓扑：一个根节点连接所有叶节点
-            AncestorNode root_ancestor;
-            root_ancestor.node_name = "ancestor";  // 默认根节点名称
-            root_ancestor.is_generated_root = true;
-            root_ancestor.tree_depth = 0;
-            root_ancestor.branch_length = 0.0;
-
-            // 收集所有叶节点作为根的后代
-            for (const auto& [species_name, _] : seqpro_managers) {
-                root_ancestor.descendant_leaves.push_back(species_name);
-                root_ancestor.children_names.push_back(species_name);
-            }
-
-            ancestor_nodes.push_back(root_ancestor);
-            spdlog::info("Created star topology with root 'ancestor' and {} leaves",
-                        root_ancestor.descendant_leaves.size());
-
-            return ancestor_nodes;
+            throw std::runtime_error("Newick tree is required but empty; simplify assumptions: please provide a valid tree");
         }
 
         // 解析Newick树
@@ -70,20 +52,7 @@ namespace hal_converter {
 
         } catch (const std::exception& e) {
             spdlog::error("Failed to parse Newick tree: {}", e.what());
-            spdlog::info("Falling back to star topology");
-
-            // 回退到星形拓扑
-            AncestorNode root_ancestor;
-            root_ancestor.node_name = "ancestor";
-            root_ancestor.is_generated_root = true;
-            root_ancestor.tree_depth = 0;
-
-            for (const auto& [species_name, _] : seqpro_managers) {
-                root_ancestor.descendant_leaves.push_back(species_name);
-                root_ancestor.children_names.push_back(species_name);
-            }
-
-            ancestor_nodes.push_back(root_ancestor);
+            throw;
         }
 
         return ancestor_nodes;
@@ -1230,53 +1199,108 @@ namespace hal_converter {
 
 
 
-    void createLeafGenomes(
+    void createGenomesFromPhylogeny(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
         const NewickParser& parser) {
 
-        spdlog::info("Creating leaf genomes only (ancestors will be created later)...");
+        spdlog::info("Creating genomes from phylogeny (root / internal ancestors / leaves)...");
 
-        // 创建一个临时根节点（如果需要的话）
-        std::string temp_root_name = "temp_root";
-        hal::Genome* temp_root = alignment->addRootGenome(temp_root_name);
-        if (!temp_root) {
-            throw std::runtime_error("Failed to create temporary root genome");
+        // 1) 确定真实根节点名称（parent_name 为空者）
+        std::string root_name;
+        for (const auto& anc : ancestor_nodes) {
+            if (anc.parent_name.empty()) {
+                root_name = anc.node_name;
+                break;
+            }
         }
-        spdlog::info("Created temporary root genome: {}", temp_root_name);
+        if (root_name.empty()) {
+            root_name = "ancestor"; // 兜底
+            spdlog::warn("No explicit root found from ancestor_nodes, fallback to '{}'", root_name);
+        }
 
-        // 创建所有叶节点基因组
-        std::set<std::string> leaf_names;
-        for (const auto& ancestor : ancestor_nodes) {
-            for (const auto& child_name : ancestor.children_names) {
-                // 检查这个child是否是叶节点（不在ancestor_nodes中）
-                bool is_leaf = true;
-                for (const auto& other_ancestor : ancestor_nodes) {
-                    if (other_ancestor.node_name == child_name) {
-                        is_leaf = false;
-                        break;
-                    }
+        // 2) 创建或复用真实根节点
+        hal::Genome* root = alignment->openGenome(root_name);
+        if (!root) {
+            root = alignment->addRootGenome(root_name);
+            if (!root) {
+                throw std::runtime_error("Failed to create real root genome: " + root_name);
+            }
+            spdlog::info("Created real root genome: {}", root_name);
+        } else {
+            spdlog::info("Reusing existing root genome: {}", root_name);
+        }
+
+        // 3) 简化两趟构建：先内部祖先，再叶
+        // 3.1 先创建所有内部祖先（按深度从小到大，确保父先于子）
+        std::vector<AncestorNode> internals = ancestor_nodes;
+        std::sort(internals.begin(), internals.end(), [](const AncestorNode& a, const AncestorNode& b){
+            return a.tree_depth < b.tree_depth; // root(depth最小) -> deeper
+        });
+
+        for (const auto& anc : internals) {
+            if (anc.parent_name.empty()) continue; // 根已创建
+            hal::Genome* parent_g = alignment->openGenome(anc.parent_name);
+            if (!parent_g) {
+                spdlog::error("Parent genome not found when creating ancestor '{}': {}", anc.node_name, anc.parent_name);
+                continue;
+            }
+            hal::Genome* g = alignment->openGenome(anc.node_name);
+            if (!g) {
+                g = alignment->addLeafGenome(anc.node_name, anc.parent_name, anc.branch_length);
+                if (!g) {
+                    spdlog::error("Failed to create ancestor genome: {} (parent: {})", anc.node_name, anc.parent_name);
+                    continue;
                 }
+                spdlog::info("Created ancestor genome: {} (parent: {}, bl={})", anc.node_name, anc.parent_name, anc.branch_length);
+            } else {
+                spdlog::info("Reusing ancestor genome: {} (parent: {})", anc.node_name, anc.parent_name);
+            }
+        }
 
-                if (is_leaf && leaf_names.find(child_name) == leaf_names.end()) {
-                    // 创建叶节点基因组，暂时连接到临时根节点
-                    double leaf_branch_length = 1.0; // 默认分支长度
-                    const auto& nodes = parser.getNodes();
-                    for (const auto& node : nodes) {
-                        if (node.isLeaf && node.name == child_name) {
-                            leaf_branch_length = node.branchLength;
+        // 3.2 再创建所有叶（使用解析树的直接父）
+        // 简化假设：输入叶均存在且已比对，因此直接使用解析树数据
+        std::unordered_map<std::string, std::pair<std::string,double>> leaf_parent_bl;
+        for (const auto& node : parser.getNodes()) {
+            if (node.isLeaf && !node.name.empty()) {
+                std::string leaf = node.name;
+                double bl = node.branchLength;
+                std::string parentName;
+                if (node.father != -1) {
+                    // 找到父节点名称
+                    for (const auto& p : parser.getNodes()) {
+                        if (p.id == node.father) {
+                            parentName = p.name.empty() ? (std::string("internal_") + std::to_string(p.id)) : p.name;
                             break;
                         }
                     }
-                    hal::Genome* leaf_genome = alignment->addLeafGenome(child_name, temp_root_name, leaf_branch_length);
-                    if (!leaf_genome) {
-                        spdlog::error("Failed to create leaf genome: {}", child_name);
-                        continue;
-                    }
-
-                    leaf_names.insert(child_name);
-                    spdlog::info("Created leaf genome: {}", child_name);
+                } else {
+                    parentName = root_name;
                 }
+                leaf_parent_bl[leaf] = {parentName, bl};
+            }
+        }
+
+        for (const auto& [leaf, par_bl] : leaf_parent_bl) {
+            const auto& parentName = par_bl.first;
+            double bl = par_bl.second;
+            // 可选：只创建我们有序列的叶
+            // 如果需要限定：在此处判断 seqpro_managers 是否包含 leaf（此函数无该参数，保持全创建）
+            hal::Genome* parent_g = alignment->openGenome(parentName);
+            if (!parent_g) {
+                spdlog::error("Parent genome not found when creating leaf '{}': {}", leaf, parentName);
+                continue;
+            }
+            hal::Genome* leaf_g = alignment->openGenome(leaf);
+            if (!leaf_g) {
+                leaf_g = alignment->addLeafGenome(leaf, parentName, bl);
+                if (!leaf_g) {
+                    spdlog::error("Failed to create leaf genome: {} (parent: {})", leaf, parentName);
+                    continue;
+                }
+                spdlog::info("Created leaf genome: {} (parent: {}, bl={})", leaf, parentName, bl);
+            } else {
+                spdlog::info("Reusing leaf genome: {} (parent: {})", leaf, parentName);
             }
         }
     }
