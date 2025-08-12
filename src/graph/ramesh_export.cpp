@@ -257,10 +257,13 @@ namespace RaMesh {
                 }
             }
 
-            // 1.3 创建叶节点基因组（祖先基因组稍后创建）
+            // 1.3 创建基因组
             if (!ancestor_nodes.empty()) {
                 hal_converter::createGenomesFromPhylogeny(alignment, ancestor_nodes, parser);
                 spdlog::info("  Created genomes from phylogeny (topology only)");
+                // 为所有叶基因组设置真实维度与DNA
+                hal_converter::setupLeafGenomesWithRealDNA(alignment, seqpro_managers);
+                spdlog::info("  Set up leaf genomes with real DNA");
             }
             spdlog::info("Phase 1 completed successfully");
 
@@ -303,23 +306,8 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.3: Building ancestor sequences using voting method...");
 
                 ancestor_sequences = hal_converter::buildAllAncestorSequencesByVoting(
-                    ancestor_reconstruction_data, ancestor_nodes, seqpro_managers);
+                    ancestor_reconstruction_data, ancestor_nodes, seqpro_managers, alignment);
                 spdlog::info("  Phase 2.3 completed successfully");
-
-                // ========================================
-                // 子阶段 2.4：用正确维度创建祖先基因组
-                // ========================================
-                spdlog::info("  Phase 2.4: Creating ancestor genomes with correct dimensions...");
-                hal_converter::createAncestorGenomesWithCorrectDimensions(
-                    alignment, ancestor_sequences, ancestor_nodes, seqpro_managers);
-                spdlog::info("  Phase 2.4 completed successfully");
-
-                // ========================================
-                // 子阶段 2.5：应用系统发育树结构
-                // ========================================
-                spdlog::info("  Phase 2.5: Applying phylogenetic tree structure to HAL alignment...");
-                hal_converter::applyPhylogeneticTree(alignment, parser);
-                spdlog::info("  Phase 2.5 completed successfully");
 
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");

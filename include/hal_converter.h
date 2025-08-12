@@ -276,6 +276,15 @@ namespace hal_converter {
         hal::AlignmentPtr alignment,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
+    /**
+     * 为所有叶基因组设置真实的序列维度与DNA
+     * @param alignment HAL alignment对象
+     * @param seqpro_managers 序列管理器映射（每个叶物种）
+     */
+    void setupLeafGenomesWithRealDNA(
+        hal::AlignmentPtr alignment,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+
 
 
 
