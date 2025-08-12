@@ -325,7 +325,6 @@ namespace RaMesh {
             // - 统计并更新每个基因组/染色体的段维度（top/bottom counts）
             // - 为各基因组创建并填充 Top/Bottom 段坐标
             // - 建立 parent-child 关系与 parse 信息
-            // （该阶段合并了原第3/4/5阶段）
             // ========================================
             spdlog::info("Phase 3: Building HAL segments from blocks (merged mapping phase)...");
             if (!blocks.empty() && !ancestor_nodes.empty()) {

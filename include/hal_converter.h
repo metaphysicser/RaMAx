@@ -335,18 +335,23 @@ namespace hal_converter {
     // ========================================
 
     /**
-     * 当前block的segment映射信息（临时结构，用完即释放）
+     * 当前block的segment映射信息（以父段为聚合单位，一个bottom可对应多个top）
      */
     struct CurrentBlockMapping {
+        struct ChildInfo {
+            std::string child_genome;
+            std::string child_chr_name;
+            hal_size_t child_start;
+            hal_size_t child_length;
+            bool is_reversed;
+        };
+
         std::string parent_genome;
-        std::string child_genome;
         std::string parent_chr_name;  // parent基因组的染色体名称
-        std::string child_chr_name;   // child基因组的染色体名称
         hal_size_t parent_start;
         hal_size_t parent_length;
-        hal_size_t child_start;
-        hal_size_t child_length;
-        bool is_reversed;
+
+        std::vector<ChildInfo> children;  // 与该父段相连的所有直系子top段
     };
 
     /**
@@ -403,8 +408,7 @@ namespace hal_converter {
      */
     void checkAndUpdateHalDimensions(
         hal::AlignmentPtr alignment,
-        SegmentIndexManager& index_manager,
-        bool force_update = false);
+        SegmentIndexManager& index_manager);
 
     /**
      * 为当前block创建HAL segments

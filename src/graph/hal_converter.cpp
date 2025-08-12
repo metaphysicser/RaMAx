@@ -181,6 +181,15 @@ namespace hal_converter {
                     }
                 };
 
+                // 正确填充“直接子节点”：仅 father == node.id 的一级孩子
+                ancestor.direct_children_names.clear();
+                for (const auto& n : nodes) {
+                    if (n.father == node.id) {
+                        std::string child_name = n.name.empty() ? ("internal_" + std::to_string(n.id)) : n.name;
+                        ancestor.direct_children_names.push_back(child_name);
+                    }
+                }
+
                 collectLeaves(node.id);
 
                 // 只有当祖先节点有后代叶节点时才添加
@@ -1633,6 +1642,152 @@ namespace hal_converter {
         }
 
         return root_name;
+    }
+
+    // ========================================
+    // 第三阶段（第一遍）：统计段数并更新HAL维度
+    // ========================================
+
+    std::vector<CurrentBlockMapping> analyzeCurrentBlock(
+        BlockPtr block,
+        const std::vector<AncestorNode>& ancestor_nodes) {
+
+        std::vector<CurrentBlockMapping> mappings;
+        if (!block) return mappings;
+
+        // 收集当前 block 中的 (species -> {chr, segment})
+        std::unordered_map<std::string, std::pair<std::string, SegPtr>> species_to_entry;
+        {
+            std::shared_lock lk(block->rw);
+            for (const auto& [species_chr, segment] : block->anchors) {
+                const std::string& species = species_chr.first;
+                const std::string& chr = species_chr.second;
+                if (segment) {
+                    species_to_entry[species] = {chr, segment};
+                }
+            }
+        }
+
+        if (species_to_entry.empty()) return mappings;
+
+        // 对每个在本 block 出现的祖先，聚合其直系子到同一个父段上
+        for (const auto& anc : ancestor_nodes) {
+            auto itParent = species_to_entry.find(anc.node_name);
+            if (itParent == species_to_entry.end()) continue; // 祖先不在当前块
+
+            const auto& [pChr, pSeg] = itParent->second;
+            if (!pSeg) continue;
+
+            CurrentBlockMapping map{};
+            map.parent_genome = anc.node_name;
+            map.parent_chr_name = pChr;
+            map.parent_start = static_cast<hal_size_t>(pSeg->start);
+            map.parent_length = static_cast<hal_size_t>(pSeg->length);
+
+            for (const auto& child_name : anc.direct_children_names) {
+                auto itChild = species_to_entry.find(child_name);
+                if (itChild == species_to_entry.end()) continue; // 子不在当前块
+
+                const auto& [cChr, cSeg] = itChild->second;
+                if (!cSeg) continue;
+
+                CurrentBlockMapping::ChildInfo ci{};
+                ci.child_genome = child_name;
+                ci.child_chr_name = cChr;
+                ci.child_start = static_cast<hal_size_t>(cSeg->start);
+                ci.child_length = static_cast<hal_size_t>(cSeg->length);
+                ci.is_reversed = (cSeg->strand != pSeg->strand);
+                map.children.push_back(std::move(ci));
+            }
+
+            if (!map.children.empty()) {
+                mappings.push_back(std::move(map));
+            }
+        }
+
+        return mappings;
+    }
+
+    void updateSegmentCounts(
+        const std::vector<CurrentBlockMapping>& mappings,
+        SegmentIndexManager& index_manager) {
+
+        // child top：对每个 child 元素 +1；parent bottom：每个父段 +1
+        for (const auto& m : mappings) {
+            index_manager.bottom_segment_counts[m.parent_genome][m.parent_chr_name]++;
+            for (const auto& ci : m.children) {
+                index_manager.top_segment_counts[ci.child_genome][ci.child_chr_name]++;
+            }
+        }
+    }
+
+    void checkAndUpdateHalDimensions(
+        hal::AlignmentPtr alignment,
+        SegmentIndexManager& index_manager) {
+
+        // 聚合所有需要更新的基因组名称
+        std::set<std::string> genomes_to_update;
+        for (const auto& [g, _] : index_manager.top_segment_counts) genomes_to_update.insert(g);
+        for (const auto& [g, _] : index_manager.bottom_segment_counts) genomes_to_update.insert(g);
+
+        for (const auto& genome_name : genomes_to_update) {
+            hal::Genome* genome = alignment->openGenome(genome_name);
+            if (!genome) {
+                spdlog::warn("Cannot open genome for dimension update: {}", genome_name);
+                continue;
+            }
+
+            std::vector<hal::Sequence::UpdateInfo> topUpdates;
+            std::vector<hal::Sequence::UpdateInfo> bottomUpdates;
+
+            // 仅对已统计到的序列进行更新，避免无关修改
+            if (auto itG = index_manager.top_segment_counts.find(genome_name); itG != index_manager.top_segment_counts.end()) {
+                for (const auto& [chr, cnt] : itG->second) {
+                    topUpdates.emplace_back(chr, cnt);
+                }
+            }
+            if (auto itG = index_manager.bottom_segment_counts.find(genome_name); itG != index_manager.bottom_segment_counts.end()) {
+                for (const auto& [chr, cnt] : itG->second) {
+                    bottomUpdates.emplace_back(chr, cnt);
+                }
+            }
+
+            if (!topUpdates.empty()) {
+                genome->updateTopDimensions(topUpdates);
+                spdlog::debug("  Updated top dims for '{}': {} sequences", genome_name, topUpdates.size());
+            }
+            if (!bottomUpdates.empty()) {
+                genome->updateBottomDimensions(bottomUpdates);
+                spdlog::debug("  Updated bottom dims for '{}': {} sequences", genome_name, bottomUpdates.size());
+            }
+
+            index_manager.dimensions_updated_genomes.insert(genome_name);
+            alignment->closeGenome(genome);
+        }
+    }
+
+    void analyzeBlocksAndBuildHalStructure(
+        const std::vector<std::weak_ptr<Block>>& blocks,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        hal::AlignmentPtr alignment) {
+
+        spdlog::info("Phase 3 (pass 1): Counting segments and updating HAL dimensions (non-overlap assumption)...");
+
+        size_t totalBlocks = 0;
+        SegmentIndexManager idxMgr;
+        for (const auto& wb : blocks) {
+            if (auto block = wb.lock()) {
+                totalBlocks++;
+                auto mappings = analyzeCurrentBlock(block, ancestor_nodes);
+                updateSegmentCounts(mappings, idxMgr); 
+            }
+        }
+
+        spdlog::info("  Blocks scanned: {}. Updating HAL top/bottom dimensions...", totalBlocks);
+        checkAndUpdateHalDimensions(alignment, idxMgr);
+
+        spdlog::info("Phase 3 (pass 1) completed: dimensions updated for {} genomes", idxMgr.dimensions_updated_genomes.size());
+        // 第二遍（真正创建段并链接）留待后续实现
     }
 
 } // namespace hal_converter
