@@ -982,13 +982,21 @@ namespace hal_converter {
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::vector<std::pair<std::string, std::string>>& reconstruction_plan,
         hal::AlignmentPtr alignment) {
 
         spdlog::info("Building sequences for {} ancestors using voting method", ancestor_reconstruction_data.size());
 
         std::map<std::string, std::string> ancestor_sequences;
 
-        for (const auto& [ancestor_name, data] : ancestor_reconstruction_data) {
+        // 按 reconstruction_plan 的顺序遍历，而不是 map 的字典序
+        for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
+            auto it = ancestor_reconstruction_data.find(ancestor_name);
+            if (it == ancestor_reconstruction_data.end()) {
+                spdlog::warn("Ancestor '{}' not found in reconstruction data", ancestor_name);
+                continue;
+            }
+            const auto& data = it->second;
             spdlog::info("Building sequence for ancestor '{}' using voting", ancestor_name);
 
             // 找到对应的祖先节点

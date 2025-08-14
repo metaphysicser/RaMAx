@@ -174,6 +174,7 @@ namespace hal_converter {
      * @param ancestor_reconstruction_data 所有祖先的重建数据
      * @param ancestor_nodes 祖先节点信息
      * @param seqpro_managers 序列管理器映射
+     * @param reconstruction_plan 重建计划，确保正确的重建顺序
      * @param alignment 可选的HAL alignment对象，如果提供则直接存储到HAL中
      * @return 祖先名称到序列的映射
      */
@@ -181,6 +182,7 @@ namespace hal_converter {
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::vector<std::pair<std::string, std::string>>& reconstruction_plan,
         hal::AlignmentPtr alignment = nullptr);
 
     // ========================================

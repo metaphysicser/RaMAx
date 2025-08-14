@@ -312,7 +312,7 @@ namespace RaMesh {
                 spdlog::info("  Phase 2.3: Building ancestor sequences using voting method...");
 
                 ancestor_sequences = hal_converter::buildAllAncestorSequencesByVoting(
-                    ancestor_reconstruction_data, ancestor_nodes, seqpro_managers, alignment);
+                    ancestor_reconstruction_data, ancestor_nodes, seqpro_managers, reconstruction_plan, alignment);
                 spdlog::info("  Phase 2.3 completed successfully");
 
             } else {
