@@ -2304,6 +2304,12 @@ namespace hal_converter {
                 for (const auto &pr : ckv.second) {
                     auto *bs = botIt->getBottomSegment();
                     bs->setCoordinates(pr.start, pr.length);
+
+                    // 如果是root（没有父基因组或本基因组没有top segments），显式将 TopParseIndex 置为 NULL_INDEX
+                    if (parentGenome->getParent() == nullptr || parentGenome->getNumTopSegments() == 0) {
+                        bs->setTopParseIndex(hal::NULL_INDEX);
+                    }
+
                     const hal_index_t botIdx = botIt->getArrayIndex();
                     parentKeyToBottomIdx.emplace(makeParentKey(pr.parent_genome, pr.parent_chr, pr.start, pr.length), botIdx);
                     botIt->toRight();
