@@ -278,8 +278,9 @@ namespace RaMesh {
             // ========================================
             spdlog::info("Phase 2: Reconstructing ancestor sequences...");
 
-            // 声明祖先序列变量，供后续阶段使用
-            std::map<std::string, std::string> ancestor_sequences;
+            // 声明祖先序列变量，供后续阶段使用 (ancestor_name -> chr_name -> chr_sequence)
+            std::map<std::string, std::map<std::string, std::string>> ancestor_sequences;
+            std::map<std::string, hal_converter::AncestorReconstructionData> ancestor_reconstruction_data;
 
             if (!ancestor_nodes.empty() && !blocks.empty()) {
                 // ========================================
@@ -301,7 +302,7 @@ namespace RaMesh {
                 // ========================================
                 spdlog::info("  Phase 2.2: Executing ancestor sequence reconstruction...");
 
-                auto ancestor_reconstruction_data = hal_converter::reconstructAncestorSequences(
+                ancestor_reconstruction_data = hal_converter::reconstructAncestorSequences(
                     reconstruction_plan, ancestor_nodes, seqpro_managers, const_cast<RaMeshMultiGenomeGraph&>(*this));
 
                 spdlog::info("  Phase 2.2 completed successfully");
@@ -326,9 +327,10 @@ namespace RaMesh {
             // - 为各基因组创建并填充 Top/Bottom 段坐标
             // - 建立 parent-child 关系与 parse 信息
             // ========================================
-            spdlog::info("Phase 3: Building HAL segments from blocks (merged mapping phase)...");
+            spdlog::info("Phase 3: Building HAL segments from blocks (gap-aware mapping phase)...");
             if (!blocks.empty() && !ancestor_nodes.empty()) {
-                hal_converter::analyzeBlocksAndBuildHalStructure(blocks, ancestor_nodes, alignment);
+                hal_converter::analyzeBlocksAndBuildHalStructure(blocks, ancestor_nodes, alignment,
+                                                               ancestor_reconstruction_data, ancestor_sequences, seqpro_managers);
             } else {
                 spdlog::info("  Skipping mapping phase (no blocks or ancestors)");
             }

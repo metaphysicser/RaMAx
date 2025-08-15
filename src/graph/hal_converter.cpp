@@ -978,7 +978,7 @@ namespace hal_converter {
 
 
 
-    std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
+    std::map<std::string, std::map<std::string, std::string>> buildAllAncestorSequencesByVoting(
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
@@ -987,7 +987,7 @@ namespace hal_converter {
 
         spdlog::info("Building sequences for {} ancestors using voting method", ancestor_reconstruction_data.size());
 
-        std::map<std::string, std::string> ancestor_sequences;
+        std::map<std::string, std::map<std::string, std::string>> ancestor_sequences;
 
         // 按 reconstruction_plan 的顺序遍历，而不是 map 的字典序
         for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
@@ -1049,7 +1049,10 @@ namespace hal_converter {
                 std::vector<ChrSeq> built;
                 built.reserve(chr_names.size());
 
-                std::string full_ancestor_sequence;
+                // 为当前祖先创建染色体序列映射
+                std::map<std::string, std::string> chr_sequences;
+                size_t total_length = 0;
+
                 for (size_t chr_idx = 0; chr_idx < chr_names.size(); ++chr_idx) {
                     const auto& chr_name = chr_names[chr_idx];
                     std::string ancestor_chr_name = ancestor_name + ".chr" + std::to_string(chr_idx + 1);
@@ -1068,8 +1071,12 @@ namespace hal_converter {
                     if (!chr_data.segments.empty()) {
                         std::string chr_sequence = buildAncestorSequenceByVoting(
                             chr_data, *ancestor, seqpro_managers, ancestor_chr_name);
-                        built.push_back({ancestor_chr_name, std::move(chr_sequence), chr_data.segments.size()});
-                        full_ancestor_sequence += built.back().seq;
+                        built.push_back({ancestor_chr_name, chr_sequence, chr_data.segments.size()});
+
+                        // 使用祖先染色体名称作为key存储
+                        chr_sequences[ancestor_chr_name] = chr_sequence;  // ancestor_chr_name -> sequence
+
+                        total_length += chr_sequence.length();
                     }
                 }
 
@@ -1089,10 +1096,11 @@ namespace hal_converter {
                     }
                 }
 
-                ancestor_sequences[ancestor_name] = std::move(full_ancestor_sequence);
+                // 存储按染色体分别的序列
+                ancestor_sequences[ancestor_name] = std::move(chr_sequences);
 
                 spdlog::info("Successfully built sequence for ancestor '{}' using voting: {} chromosomes, {} bp total",
-                            ancestor_name, built.size(), ancestor_sequences[ancestor_name].length());
+                            ancestor_name, built.size(), total_length);
             } catch (const std::exception& e) {
                 spdlog::error("Failed to build sequence for ancestor '{}' using voting: {}", ancestor_name, e.what());
                 throw;
@@ -1104,9 +1112,13 @@ namespace hal_converter {
         // 输出统计信息
         spdlog::info("Ancestor sequence construction using voting completed:");
         size_t total_length = 0;
-        for (const auto& [ancestor_name, sequence] : ancestor_sequences) {
-            spdlog::info("  Ancestor '{}': {} bp", ancestor_name, sequence.length());
-            total_length += sequence.length();
+        for (const auto& [ancestor_name, chr_sequences] : ancestor_sequences) {
+            size_t ancestor_total = 0;
+            for (const auto& [chr_name, chr_seq] : chr_sequences) {
+                ancestor_total += chr_seq.length();
+            }
+            spdlog::info("  Ancestor '{}': {} chromosomes, {} bp total", ancestor_name, chr_sequences.size(), ancestor_total);
+            total_length += ancestor_total;
         }
         spdlog::info("  Total ancestor sequence length: {} bp", total_length);
 
@@ -1715,6 +1727,173 @@ namespace hal_converter {
         return mappings;
     }
 
+    /**
+     * 从祖先染色体序列中提取特定block的序列片段
+     */
+    std::string extractAncestorSequenceForBlock(
+        BlockPtr block,
+        const AncestorNode& ancestor,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences) {
+
+        if (!block) return "";
+
+        // 1. 查找祖先的染色体序列映射
+        auto ancestor_it = ancestor_sequences.find(ancestor.node_name);
+        if (ancestor_it == ancestor_sequences.end()) {
+            spdlog::debug("Ancestor '{}' sequences not found", ancestor.node_name);
+            return "";
+        }
+
+        // 2. 在block中查找该祖先的segment信息
+        SegPtr ancestor_segment = nullptr;
+        std::string chr_name;
+        {
+            std::shared_lock blk_lock(block->rw);
+            for (const auto& [species_chr, segment] : block->anchors) {
+                if (species_chr.first == ancestor.node_name) {
+                    ancestor_segment = segment;
+                    chr_name = species_chr.second;  // 获取染色体名称
+                    break;
+                }
+            }
+        }
+
+        if (!ancestor_segment) {
+            spdlog::debug("Ancestor '{}' segment not found in block", ancestor.node_name);
+            return "";
+        }
+
+        // 3. 查找对应染色体的序列
+        const auto& chr_sequences = ancestor_it->second;
+        auto chr_it = chr_sequences.find(chr_name);
+        if (chr_it == chr_sequences.end()) {
+            spdlog::debug("Ancestor '{}' chromosome '{}' sequence not found", ancestor.node_name, chr_name);
+            return "";
+        }
+
+        // 4. 从染色体序列中提取片段
+        const std::string& chr_sequence = chr_it->second;
+        size_t start = ancestor_segment->start;
+        size_t length = ancestor_segment->length;
+
+        if (start + length > chr_sequence.length()) {
+            spdlog::warn("Ancestor '{}' segment range [{}:{}] exceeds chromosome '{}' length {}",
+                        ancestor.node_name, start, start + length, chr_name, chr_sequence.length());
+            return "";
+        }
+
+        std::string fragment = chr_sequence.substr(start, length);
+
+        // 5. 处理反向链（如果需要）
+        if (ancestor_segment->strand == Strand::REVERSE) {
+            hal::reverseComplement(fragment);
+        }
+
+        spdlog::debug("Extracted ancestor '{}' fragment from chr '{}': {}:{} ({} bp, strand: {})",
+                     ancestor.node_name, chr_name, start, start + length, fragment.length(),
+                     (ancestor_segment->strand == Strand::REVERSE ? "REVERSE" : "FORWARD"));
+
+        return fragment;
+    }
+
+    /**
+     * 添加祖先序列到已对齐的叶子序列中
+     */
+    void addAncestorSequencesToAlignment(
+        BlockPtr block,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<std::string, AncestorReconstructionData>& ancestor_data,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences,
+        std::unordered_map<std::string, std::string>& aligned_sequences) {
+
+        if (!block) return;
+
+        // 遍历所有祖先节点
+        for (const auto& ancestor : ancestor_nodes) {
+            // 检查该祖先是否在当前block中有segment
+            bool ancestor_in_block = false;
+            {
+                std::shared_lock blk_lock(block->rw);
+                for (const auto& [species_chr, segment] : block->anchors) {
+                    if (species_chr.first == ancestor.node_name) {
+                        ancestor_in_block = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!ancestor_in_block) continue;
+
+            // 从祖先完整序列中提取该祖先在此block的序列片段
+            std::string ancestor_seq = extractAncestorSequenceForBlock(block, ancestor, ancestor_sequences);
+            if (!ancestor_seq.empty()) {
+                // 将祖先序列添加到对齐结果中
+                // 注意：祖先序列需要与叶子序列的对齐长度一致
+                // 这里先简单添加，后续可能需要调整长度
+                aligned_sequences[ancestor.node_name] = ancestor_seq;
+                spdlog::debug("Added ancestor '{}' sequence to alignment: {} bp",
+                             ancestor.node_name, ancestor_seq.length());
+            }
+        }
+    }
+
+    std::vector<CurrentBlockMapping> analyzeBlockWithGapHandling(
+        BlockPtr block,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<std::string, AncestorReconstructionData>& ancestor_data,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+
+        std::vector<CurrentBlockMapping> result;
+        if (!block) return result;
+
+        // 1. 提取叶子序列和CIGAR（只包含叶子物种）
+        auto [leaf_sequences, leaf_cigars] = extractSequencesAndCigarsFromBlock(block, seqpro_managers);
+        if (leaf_sequences.empty()) {
+            spdlog::warn("No leaf sequences extracted from block");
+            return result;
+        }
+
+        // 2. 选择参考序列（优先选择block的ref_chr对应的物种）
+        std::string ref_key;
+        {
+            std::shared_lock blk_lock(block->rw);
+            const auto& ref_chr = block->ref_chr;
+            for (const auto& [species_chr, segment] : block->anchors) {
+                if (species_chr.second == ref_chr) {
+                    const std::string& species_name = species_chr.first;
+                    if (leaf_sequences.find(species_name) != leaf_sequences.end()) {
+                        ref_key = species_name;
+                        break;
+                    }
+                }
+            }
+        }
+        // 回退：如果未找到，使用第一个叶子序列
+        if (ref_key.empty()) {
+            ref_key = leaf_sequences.begin()->first;
+            spdlog::debug("Using fallback reference sequence: {}", ref_key);
+        }
+
+        // 3. 对叶子序列进行多序列比对
+        try {
+            mergeAlignmentByRef(ref_key, leaf_sequences, leaf_cigars);
+            spdlog::debug("Multi-sequence alignment completed for {} leaf sequences", leaf_sequences.size());
+        } catch (const std::exception& e) {
+            spdlog::warn("mergeAlignmentByRef failed for block: {}, falling back to original method", e.what());
+            return analyzeCurrentBlock(block, ancestor_nodes);
+        }
+
+        // 4. 添加祖先序列到已对齐的序列中
+        addAncestorSequencesToAlignment(block, ancestor_nodes, ancestor_data, ancestor_sequences, leaf_sequences);
+
+        // TODO: 5. 按列分析并拆分映射（下一步实现）
+        // result = splitMappingsByColumns(leaf_sequences, ancestor_nodes, ref_key);
+
+        // 临时：返回原方法的结果，避免编译错误
+        return analyzeCurrentBlock(block, ancestor_nodes);
+    }
+
     void updateSegmentCounts(
         const std::vector<CurrentBlockMapping>& mappings,
         SegmentIndexManager& index_manager) {
@@ -1776,25 +1955,26 @@ namespace hal_converter {
     void analyzeBlocksAndBuildHalStructure(
         const std::vector<std::weak_ptr<Block>>& blocks,
         const std::vector<AncestorNode>& ancestor_nodes,
-        hal::AlignmentPtr alignment) {
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, AncestorReconstructionData>& ancestor_data,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
 
-        spdlog::info("Phase 3 (pass 1): Counting segments and updating HAL dimensions (non-overlap assumption)...");
+        spdlog::info("Phase 3 (pass 1): Counting segments with gap-aware mapping...");
 
         size_t totalBlocks = 0;
         SegmentIndexManager idxMgr;
+        std::map<BlockPtr, std::vector<CurrentBlockMapping>> refined_mappings; // 缓存拆分结果
+
         for (const auto& wb : blocks) {
             if (auto block = wb.lock()) {
                 totalBlocks++;
-                auto mappings = analyzeCurrentBlock(block, ancestor_nodes);
-                // // 遍历一遍mappings检查是否有length不同的情况
-                // for (const auto& m : mappings) {
-                //     for (const auto& ci : m.children) {
-                //         if (ci.child_length != m.parent_length) {
-                //             spdlog::error("Child length mismatch: {} != {}", ci.child_length, m.parent_length);
-                //         }
-                //     }
-                // }
-                updateSegmentCounts(mappings, idxMgr); 
+
+                // 使用gap-aware映射分析替代原来的analyzeCurrentBlock
+                auto split_mappings = analyzeBlockWithGapHandling(block, ancestor_nodes, ancestor_data, ancestor_sequences, seqpro_managers);
+                refined_mappings[block] = split_mappings;  // 缓存供第二轮使用
+
+                updateSegmentCounts(split_mappings, idxMgr);
             }
         }
 
@@ -1803,7 +1983,7 @@ namespace hal_converter {
 
         spdlog::info("Phase 3 (pass 1) completed: dimensions updated for {} genomes", idxMgr.dimensions_updated_genomes.size());
         // 第二遍：创建段并建立链接
-        spdlog::info("Phase 3 (pass 2): Creating segments and establishing parent-child links...");
+        spdlog::info("Phase 3 (pass 2): Creating segments from cached gap-aware mappings...");
 
         // 1) 重新遍历，聚合父段与子段，便于排序与索引分配
         struct ParentRun {
@@ -1842,7 +2022,8 @@ namespace hal_converter {
 
         for (const auto &wb : blocks) {
             if (auto block = wb.lock()) {
-                auto maps = analyzeCurrentBlock(block, ancestor_nodes);
+                // 使用缓存的gap-aware映射结果，而不是重新调用analyzeCurrentBlock
+                auto maps = refined_mappings[block];
                 for (auto &m : maps) {
                     ParentRun pr{m.parent_genome, m.parent_chr_name, static_cast<hal_index_t>(m.parent_start), m.parent_length, m.children};
                     parentRuns[pr.parent_genome][pr.parent_chr].push_back(std::move(pr));

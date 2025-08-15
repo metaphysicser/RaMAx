@@ -176,9 +176,9 @@ namespace hal_converter {
      * @param seqpro_managers 序列管理器映射
      * @param reconstruction_plan 重建计划，确保正确的重建顺序
      * @param alignment 可选的HAL alignment对象，如果提供则直接存储到HAL中
-     * @return 祖先名称到序列的映射
+     * @return 祖先序列映射 (ancestor_name -> chr_name -> chr_sequence)
      */
-    std::map<std::string, std::string> buildAllAncestorSequencesByVoting(
+    std::map<std::string, std::map<std::string, std::string>> buildAllAncestorSequencesByVoting(
         const std::map<std::string, AncestorReconstructionData>& ancestor_reconstruction_data,
         const std::vector<AncestorNode>& ancestor_nodes,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
@@ -377,11 +377,17 @@ namespace hal_converter {
      * @param blocks 所有的alignment blocks
      * @param ancestor_nodes 祖先节点信息
      * @param alignment HAL alignment对象
+     * @param ancestor_data 祖先重建数据（用于gap-aware映射）
+     * @param ancestor_sequences 祖先序列映射 (ancestor_name -> chr_name -> chr_sequence)
+     * @param seqpro_managers 序列管理器（用于提取序列）
      */
     void analyzeBlocksAndBuildHalStructure(
         const std::vector<std::weak_ptr<Block>>& blocks,
         const std::vector<AncestorNode>& ancestor_nodes,
-        hal::AlignmentPtr alignment);
+        hal::AlignmentPtr alignment,
+        const std::map<std::string, AncestorReconstructionData>& ancestor_data,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
      * 分析当前block中的segment关系（按你的算法思路）
@@ -392,6 +398,22 @@ namespace hal_converter {
     std::vector<CurrentBlockMapping> analyzeCurrentBlock(
         BlockPtr block,
         const std::vector<AncestorNode>& ancestor_nodes);
+
+    /**
+     * 使用gap-aware方法分析当前block的映射关系
+     * @param block 当前block
+     * @param ancestor_nodes 祖先节点信息
+     * @param ancestor_data 祖先重建数据
+     * @param ancestor_sequences 祖先序列映射 (ancestor_name -> chr_name -> chr_sequence)
+     * @param seqpro_managers 序列管理器
+     * @return 拆分后的映射关系列表
+     */
+    std::vector<CurrentBlockMapping> analyzeBlockWithGapHandling(
+        BlockPtr block,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::map<std::string, AncestorReconstructionData>& ancestor_data,
+        const std::map<std::string, std::map<std::string, std::string>>& ancestor_sequences,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
      * 更新segment计数器
