@@ -1789,9 +1789,9 @@ namespace hal_converter {
             hal::reverseComplement(fragment);
         }
 
-        spdlog::debug("Extracted ancestor '{}' fragment from chr '{}': {}:{} ({} bp, strand: {})",
-                     ancestor.node_name, chr_name, start, start + length, fragment.length(),
-                     (ancestor_segment->strand == Strand::REVERSE ? "REVERSE" : "FORWARD"));
+        // spdlog::debug("Extracted ancestor '{}' fragment from chr '{}': {}:{} ({} bp, strand: {})",
+        //              ancestor.node_name, chr_name, start, start + length, fragment.length(),
+        //              (ancestor_segment->strand == Strand::REVERSE ? "REVERSE" : "FORWARD"));
 
         return fragment;
     }
@@ -1827,14 +1827,215 @@ namespace hal_converter {
             // 从祖先完整序列中提取该祖先在此block的序列片段
             std::string ancestor_seq = extractAncestorSequenceForBlock(block, ancestor, ancestor_sequences);
             if (!ancestor_seq.empty()) {
-                // 将祖先序列添加到对齐结果中
-                // 注意：祖先序列需要与叶子序列的对齐长度一致
-                // 这里先简单添加，后续可能需要调整长度
                 aligned_sequences[ancestor.node_name] = ancestor_seq;
-                spdlog::debug("Added ancestor '{}' sequence to alignment: {} bp",
-                             ancestor.node_name, ancestor_seq.length());
+                // spdlog::debug("Added ancestor '{}' sequence to alignment: {} bp",
+                //              ancestor.node_name, ancestor_seq.length());
             }
         }
+    }
+
+    /**
+     * 区域信息结构
+     */
+    struct Region {
+        size_t start_col;
+        size_t end_col;
+        std::set<std::string> participants;
+
+        size_t length() const { return end_col - start_col; }
+    };
+
+    /**
+     * 分析参与者集合变化，拆分成连续区域
+     */
+    std::vector<Region> analyzeRegionsByParticipants(
+        const std::unordered_map<std::string, std::string>& aligned_sequences,
+        size_t alignment_length) {
+
+        std::vector<Region> regions;
+        if (alignment_length == 0) return regions;
+
+        std::set<std::string> current_participants;
+        size_t region_start = 0;
+
+        for (size_t col = 0; col < alignment_length; ++col) {
+            // 分析当前列的参与者
+            std::set<std::string> col_participants;
+            for (const auto& [species, sequence] : aligned_sequences) {
+                if (col < sequence.length() && sequence[col] != '-' && sequence[col] != 'N') {
+                    col_participants.insert(species);
+                }
+            }
+
+            // 检查参与者集合是否发生变化
+            if (col_participants != current_participants) {
+                // 如果不是第一列，先保存前一个区域
+                if (col > 0) {
+                    Region region;
+                    region.start_col = region_start;
+                    region.end_col = col;
+                    region.participants = current_participants;
+                    if (!region.participants.empty()) {
+                        regions.push_back(region);
+                    }
+                }
+
+                // 开始新区域
+                region_start = col;
+                current_participants = col_participants;
+            }
+        }
+
+        // 保存最后一个区域
+        if (!current_participants.empty()) {
+            Region region;
+            region.start_col = region_start;
+            region.end_col = alignment_length;
+            region.participants = current_participants;
+            regions.push_back(region);
+        }
+
+        return regions;
+    }
+
+    /**
+     * 从block中获取指定物种的segment信息
+     */
+    SegPtr getSegmentFromBlock(BlockPtr block, const std::string& species_name) {
+        if (!block) return nullptr;
+
+        std::shared_lock blk_lock(block->rw);
+        for (const auto& [species_chr, segment] : block->anchors) {
+            if (species_chr.first == species_name) {
+                return segment;
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * 从block中获取指定物种的染色体名称
+     */
+    std::string getChrNameFromBlock(BlockPtr block, const std::string& species_name) {
+        if (!block) return "";
+
+        std::shared_lock blk_lock(block->rw);
+        for (const auto& [species_chr, segment] : block->anchors) {
+            if (species_chr.first == species_name) {
+                return species_chr.second;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 计算由于gap导致的坐标偏移
+     */
+    hal_size_t calculateGapOffset(
+        const std::string& species_name,
+        const Region& region,
+        const std::unordered_map<std::string, std::string>& aligned_sequences) {
+
+        auto it = aligned_sequences.find(species_name);
+        if (it == aligned_sequences.end()) return 0;
+
+        const std::string& sequence = it->second;
+
+        // 计算区域开始位置之前有多少个非gap字符（包括'N'也当作gap）
+        hal_size_t offset = 0;
+        for (size_t i = 0; i < region.start_col && i < sequence.length(); ++i) {
+            if (sequence[i] != '-' && sequence[i] != 'N') {
+                offset++;
+            }
+        }
+
+        return offset;
+    }
+
+    /**
+     * 为单个区域创建映射块
+     */
+    std::vector<CurrentBlockMapping> createMappingsForRegion(
+        const Region& region,
+        const std::unordered_map<std::string, std::string>& aligned_sequences,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        BlockPtr block) {
+
+        std::vector<CurrentBlockMapping> mappings;
+
+        // 在该区域的参与者中找到所有祖先
+        for (const auto& ancestor : ancestor_nodes) {
+            if (region.participants.count(ancestor.node_name) == 0) continue;
+
+            // 从block中获取该祖先的原始segment信息
+            SegPtr parent_segment = getSegmentFromBlock(block, ancestor.node_name);
+            if (!parent_segment) continue;
+
+            CurrentBlockMapping mapping;
+            mapping.parent_genome = ancestor.node_name;
+            mapping.parent_chr_name = getChrNameFromBlock(block, ancestor.node_name);
+
+            // 计算由于gap导致的坐标偏移
+            hal_size_t parent_offset = calculateGapOffset(ancestor.node_name, region, aligned_sequences);
+            mapping.parent_start = parent_segment->start + parent_offset;
+
+            // 区域长度就是区域的列数（因为参与者在该区域内没有gap）
+            mapping.parent_length = region.length();
+
+            // 处理直系子
+            for (const auto& child_name : ancestor.direct_children_names) {
+                if (region.participants.count(child_name) == 0) continue;
+
+                SegPtr child_segment = getSegmentFromBlock(block, child_name);
+                if (!child_segment) continue;
+
+                CurrentBlockMapping::ChildInfo child_info;
+                child_info.child_genome = child_name;
+                child_info.child_chr_name = getChrNameFromBlock(block, child_name);
+
+                hal_size_t child_offset = calculateGapOffset(child_name, region, aligned_sequences);
+                child_info.child_start = child_segment->start + child_offset;
+                child_info.child_length = region.length();  // 与parent长度相同
+                child_info.is_reversed = (child_segment->strand != parent_segment->strand);
+
+                mapping.children.push_back(child_info);
+            }
+
+            // 只有当有直系子时才添加映射
+            if (!mapping.children.empty()) {
+                mappings.push_back(mapping);
+            }
+        }
+
+        return mappings;
+    }
+
+    /**
+     * 按列分析并拆分映射关系
+     */
+    std::vector<CurrentBlockMapping> splitMappingsByColumns(
+        const std::unordered_map<std::string, std::string>& aligned_sequences,
+        const std::vector<AncestorNode>& ancestor_nodes,
+        const std::string& ref_key,
+        BlockPtr block) {
+
+        std::vector<CurrentBlockMapping> result;
+        if (aligned_sequences.empty()) return result;
+
+        size_t alignment_length = aligned_sequences.begin()->second.length();
+        if (alignment_length == 0) return result;
+
+        // 1. 按列分析参与者集合变化，拆分成连续区域
+        std::vector<Region> regions = analyzeRegionsByParticipants(aligned_sequences, alignment_length);
+
+        // 2. 为每个区域生成映射块
+        for (const auto& region : regions) {
+            auto mappings = createMappingsForRegion(region, aligned_sequences, ancestor_nodes, block);
+            result.insert(result.end(), mappings.begin(), mappings.end());
+        }
+
+        // spdlog::debug("Split alignment into {} regions, generated {} mappings", regions.size(), result.size());
+        return result;
     }
 
     std::vector<CurrentBlockMapping> analyzeBlockWithGapHandling(
@@ -1878,7 +2079,7 @@ namespace hal_converter {
         // 3. 对叶子序列进行多序列比对
         try {
             mergeAlignmentByRef(ref_key, leaf_sequences, leaf_cigars);
-            spdlog::debug("Multi-sequence alignment completed for {} leaf sequences", leaf_sequences.size());
+            // spdlog::debug("Multi-sequence alignment completed for {} leaf sequences", leaf_sequences.size());
         } catch (const std::exception& e) {
             spdlog::warn("mergeAlignmentByRef failed for block: {}, falling back to original method", e.what());
             return analyzeCurrentBlock(block, ancestor_nodes);
@@ -1887,11 +2088,10 @@ namespace hal_converter {
         // 4. 添加祖先序列到已对齐的序列中
         addAncestorSequencesToAlignment(block, ancestor_nodes, ancestor_data, ancestor_sequences, leaf_sequences);
 
-        // TODO: 5. 按列分析并拆分映射（下一步实现）
-        // result = splitMappingsByColumns(leaf_sequences, ancestor_nodes, ref_key);
+        // 5. 按列分析并拆分映射
+        result = splitMappingsByColumns(leaf_sequences, ancestor_nodes, ref_key, block);
 
-        // 临时：返回原方法的结果，避免编译错误
-        return analyzeCurrentBlock(block, ancestor_nodes);
+        return result;
     }
 
     void updateSegmentCounts(
