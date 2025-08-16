@@ -446,6 +446,30 @@ namespace hal_converter {
         SegmentIndexManager& index_manager);
 
     /**
+     * 从缓存的映射关系创建段并建立链接
+     * @param alignment HAL alignment对象
+     * @param refined_mappings 缓存的映射关系
+     * @param index_manager segment索引管理器
+     */
+    void createSegmentsAndLinksFromMappings(
+        hal::AlignmentPtr alignment,
+        const std::map<BlockPtr, std::vector<CurrentBlockMapping>>& refined_mappings,
+        SegmentIndexManager& index_manager);
+
+    /**
+     * 为单个映射关系创建段并建立链接
+     * @param alignment HAL alignment对象
+     * @param mapping 单个映射关系
+     * @param current_top_indices 当前top段索引
+     * @param current_bottom_indices 当前bottom段索引
+     */
+    void createSegmentAndLinkForMapping(
+        hal::AlignmentPtr alignment,
+        const CurrentBlockMapping& mapping,
+        std::map<std::string, std::map<std::string, hal_index_t>>& current_top_indices,
+        std::map<std::string, std::map<std::string, hal_index_t>>& current_bottom_indices);
+
+    /**
      * 辅助函数：检查是否为叶节点
      */
     bool isLeafGenome(const std::string& genome_name, const std::vector<AncestorNode>& ancestor_nodes);
