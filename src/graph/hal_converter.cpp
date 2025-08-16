@@ -1944,7 +1944,7 @@ namespace hal_converter {
         // 计算区域开始位置之前有多少个非gap字符（包括'N'也当作gap）
         hal_size_t offset = 0;
         for (size_t i = 0; i < region.start_col && i < sequence.length(); ++i) {
-            if (sequence[i] != '-' && sequence[i] != 'N') {
+            if (sequence[i] != '-') {
                 offset++;
             }
         }
