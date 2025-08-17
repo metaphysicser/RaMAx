@@ -2232,7 +2232,6 @@ namespace hal_converter {
             hal::Genome* genome = alignment->openGenome(genomeName);
             if (genome) {
                 openGenomes[genomeName] = genome;
-                spdlog::debug("Opened genome '{}' for batch processing", genomeName);
             } else {
                 spdlog::warn("Failed to open genome '{}'", genomeName);
             }
@@ -2248,9 +2247,8 @@ namespace hal_converter {
             const std::string& genomeName = genomeChr.first;
             const std::string& chrName = genomeChr.second;
 
-            // 去重并排序
+            // 排序
             std::sort(segments.begin(), segments.end());
-            segments.erase(std::unique(segments.begin(), segments.end()), segments.end());
 
             // 使用已打开的基因组
             auto genomeIt = openGenomes.find(genomeName);
@@ -2298,9 +2296,8 @@ namespace hal_converter {
             const std::string& genomeName = genomeChr.first;
             const std::string& chrName = genomeChr.second;
 
-            // 去重并排序
+            // 排序
             std::sort(segments.begin(), segments.end());
-            segments.erase(std::unique(segments.begin(), segments.end()), segments.end());
 
             // 使用已打开的基因组
             auto genomeIt = openGenomes.find(genomeName);
@@ -2335,7 +2332,13 @@ namespace hal_converter {
             spdlog::debug("Written {} top segments for {}:{}", segments.size(), genomeName, chrName);
         }
 
-        // 6. 关闭所有打开的基因组
+
+        // 6. 建立父子映射关系
+        
+
+
+
+        // 关闭所有打开的基因组
         for (auto& [genomeName, genome] : openGenomes) {
             alignment->closeGenome(genome);
             spdlog::debug("Closed genome '{}'", genomeName);
