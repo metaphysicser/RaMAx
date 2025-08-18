@@ -2332,11 +2332,97 @@ namespace hal_converter {
             spdlog::debug("Written {} top segments for {}:{}", segments.size(), genomeName, chrName);
         }
 
-
         // 6. 建立父子映射关系
-        
+        spdlog::info("Phase 3 (pass 3): Establishing parent-child segment mappings...");
 
+        size_t totalMappings = 0;
+        size_t successfulMappings = 0;
 
+        for (const auto& [block, mappings] : refined_mappings) {
+            for (const auto& mapping : mappings) {
+                totalMappings++;
+
+                // 查找父段（BottomSegment）的索引
+                SegmentKey parentKey = std::make_tuple(mapping.parent_genome, mapping.parent_chr_name,
+                                                     static_cast<hal_index_t>(mapping.parent_start), mapping.parent_length);
+                auto parentIt = segmentIndexMap.find(parentKey);
+                if (parentIt == segmentIndexMap.end()) {
+                    spdlog::warn("Parent segment not found: {}:{} [{}, {}]",
+                               mapping.parent_genome, mapping.parent_chr_name,
+                               mapping.parent_start, mapping.parent_length);
+                    continue;
+                }
+                hal_index_t parentBottomIndex = parentIt->second;
+
+                // 获取父基因组和底段
+                auto parentGenomeIt = openGenomes.find(mapping.parent_genome);
+                if (parentGenomeIt == openGenomes.end()) {
+                    spdlog::warn("Parent genome not found: {}", mapping.parent_genome);
+                    continue;
+                }
+                hal::Genome* parentGenome = parentGenomeIt->second;
+
+                // 获取父段的BottomSegment（使用基因组级别的迭代器，因为parentBottomIndex是全局索引）
+                auto parentBottomIt = parentGenome->getBottomSegmentIterator(parentBottomIndex);
+                auto* parentBottomSeg = parentBottomIt->getBottomSegment();
+
+                // 处理所有子段
+                for (const auto& child : mapping.children) {
+                    // 查找子段（TopSegment）的索引
+                    SegmentKey childKey = std::make_tuple(child.child_genome, child.child_chr_name,
+                                                        static_cast<hal_index_t>(child.child_start), child.child_length);
+                    auto childIt = segmentIndexMap.find(childKey);
+                    if (childIt == segmentIndexMap.end()) {
+                        spdlog::warn("Child segment not found: {}:{} [{}, {}]",
+                                   child.child_genome, child.child_chr_name,
+                                   child.child_start, child.child_length);
+                        continue;
+                    }
+                    hal_index_t childTopIndex = childIt->second;
+
+                    // 获取子基因组
+                    auto childGenomeIt = openGenomes.find(child.child_genome);
+                    if (childGenomeIt == openGenomes.end()) {
+                        spdlog::warn("Child genome not found: {}", child.child_genome);
+                        continue;
+                    }
+                    hal::Genome* childGenome = childGenomeIt->second;
+
+                    // 获取子段的TopSegment（使用基因组级别的迭代器，因为childTopIndex是全局索引）
+                    auto childTopIt = childGenome->getTopSegmentIterator(childTopIndex);
+                    auto* childTopSeg = childTopIt->getTopSegment();
+
+                    // 获取子基因组在父基因组中的索引位置
+                    hal_index_t childGenomeIndex = parentGenome->getChildIndex(childGenome);
+                    if (childGenomeIndex == hal::NULL_INDEX) {
+                        spdlog::warn("Child genome {} is not a child of parent genome {}",
+                                   child.child_genome, mapping.parent_genome);
+                        continue;
+                    }
+
+                    // 建立父子链接
+                    // 1. 在父段中设置子段索引
+                    if (childGenomeIndex < parentBottomSeg->getNumChildren()) {
+                        parentBottomSeg->setChildIndex(childGenomeIndex, childTopIndex);
+                        parentBottomSeg->setChildReversed(childGenomeIndex, child.is_reversed);
+
+                        // 2. 在子段中设置父段索引
+                        childTopSeg->setParentIndex(parentBottomIndex);
+                        childTopSeg->setParentReversed(child.is_reversed);
+
+                        successfulMappings++;
+
+                    } else {
+                        spdlog::warn("Child genome index {} exceeds parent's numChildren {} for parent {}:{} [{}]",
+                                   childGenomeIndex, parentBottomSeg->getNumChildren(),
+                                   mapping.parent_genome, mapping.parent_chr_name, parentBottomIndex);
+                    }
+                }
+            }
+        }
+
+        spdlog::info("Phase 3 (pass 3) completed: {}/{} mappings established successfully",
+                   successfulMappings, totalMappings);
 
         // 关闭所有打开的基因组
         for (auto& [genomeName, genome] : openGenomes) {
@@ -2345,7 +2431,7 @@ namespace hal_converter {
         }
         openGenomes.clear();
 
-        spdlog::info("Phase 3 (pass 2) completed: All segments written, {} total segment mappings recorded", segmentIndexMap.size());
+        spdlog::info("Phase 3 completed: All segments written and mapped, {} total segment mappings recorded", segmentIndexMap.size());
 
     }
 

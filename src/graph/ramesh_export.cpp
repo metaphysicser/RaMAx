@@ -222,7 +222,6 @@ namespace RaMesh {
             spdlog::warn("No alignment blocks found - creating HAL with genomes only");
         }
 
-        try {
             // ========================================
             // 第一阶段：建立正确拓扑并写入叶基因组维度与DNA
             // - 基于真实Newick创建 root/内部祖先/叶 的拓扑
@@ -336,60 +335,7 @@ namespace RaMesh {
             }
             spdlog::info("Phase 3 completed successfully");
 
-            // ========================================
-            // 第四阶段：验证和完成
-            // ========================================
-            spdlog::info("Phase 4: Final validation and completion...");
 
-            // 4.1 验证HAL结构完整性
-            spdlog::info("  4.1: Validating HAL structure integrity...");
-            try {
-                // TODO: 实现完整的HAL结构验证
-                // hal_converter::validateHalStructure(alignment);
-                spdlog::info("    TODO: Validate segment continuity");
-                spdlog::info("    TODO: Verify parent-child relationships");
-                spdlog::info("    TODO: Ensure coordinate consistency");
-                spdlog::info("    TODO: Check DNA sequence integrity");
 
-                hal_converter::validateHalFile(alignment, hal_path);
-                spdlog::info("    HAL file validation passed");
-            } catch (const std::exception& e) {
-                spdlog::error("    HAL file validation failed: {}", e.what());
-                throw;
-            }
-
-            // 4.2 生成导出统计报告
-            spdlog::info("  4.2: Generating export statistics...");
-            // TODO: 生成详细的导出统计信息
-            // hal_converter::generateExportStatistics(alignment, processed_blocks);
-            spdlog::info("    TODO: Generate genome statistics");
-            spdlog::info("    TODO: Generate segment statistics");
-            spdlog::info("    TODO: Generate alignment coverage statistics");
-
-            // 4.3 关闭文件和清理
-            spdlog::info("  4.3: Closing files and cleanup...");
-            alignment->close();
-            spdlog::info("    HAL file closed successfully");
-
-            spdlog::info("Phase 4 completed successfully");
-
-            spdlog::info("HAL export completed successfully: {}", abs_hal_path.string());
-
-        } catch (const hal_exception& e) {
-            spdlog::error("HAL API error during export: {}", e.what());
-            spdlog::error("This usually indicates a problem with HAL file structure or API usage");
-            throw;
-        } catch (const std::filesystem::filesystem_error& e) {
-            spdlog::error("Filesystem error during export: {}", e.what());
-            spdlog::error("Path: {}", e.path1().string());
-            throw;
-        } catch (const std::runtime_error& e) {
-            spdlog::error("Runtime error during export: {}", e.what());
-            throw;
-        } catch (const std::exception& e) {
-            spdlog::error("Unexpected error during HAL export: {}", e.what());
-            spdlog::error("Export failed - HAL file may be incomplete or corrupted");
-            throw;
-        }
     }
 } // namespace RaMesh
