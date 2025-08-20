@@ -6,6 +6,7 @@
 #include <memory>
 #include <functional>
 #include <cctype>
+#include <optional>
 #include "../submodule/hal/api/inc/halDefs.h"
 #include <unordered_map>
 #include <set>
@@ -416,34 +417,43 @@ namespace hal_converter {
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
-     * 更新segment计数器
-     * @param mappings 当前block的映射关系
-     * @param index_manager segment索引管理器
+     * 连续段信息结构体
      */
-    void updateSegmentCounts(
-        const std::vector<CurrentBlockMapping>& mappings,
-        SegmentIndexManager& index_manager);
+    struct ContinuousSegmentInfo {
+        hal_index_t start;
+        hal_size_t length;
+        bool is_gap;                    // 是否是填充的间隙段
+        hal_index_t array_index = -1;   // HAL 数组索引（写入后记录）
+
+        // 原始映射信息（仅对非间隙段有效）
+        std::optional<std::pair<BlockPtr, size_t>> mapping_info;
+
+        bool operator<(const ContinuousSegmentInfo& other) const {
+            return start < other.start;
+        }
+    };
+
+    // 连续段映射类型
+    using ContinuousSegmentMap = std::map<std::pair<std::string, std::string>, std::vector<ContinuousSegmentInfo>>;
 
     /**
-     * 检查并更新HAL维度（批量处理）
+     * 创建连续段并更新HAL维度（整合方案）
      * @param alignment HAL alignment对象
-     * @param index_manager segment索引管理器
-     * @param force_update 是否强制更新所有未更新的基因组
+     * @param refined_mappings 精炼的映射关系
+     * @param seqpro_managers 序列管理器
+     * @return 连续的bottom和top段映射
      */
-    void checkAndUpdateHalDimensions(
+    std::pair<ContinuousSegmentMap, ContinuousSegmentMap> checkAndUpdateHalDimensions(
         hal::AlignmentPtr alignment,
-        SegmentIndexManager& index_manager);
+        const std::map<BlockPtr, std::vector<CurrentBlockMapping>>& refined_mappings,
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
 
     /**
-     * 为当前block创建HAL segments
-     * @param alignment HAL alignment对象
-     * @param mappings 当前block的映射关系
-     * @param index_manager segment索引管理器
      */
-    void createSegmentsForCurrentBlock(
-        hal::AlignmentPtr alignment,
-        const std::vector<CurrentBlockMapping>& mappings,
-        SegmentIndexManager& index_manager);
+    inline void createSegmentsForCurrentBlock(
+        hal::AlignmentPtr,
+        const std::vector<CurrentBlockMapping>&,
+        SegmentIndexManager&) {}
 
     /**
      * 从缓存的映射关系创建段并建立链接
