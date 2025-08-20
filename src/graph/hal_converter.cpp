@@ -181,7 +181,7 @@ namespace hal_converter {
                     }
                 };
 
-                // 正确填充“直接子节点”：仅 father == node.id 的一级孩子
+                // 正确填充"直接子节点"：仅 father == node.id 的一级孩子
                 ancestor.direct_children_names.clear();
                 for (const auto& n : nodes) {
                     if (n.father == node.id) {
@@ -754,7 +754,7 @@ namespace hal_converter {
                 // 提取DNA序列
                 std::string sequence = fetchSeq(it->second, chr_name, segment->start, segment->length);
 
-                // 关键修复：如果是反向链，进行反向互补转换
+                // 如果是反向链，进行反向互补转换
                 if (segment->strand == Strand::REVERSE) {
                     hal::reverseComplement(sequence);
                 }
@@ -1209,7 +1209,6 @@ namespace hal_converter {
                 genome->setDimensions(sequence_dimensions);
 
                 // 添加DNA数据（暂时用N填充）
-                // TODO 更换真实DNA数据
                 std::string dna_data(genome->getSequenceLength(), 'N');
                 genome->setString(dna_data);
 
@@ -2220,7 +2219,7 @@ namespace hal_converter {
         std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> bottomSegmentsFull;
         std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> topSegmentsFull;
 
-        // 基于 refined_mappings 的边界构建“统一切分网格”，用以生成完整段集合，确保父子边界一致
+        // 基于 refined_mappings 的边界构建"统一切分网格"，用以生成完整段集合，确保父子边界一致
         std::map<std::pair<std::string, std::string>, hal_size_t> seqLengths;
         std::map<std::pair<std::string, std::string>, std::set<hal_index_t>> bpBottom;
         std::map<std::pair<std::string, std::string>, std::set<hal_index_t>> bpTop;
@@ -2339,6 +2338,54 @@ namespace hal_converter {
             }
 
             genome->setDimensions(dims);
+
+            if (auto lit = seqpro_managers.find(genomeName); lit != seqpro_managers.end()) {
+                std::visit([&](const auto& mgr) {
+                    for (const auto& info : dims) {
+                        auto* hal_seq = genome->getSequence(info._name);
+                        if (!hal_seq) continue;
+                        hal_size_t len = info._length;
+                        if (len == 0) continue;
+                        std::string dna;
+                        using PtrType = std::decay_t<decltype(mgr)>;
+                        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                            auto chr_id = mgr->getSequenceId(info._name);
+                            if (chr_id != SeqPro::SequenceIndex::INVALID_ID) {
+                                dna = mgr->getSubSequence(chr_id, 0, len);
+                            }
+                        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                            auto chr_id = mgr->getSequenceId(info._name);
+                            if (chr_id != SeqPro::SequenceIndex::INVALID_ID) {
+                                dna = mgr->getOriginalManager().getSubSequence(chr_id, 0, len);
+                            }
+                        }
+                        if (!dna.empty()) {
+                            hal_seq->setString(dna);
+                        }
+                    }
+                }, *lit->second);
+            } else {
+                auto ait = ancestor_sequences.find(genomeName);
+                if (ait != ancestor_sequences.end()) {
+                    const auto& chr2seq = ait->second;
+                    for (const auto& info : dims) {
+                        auto* hal_seq = genome->getSequence(info._name);
+                        if (!hal_seq) continue;
+                        auto cs = chr2seq.find(info._name);
+                        if (cs != chr2seq.end()) {
+                            // Trim/pad to expected length
+                            std::string dna = cs->second;
+                            if (dna.size() > info._length) {
+                                dna.resize(info._length);
+                            } else if (dna.size() < info._length) {
+                                dna.append(info._length - dna.size(), 'N');
+                            }
+                            hal_seq->setString(dna);
+                        }
+                    }
+                }
+            }
+
             alignment->closeGenome(genome);
             genomesUpdated++;
             spdlog::debug("  setDimensions applied to genome '{}' ({} sequences)", genomeName, dims.size());
