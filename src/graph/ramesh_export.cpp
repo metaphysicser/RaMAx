@@ -205,7 +205,8 @@ namespace RaMesh {
     void RaMeshMultiGenomeGraph::exportToHal(const FilePath& hal_path,
                                             const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
                                             const std::string& newick_tree,
-                                            bool only_primary) const
+                                            bool only_primary,
+                                            const std::string& root_name) const
     {
         spdlog::info("Starting HAL export to: {}", hal_path.string());
         spdlog::info("Export configuration: {} species, tree={}, only_primary={}",
@@ -246,13 +247,14 @@ namespace RaMesh {
             NewickParser parser; // 创建NewickParser对象用于获取分支长度
 
             spdlog::info("  Parsing phylogenetic tree...");
-            ancestor_nodes = hal_converter::parsePhylogeneticTree(newick_tree, seqpro_managers);
+            ancestor_nodes = hal_converter::parsePhylogeneticTree(newick_tree, seqpro_managers, root_name);
             spdlog::info("  Found {} ancestor nodes from tree", ancestor_nodes.size());
 
             // 如果有Newick树，解析它以获取分支长度信息
             if (!newick_tree.empty()) {
                 try {
                     parser = NewickParser(newick_tree);
+                    hal_converter::ensureRootNode(parser, seqpro_managers, root_name);
                 } catch (const std::exception& e) {
                     spdlog::warn("Failed to parse Newick tree for branch lengths: {}", e.what());
                 }
@@ -260,7 +262,7 @@ namespace RaMesh {
 
             // 1.3 创建拓扑并为叶落盘维度与DNA
             if (!ancestor_nodes.empty()) {
-                hal_converter::createGenomesFromPhylogeny(alignment, ancestor_nodes, parser);
+                hal_converter::createGenomesFromPhylogeny(alignment, ancestor_nodes, parser, root_name);
                 spdlog::info("  Created genomes from phylogeny (topology only)");
                 // 为所有叶基因组设置真实维度与DNA
                 hal_converter::setupLeafGenomesWithRealDNA(alignment, seqpro_managers);
@@ -334,6 +336,45 @@ namespace RaMesh {
                 spdlog::info("  Skipping mapping phase (no blocks or ancestors)");
             }
             spdlog::info("Phase 3 completed successfully");
+
+            // 应用最终系统发育树（用用户指定根名重写）
+            try {
+                NewickParser final_parser = parser; // 以原解析器为基础
+                hal_converter::ensureRootNode(final_parser, seqpro_managers, root_name);
+                std::string final_newick = hal_converter::reconstructNewickFromParser(final_parser);
+                if (!final_newick.empty()) {
+                    alignment->replaceNewickTree(final_newick);
+                    spdlog::info("Applied final Newick tree with root '{}': {}", root_name, final_newick);
+                }
+            } catch (const std::exception& e) {
+                spdlog::warn("Failed to apply final Newick tree: {}", e.what());
+            }
+
+            // 确保实际根基因组名称与 --root 一致（必要时重命名）
+            try {
+                std::string currentRoot = alignment->getRootName();
+                if (currentRoot != root_name && !root_name.empty()) {
+                    if (alignment->openGenome(root_name) == nullptr) {
+                        if (auto* g = alignment->openGenome(currentRoot)) {
+                            g->rename(root_name);
+                            spdlog::info("Renamed HAL root genome '{}' -> '{}'", currentRoot, root_name);
+                        }
+                    } else {
+                        spdlog::warn("Genome with desired root name '{}' already exists; skip renaming", root_name);
+                    }
+                }
+
+                // 再次用当前树更新（以防 rename 未同步树名）
+                try {
+                    std::string treeNow = alignment->getNewickTree();
+                    NewickParser p2(treeNow);
+                    hal_converter::ensureRootNode(p2, seqpro_managers, root_name);
+                    std::string rebuilt = hal_converter::reconstructNewickFromParser(p2);
+                    if (!rebuilt.empty()) {
+                        alignment->replaceNewickTree(rebuilt);
+                    }
+                } catch (...) {}
+            } catch (...) {}
 
 
 

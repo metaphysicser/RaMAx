@@ -66,7 +66,8 @@ namespace hal_converter {
      */
     std::vector<AncestorNode> parsePhylogeneticTree(
         const std::string& newick_tree,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& root_name);
 
     /**
      * 检查树是否有显式根节点，如果没有则自动生成
@@ -75,7 +76,8 @@ namespace hal_converter {
      * @return 是否添加了新的根节点
      */
     bool ensureRootNode(NewickParser& parser,
-                       const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+                       const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                       const std::string& root_name);
 
     // ========================================
     // 祖先序列重建规划
@@ -245,7 +247,8 @@ namespace hal_converter {
      */
     std::vector<AncestorNode> extractAncestorNodes(
         const NewickParser& parser,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers);
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& root_name);
 
     /**
      * 验证叶节点名称是否与提供的物种名称匹配
@@ -302,7 +305,8 @@ namespace hal_converter {
     void createGenomesFromPhylogeny(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
-        const NewickParser& parser);
+        const NewickParser& parser,
+        const std::string& root_name);
 
     /**
      * 用正确的维度创建祖先基因组

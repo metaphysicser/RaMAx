@@ -13,7 +13,8 @@ namespace hal_converter {
 
     std::vector<AncestorNode> parsePhylogeneticTree(
         const std::string& newick_tree,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& root_name) {
 
         spdlog::info("Parsing phylogenetic tree to identify ancestor nodes...");
 
@@ -36,13 +37,13 @@ namespace hal_converter {
 
             // 检查并确保有根节点
             NewickParser mutable_parser = parser;  // 创建可修改的副本
-            bool added_root = ensureRootNode(mutable_parser, seqpro_managers);
+            bool added_root = ensureRootNode(mutable_parser, seqpro_managers, root_name);
             if (added_root) {
-                spdlog::info("Added artificial root node 'ancestor'");
+                spdlog::info("Added artificial root node '{}'", root_name);
             }
 
             // 提取祖先节点信息
-            ancestor_nodes = extractAncestorNodes(mutable_parser, seqpro_managers);
+            ancestor_nodes = extractAncestorNodes(mutable_parser, seqpro_managers, root_name);
 
             spdlog::info("Found {} ancestor nodes from tree", ancestor_nodes.size());
             for (const auto& ancestor : ancestor_nodes) {
@@ -59,7 +60,8 @@ namespace hal_converter {
     }
 
     bool ensureRootNode(NewickParser& parser,
-                       const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+                       const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                       const std::string& root_name) {
 
         const auto& nodes = parser.getNodes();
         if (nodes.empty()) {
@@ -84,12 +86,12 @@ namespace hal_converter {
 
         // 检查根节点是否是叶节点
         if (root_node.isLeaf) {
-            spdlog::info("Root is a leaf node, adding artificial root");
+            spdlog::info("Root is a leaf node, adding artificial root '{}'", root_name);
 
             // 创建新的根节点
             NewickTreeNode new_root;
             new_root.id = parser.currentIndex_++;
-            new_root.name = "ancestor";
+            new_root.name = root_name.empty() ? std::string("ancestor") : root_name;
             new_root.father = -1;
             new_root.isLeaf = false;
             new_root.branchLength = 0.0;
@@ -108,8 +110,8 @@ namespace hal_converter {
 
         // 检查根节点是否有名称，如果没有则设置默认名称
         if (root_node.name.empty()) {
-            parser.nodes_[root_id].name = "ancestor";
-            spdlog::info("Set root node name to 'ancestor'");
+            parser.nodes_[root_id].name = root_name.empty() ? std::string("ancestor") : root_name;
+            spdlog::info("Set root node name to '{}'", parser.nodes_[root_id].name);
             return true;
         }
 
@@ -118,7 +120,8 @@ namespace hal_converter {
 
     std::vector<AncestorNode> extractAncestorNodes(
         const NewickParser& parser,
-        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
+        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+        const std::string& root_name) {
 
         std::vector<AncestorNode> ancestor_nodes;
         const auto& nodes = parser.getNodes();
@@ -133,7 +136,7 @@ namespace hal_converter {
                 AncestorNode ancestor;
                 ancestor.node_name = node.name.empty() ? ("internal_" + std::to_string(node.id)) : node.name;
                 ancestor.branch_length = node.branchLength;
-                ancestor.is_generated_root = (node.name == "ancestor" && node.father == -1);
+                ancestor.is_generated_root = ((node.name == root_name || (root_name.empty() && node.name == "ancestor")) && node.father == -1);
 
                 // 计算树深度
                 ancestor.tree_depth = 0;
@@ -1295,7 +1298,8 @@ namespace hal_converter {
     void createGenomesFromPhylogeny(
         hal::AlignmentPtr alignment,
         const std::vector<AncestorNode>& ancestor_nodes,
-        const NewickParser& parser) {
+        const NewickParser& parser,
+        const std::string& preferred_root_name) {
 
         spdlog::info("Creating genomes from phylogeny (root / internal ancestors / leaves)...");
 
@@ -1308,7 +1312,7 @@ namespace hal_converter {
             }
         }
         if (root_name.empty()) {
-            root_name = "ancestor"; // 兜底
+            root_name = preferred_root_name.empty() ? std::string("ancestor") : preferred_root_name; // 兜底
             spdlog::warn("No explicit root found from ancestor_nodes, fallback to '{}'", root_name);
         }
 
