@@ -1947,7 +1947,8 @@ namespace hal_converter {
         // 计算区域开始位置之前有多少个非gap字符（包括'N'也当作gap）
         hal_size_t offset = 0;
         for (size_t i = 0; i < region.start_col && i < sequence.length(); ++i) {
-            if (sequence[i] != '-') {
+            char c = sequence[i];
+            if (c != '-' && c != 'N' && c != 'n') {
                 offset++;
             }
         }
@@ -1978,9 +1979,16 @@ namespace hal_converter {
             mapping.parent_genome = ancestor.node_name;
             mapping.parent_chr_name = getChrNameFromBlock(block, ancestor.node_name);
 
-            // 计算由于gap导致的坐标偏移
+            // 计算由于gap导致的坐标偏移（注意反向链需从右端计算）
             hal_size_t parent_offset = calculateGapOffset(ancestor.node_name, region, aligned_sequences);
+            {
+                const hal_size_t rlen = region.length();
+                if (parent_segment->strand == Strand::REVERSE) {
+                    mapping.parent_start = parent_segment->start + (parent_segment->length - (parent_offset + rlen));
+                } else {
             mapping.parent_start = parent_segment->start + parent_offset;
+                }
+            }
 
             // 区域长度就是区域的列数（因为参与者在该区域内没有gap）
             mapping.parent_length = region.length();
@@ -1997,7 +2005,14 @@ namespace hal_converter {
                 child_info.child_chr_name = getChrNameFromBlock(block, child_name);
 
                 hal_size_t child_offset = calculateGapOffset(child_name, region, aligned_sequences);
+                {
+                    const hal_size_t rlen = region.length();
+                    if (child_segment->strand == Strand::REVERSE) {
+                        child_info.child_start = child_segment->start + (child_segment->length - (child_offset + rlen));
+                    } else {
                 child_info.child_start = child_segment->start + child_offset;
+                    }
+                }
                 child_info.child_length = region.length();  // 与parent长度相同
                 child_info.is_reversed = (child_segment->strand != parent_segment->strand);
 
@@ -2262,30 +2277,38 @@ namespace hal_converter {
                 }
             }
         }
-        // 加入 0 与 序列末尾，使整条染色体被完整覆盖
-        for (const auto& [gchr, len] : seqLengths) {
-            bpBottom[gchr].insert(0);
-            bpBottom[gchr].insert(static_cast<hal_index_t>(len));
-            bpTop[gchr].insert(0);
-            bpTop[gchr].insert(static_cast<hal_index_t>(len));
+        // 加入 0 与 序列末尾，使整条染色体被完整覆盖（仅对各自角色存在的 key 生效）
+        for (auto& [gchr, bset] : bpBottom) {
+            if (auto itLen = seqLengths.find(gchr); itLen != seqLengths.end()) {
+                bset.insert(0);
+                bset.insert(static_cast<hal_index_t>(itLen->second));
+            }
+        }
+        for (auto& [gchr, tset] : bpTop) {
+            if (auto itLen = seqLengths.find(gchr); itLen != seqLengths.end()) {
+                tset.insert(0);
+                tset.insert(static_cast<hal_index_t>(itLen->second));
+            }
         }
 
-        auto buildFromBreakpoints = [](const std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>& bps)
-                                        -> std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> {
+        // 为每个 (genome, chr) 统一 top/bottom 的切分网格（取并集），确保 parse 对齐
+        auto buildFromUnifiedBreakpoints = [&](const std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>& roleBps,
+                                               const std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>& otherBps)
+                                                -> std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> {
             std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> out;
-            for (const auto& [key, s] : bps) {
-                if (s.size() < 2) {
-                    out[key] = {};
-                    continue;
+            for (const auto& [key, sMain] : roleBps) {
+                // 仅对该角色存在的 key 生成段；但切分点取 main 与 other 的并集
+                std::set<hal_index_t> uni = sMain;
+                if (auto it = otherBps.find(key); it != otherBps.end()) {
+                    uni.insert(it->second.begin(), it->second.end());
                 }
+                if (uni.size() < 2) { out[key] = {}; continue; }
                 std::vector<SimpleSegmentInfo> segs;
-                segs.reserve(s.size());
+                segs.reserve(uni.size());
                 hal_index_t prev = -1;
-                for (hal_index_t x : s) {
+                for (hal_index_t x : uni) {
                     if (prev == -1) { prev = x; continue; }
-                    if (x > prev) {
-                        segs.push_back(SimpleSegmentInfo{prev, static_cast<hal_size_t>(x - prev)});
-                    }
+                    if (x > prev) segs.push_back(SimpleSegmentInfo{prev, static_cast<hal_size_t>(x - prev)});
                     prev = x;
                 }
                 out[key] = std::move(segs);
@@ -2293,8 +2316,8 @@ namespace hal_converter {
             return out;
         };
 
-        bottomSegmentsFull = buildFromBreakpoints(bpBottom);
-        topSegmentsFull = buildFromBreakpoints(bpTop);
+        bottomSegmentsFull = buildFromUnifiedBreakpoints(bpBottom, bpTop);
+        topSegmentsFull = buildFromUnifiedBreakpoints(bpTop, bpBottom);
 
         size_t bottomFullGroups = 0, topFullGroups = 0;
         size_t bottomFullCount = 0, topFullCount = 0;
@@ -2469,7 +2492,7 @@ namespace hal_converter {
                 }
 
                 // 统一初始化 TopParseIndex 为 NULL_INDEX，稍后在 pass 2.5 中再建立真实 parse 链接
-                bs->setTopParseIndex(hal::NULL_INDEX);
+                    bs->setTopParseIndex(hal::NULL_INDEX);
 
                 // 记录 bottom 段索引映射
                 SegmentKey key = std::make_tuple(genomeName, chrName, seqGenomeStart + seg.start, seg.length);
