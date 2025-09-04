@@ -3,9 +3,14 @@
 #include <spdlog/spdlog.h>
 #include "../submodule/hal/api/inc/hal.h"
 #include "../submodule/hal/api/inc/halCommon.h"
+#include "../../include/threadpool.h"
+#include <mutex>
 
 namespace RaMesh {
 namespace hal_converter {
+
+    // 全局 HAL 写锁：保护所有对 hal::Alignment/Genome 的写操作（HDF5 非线程安全）
+    static std::mutex g_hal_write_mutex;
 
     // ========================================
     // 系统发育树解析和处理
@@ -583,13 +588,16 @@ namespace hal_converter {
                          ancestor_name, ref_leaf);
         }
 
-        // 按重建计划顺序处理每个祖先（深度优先）
+        // 并行处理每个祖先重建（计算密集，安全并行）
+        ThreadPool pool(std::max(1u, std::thread::hardware_concurrency()));
         for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
-            auto& data = ancestor_reconstruction_data[ancestor_name];
-
-            reconstructSingleAncestor(ancestor_name, ref_leaf, ancestor_nodes,
-                                    seqpro_managers, graph, data);
+            auto data_ptr = &ancestor_reconstruction_data[ancestor_name];
+            pool.enqueue([&, ancestor_name, ref_leaf, data_ptr]() {
+                reconstructSingleAncestor(ancestor_name, ref_leaf, ancestor_nodes,
+                                          seqpro_managers, graph, *data_ptr);
+            });
         }
+        pool.waitAllTasksDone();
 
         // 输出统计信息
         spdlog::info("Ancestor sequence reconstruction completed:");
@@ -992,125 +1000,94 @@ namespace hal_converter {
 
         std::map<std::string, std::map<std::string, std::string>> ancestor_sequences;
 
-        // 按 reconstruction_plan 的顺序遍历，而不是 map 的字典序
+        // 并行为每个祖先构建序列（计算并行，HAL 写入加锁）
+        ThreadPool pool(std::max(1u, std::thread::hardware_concurrency()));
+        std::mutex seq_write_mutex; // 保护 ancestor_sequences 的并发写入
+
         for (const auto& [ancestor_name, ref_leaf] : reconstruction_plan) {
-            auto it = ancestor_reconstruction_data.find(ancestor_name);
-            if (it == ancestor_reconstruction_data.end()) {
-                spdlog::warn("Ancestor '{}' not found in reconstruction data", ancestor_name);
-                continue;
-            }
-            const auto& data = it->second;
-            spdlog::info("Building sequence for ancestor '{}' using voting", ancestor_name);
-
-            // 找到对应的祖先节点
-            const AncestorNode* ancestor = nullptr;
-            for (const auto& node : ancestor_nodes) {
-                if (node.node_name == ancestor_name) {
-                    ancestor = &node;
-                    break;
+            pool.enqueue([&, ancestor_name, ref_leaf]() {
+                auto it = ancestor_reconstruction_data.find(ancestor_name);
+                if (it == ancestor_reconstruction_data.end()) {
+                    spdlog::warn("Ancestor '{}' not found in reconstruction data", ancestor_name);
+                    return;
                 }
-            }
+                const auto& data = it->second;
+                spdlog::info("Building sequence for ancestor '{}' using voting", ancestor_name);
 
-            if (!ancestor) {
-                spdlog::error("Cannot find ancestor node: {}", ancestor_name);
-                continue;
-            }
-
-            // 如果提供了alignment，打开祖先基因组用于直接存储
-            hal::Genome* genome = nullptr;
-            if (alignment) {
-                genome = alignment->openGenome(ancestor_name);
-                if (!genome) {
-                    // 若不存在，尝试以父节点为父新增（如父未知则挂根）
-                    std::string parent = ancestor->parent_name.empty() ? alignment->getRootName() : ancestor->parent_name;
-                    if (parent.empty()) parent = ancestor_name; // 兜底
-                    genome = alignment->addLeafGenome(ancestor_name, parent, ancestor->branch_length);
-                    if (!genome) {
-                        spdlog::warn("Cannot create ancestor genome '{}' for direct storage", ancestor_name);
-                    }
+                // 找到对应的祖先节点
+                const AncestorNode* ancestor = nullptr;
+                for (const auto& node : ancestor_nodes) {
+                    if (node.node_name == ancestor_name) { ancestor = &node; break; }
                 }
-            }
+                if (!ancestor) {
+                    spdlog::error("Cannot find ancestor node: {}", ancestor_name);
+                    return;
+                }
 
-            try {
-                // 获取参考叶子的所有染色体名称
+                // 读取参考叶子的所有染色体名称
                 std::vector<std::string> chr_names;
-                auto ref_it = seqpro_managers.find(data.reference_leaf);
-                if (ref_it != seqpro_managers.end()) {
-                    std::visit([&chr_names](const auto& mgr) {
-                        chr_names = mgr->getSequenceNames();
-                    }, *ref_it->second);
+                if (auto ref_it = seqpro_managers.find(data.reference_leaf); ref_it != seqpro_managers.end()) {
+                    std::visit([&chr_names](const auto& mgr) { chr_names = mgr->getSequenceNames(); }, *ref_it->second);
                 }
-
                 if (chr_names.empty()) {
                     spdlog::error("No chromosomes found for reference leaf: {}", data.reference_leaf);
-                    if (genome) alignment->closeGenome(genome);
-                    continue;
+                    return;
                 }
 
-                // 先构建 per-chr 序列列表
                 struct ChrSeq { std::string name; std::string seq; size_t segs; };
                 std::vector<ChrSeq> built;
                 built.reserve(chr_names.size());
 
-                // 为当前祖先创建染色体序列映射
                 std::map<std::string, std::string> chr_sequences;
                 size_t total_length = 0;
 
                 for (size_t chr_idx = 0; chr_idx < chr_names.size(); ++chr_idx) {
                     const auto& chr_name = chr_names[chr_idx];
                     std::string ancestor_chr_name = ancestor_name + ".chr" + std::to_string(chr_idx + 1);
-                    // 从data.segments中筛选出属于当前染色体的segments
+
                     AncestorReconstructionData chr_data;
                     chr_data.reference_leaf = data.reference_leaf;
                     chr_data.getSequenceId = data.getSequenceId;
-
                     SequenceId chr_id = data.getSequenceId(chr_name);
-                    for (const auto& segment : data.segments) {
-                        if (segment.chr_id == chr_id) {
-                            chr_data.segments.push_back(segment);
-                        }
-                    }
+                    for (const auto& segment : data.segments) if (segment.chr_id == chr_id) chr_data.segments.push_back(segment);
 
                     if (!chr_data.segments.empty()) {
-                        std::string chr_sequence = buildAncestorSequenceByVoting(
-                            chr_data, *ancestor, seqpro_managers, ancestor_chr_name);
+                        std::string chr_sequence = buildAncestorSequenceByVoting(chr_data, *ancestor, seqpro_managers, ancestor_chr_name);
                         built.push_back({ancestor_chr_name, chr_sequence, chr_data.segments.size()});
-
-                        // 使用祖先染色体名称作为key存储
-                        chr_sequences[ancestor_chr_name] = chr_sequence;  // ancestor_chr_name -> sequence
-
+                        chr_sequences[ancestor_chr_name] = chr_sequence;
                         total_length += chr_sequence.length();
                     }
                 }
 
-                // 若已打开 genome，则一次性 setDimensions 后写 DNA
-                if (genome && !built.empty()) {
-                    std::vector<hal::Sequence::Info> dims;
-                    dims.reserve(built.size());
-                    for (const auto& cs : built) {
-                        dims.emplace_back(cs.name, static_cast<hal_size_t>(cs.seq.size()), 0, 0);
+                // 写入 HAL（需要加全局锁）
+                if (alignment && !built.empty()) {
+                    std::lock_guard<std::mutex> lk(g_hal_write_mutex);
+                    hal::Genome* genome = alignment->openGenome(ancestor_name);
+                    if (!genome) {
+                        std::string parent = ancestor->parent_name.empty() ? alignment->getRootName() : ancestor->parent_name;
+                        if (parent.empty()) parent = ancestor_name;
+                        genome = alignment->addLeafGenome(ancestor_name, parent, ancestor->branch_length);
                     }
-                    genome->setDimensions(dims);
-                    for (const auto& cs : built) {
-                        if (auto* hal_seq = genome->getSequence(cs.name)) {
-                            hal_seq->setString(cs.seq);
-                            spdlog::debug("    Stored chromosome '{}': {} segments, {} bp", cs.name, cs.segs, cs.seq.size());
-                        }
+                    if (genome) {
+                        std::vector<hal::Sequence::Info> dims;
+                        dims.reserve(built.size());
+                        for (const auto& cs : built) dims.emplace_back(cs.name, static_cast<hal_size_t>(cs.seq.size()), 0, 0);
+                        genome->setDimensions(dims);
+                        for (const auto& cs : built) if (auto* hal_seq = genome->getSequence(cs.name)) hal_seq->setString(cs.seq);
+                        alignment->closeGenome(genome);
                     }
                 }
 
-                // 存储按染色体分别的序列
-                ancestor_sequences[ancestor_name] = std::move(chr_sequences);
+                {
+                    std::lock_guard<std::mutex> lk(seq_write_mutex);
+                    ancestor_sequences[ancestor_name] = std::move(chr_sequences);
+                }
 
                 spdlog::info("Successfully built sequence for ancestor '{}' using voting: {} chromosomes, {} bp total",
-                            ancestor_name, built.size(), total_length);
-            } catch (const std::exception& e) {
-                spdlog::error("Failed to build sequence for ancestor '{}' using voting: {}", ancestor_name, e.what());
-                throw;
-            }
-
-            if (genome) alignment->closeGenome(genome);
+                             ancestor_name, built.size(), total_length);
+            });
         }
+        pool.waitAllTasksDone();
 
         // 输出统计信息
         spdlog::info("Ancestor sequence construction using voting completed:");
@@ -1229,66 +1206,72 @@ namespace hal_converter {
         hal::AlignmentPtr alignment,
         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers) {
 
-        spdlog::info("Setting up leaf genomes with real chromosome dimensions and DNA...");
+        spdlog::info("Setting up leaf genomes with real chromosome dimensions and DNA (parallel read, locked write)...");
 
+        ThreadPool pool(std::max(1u, std::thread::hardware_concurrency()));
         for (const auto& [species_name, seq_mgr] : seqpro_managers) {
-            hal::Genome* genome = alignment->openGenome(species_name);
-            if (!genome) {
-                spdlog::warn("Cannot open leaf genome: {}", species_name);
-                continue;
-            }
+            pool.enqueue([alignment, species_name, seq_mgr]() {
+                // 1) 读取该叶物种的所有染色体名称与长度（无 HAL 访问，可并行）
+                std::vector<std::string> chr_names;
+                std::vector<hal::Sequence::Info> dims;
+                std::visit([&](const auto& mgr) {
+                    chr_names = mgr->getSequenceNames();
+                    dims.reserve(chr_names.size());
+                    for (const auto& chr : chr_names) {
+                        hal_size_t len = mgr->getSequenceLength(chr);
+                        dims.emplace_back(chr, len, 0, 0);
+                    }
+                }, *seq_mgr);
 
-            // 1) 读取该叶物种的所有染色体名称与长度
-            std::vector<std::string> chr_names;
-            std::vector<hal::Sequence::Info> dims;
-            std::visit([&](const auto& mgr) {
-                chr_names = mgr->getSequenceNames();
-                for (const auto& chr : chr_names) {
-                    hal_size_t len = mgr->getSequenceLength(chr);
-                    dims.emplace_back(chr, len, 0, 0);
+                if (dims.empty()) {
+                    spdlog::warn("  No chromosomes found for leaf genome: {}", species_name);
+                    return;
                 }
-            }, *seq_mgr);
 
-            if (dims.empty()) {
-                spdlog::warn("  No chromosomes found for leaf genome: {}", species_name);
-                alignment->closeGenome(genome);
-                continue;
-            }
+                // 2) 打开基因组并设置维度（HAL 写：需加锁）
+                hal::Genome* genome = nullptr;
+                {
+                    std::lock_guard<std::mutex> lk(g_hal_write_mutex);
+                    genome = alignment->openGenome(species_name);
+                    if (!genome) {
+                        spdlog::warn("Cannot open leaf genome: {}", species_name);
+                        return;
+                    }
+                    genome->setDimensions(dims);
+                }
 
-            // 2) 一次性设置维度
-            genome->setDimensions(dims);
-
-            // 3) 写入每条染色体DNA
-            std::visit([&](const auto& mgr) {
-                for (const auto& chr : chr_names) {
-                    const hal::Sequence* hal_seq_c = genome->getSequence(chr);
-                    if (!hal_seq_c) continue;
-                    auto chr_id = mgr->getSequenceId(chr);
-                    hal_size_t len = mgr->getSequenceLength(chr);
-
-                    // 分块拷贝避免一次性内存过大，可简单按整条获取
-                    std::string dna;
+                // 3) 逐条染色体读取 DNA 并写入（读取无锁，写 HAL 加锁）
+                std::visit([&](const auto& mgr) {
                     using PtrType = std::decay_t<decltype(mgr)>;
-                    if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-                        dna = mgr->getSubSequence(chr_id, 0, len);
-                    } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                        dna = mgr->getOriginalManager().getSubSequence(chr_id, 0, len);
-                    } else {
-                        static_assert(sizeof(PtrType) == 0, "Unhandled manager type in variant");
-                    }
+                    for (const auto& chr : chr_names) {
+                        auto chr_id = mgr->getSequenceId(chr);
+                        hal_size_t len = mgr->getSequenceLength(chr);
+                        std::string dna;
+                        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
+                            dna = mgr->getSubSequence(chr_id, 0, len);
+                        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                            dna = mgr->getOriginalManager().getSubSequence(chr_id, 0, len);
+                        }
 
-                    hal::Sequence* hal_seq = genome->getSequence(chr);
-                    if (hal_seq) {
-                        hal_seq->setString(dna);
+                        if (!dna.empty()) {
+                            std::lock_guard<std::mutex> lk(g_hal_write_mutex);
+                            if (auto* hal_seq = genome->getSequence(chr)) {
+                                hal_seq->setString(dna);
+                            }
+                        }
                     }
+                }, *seq_mgr);
+
+                {
+                    std::lock_guard<std::mutex> lk(g_hal_write_mutex);
+                    spdlog::info("  Leaf genome '{}' set: {} sequences, {} bp",
+                                 species_name, genome->getNumSequences(), genome->getSequenceLength());
+                    alignment->closeGenome(genome);
                 }
-            }, *seq_mgr);
-
-            spdlog::info("  Leaf genome '{}' set: {} sequences, {} bp",
-                         species_name, genome->getNumSequences(), genome->getSequenceLength());
-
-            alignment->closeGenome(genome);
+            });
         }
+
+        pool.waitAllTasksDone();
     }
 
 
@@ -2172,15 +2155,20 @@ namespace hal_converter {
         SegmentIndexManager idxMgr;
         std::map<BlockPtr, std::vector<CurrentBlockMapping>> refined_mappings; // 缓存拆分结果
 
+        // 并行分析每个 block 的 gap-aware 映射
+        ThreadPool pool(std::max(1u, std::thread::hardware_concurrency()));
+        std::mutex mapping_mutex;
         for (const auto& wb : blocks) {
             if (auto block = wb.lock()) {
                 totalBlocks++;
-
-                // 使用gap-aware映射分析替代原来的analyzeCurrentBlock
-                auto split_mappings = analyzeBlockWithGapHandling(block, ancestor_nodes, ancestor_data, ancestor_sequences, seqpro_managers);
-                refined_mappings[block] = split_mappings;  // 缓存供第二轮使用
+                pool.enqueue([&, block]() {
+                    auto split_mappings = analyzeBlockWithGapHandling(block, ancestor_nodes, ancestor_data, ancestor_sequences, seqpro_managers);
+                    std::lock_guard<std::mutex> lk(mapping_mutex);
+                    refined_mappings[block] = std::move(split_mappings);
+                });
             }
         }
+        pool.waitAllTasksDone();
 
         spdlog::info("  Blocks scanned: {}.", totalBlocks);
 
