@@ -2154,10 +2154,10 @@ namespace hal_converter {
         size_t totalBlocks = 0;
         SegmentIndexManager idxMgr;
         std::map<BlockPtr, std::vector<CurrentBlockMapping>> refined_mappings; // 缓存拆分结果
-
-        // 并行分析每个 block 的 gap-aware 映射
         ThreadPool pool(std::max(1u, std::thread::hardware_concurrency()));
         std::mutex mapping_mutex;
+
+        // Pass 1: 并行分析每个 block 的 gap-aware 映射
         for (const auto& wb : blocks) {
             if (auto block = wb.lock()) {
                 totalBlocks++;
@@ -2172,140 +2172,109 @@ namespace hal_converter {
 
         spdlog::info("  Blocks scanned: {}.", totalBlocks);
 
-        // 第二步：收集原始段（按物种/染色体分组，并按 start 排序，不写入 HAL）
+        // Pass 2 (并行聚合): 收集、排序、计算分裂点、生成完整段列表
         spdlog::info("Preparing raw segments (grouped by genome/chr, sorted by start)...");
-
         struct SimpleSegmentInfo {
             hal_index_t start;
             hal_size_t length;
-
-            bool operator<(const SimpleSegmentInfo& other) const {
-                if (start != other.start) return start < other.start;
-                return length < other.length;
-            }
+            bool operator<(const SimpleSegmentInfo& other) const { return start < other.start; }
         };
+        using SegMap = std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>>;
+        using BreakpointMap = std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>;
 
-        std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> rawBottomSegments;
-        std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> rawTopSegments;
+        // 2.1 并行聚合原始段和分裂点
+        std::vector<std::future<std::tuple<SegMap, SegMap, BreakpointMap, BreakpointMap>>> futures;
+        std::vector<BlockPtr> block_vec;
+        for (const auto& [b, _] : refined_mappings) block_vec.push_back(b);
 
-        for (const auto& [block, mappings] : refined_mappings) {
-            for (const auto& mapping : mappings) {
-                auto parentKey = std::make_pair(mapping.parent_genome, mapping.parent_chr_name);
-                rawBottomSegments[parentKey].push_back({static_cast<hal_index_t>(mapping.parent_start), mapping.parent_length});
+        for (auto& block : block_vec) {
+            futures.emplace_back(pool.enqueue([&, block]() {
+                SegMap local_raw_bottom, local_raw_top;
+                BreakpointMap local_bp_bottom, local_bp_top;
+                const auto& mappings = refined_mappings.at(block);
 
-                for (const auto& child : mapping.children) {
-                    auto childKey = std::make_pair(child.child_genome, child.child_chr_name);
-                    rawTopSegments[childKey].push_back({static_cast<hal_index_t>(child.child_start), child.child_length});
+                for (const auto& m : mappings) {
+                    auto pKey = std::make_pair(m.parent_genome, m.parent_chr_name);
+                    local_raw_bottom[pKey].push_back({(hal_index_t)m.parent_start, m.parent_length});
+                    local_bp_bottom[pKey].insert((hal_index_t)m.parent_start);
+                    local_bp_bottom[pKey].insert((hal_index_t)m.parent_start + m.parent_length);
+
+                    for (const auto& c : m.children) {
+                        auto cKey = std::make_pair(c.child_genome, c.child_chr_name);
+                        local_raw_top[cKey].push_back({(hal_index_t)c.child_start, c.child_length});
+                        local_bp_top[cKey].insert((hal_index_t)c.child_start);
+                        local_bp_top[cKey].insert((hal_index_t)c.child_start + c.child_length);
+                    }
                 }
-            }
+                return std::make_tuple(local_raw_bottom, local_raw_top, local_bp_bottom, local_bp_top);
+            }));
         }
 
-        // 对每个 (genome, chr) 的段按 start 进行稳定排序（不去重）
-        size_t rawBottomGroups = 0;
-        size_t rawTopGroups = 0;
-        size_t rawBottomCount = 0;
-        size_t rawTopCount = 0;
-
-        for (auto& [key, segs] : rawBottomSegments) {
-            std::sort(segs.begin(), segs.end());
-            rawBottomGroups++;
-            rawBottomCount += segs.size();
-        }
-        for (auto& [key, segs] : rawTopSegments) {
-            std::sort(segs.begin(), segs.end());
-            rawTopGroups++;
-            rawTopCount += segs.size();
+        SegMap rawBottomSegments, rawTopSegments;
+        BreakpointMap bpBottom, bpTop;
+        for (auto& fut : futures) {
+            auto [lrb, lrt, lbb, lbt] = fut.get();
+            for (auto& [k, v] : lrb) rawBottomSegments[k].insert(rawBottomSegments[k].end(), v.begin(), v.end());
+            for (auto& [k, v] : lrt) rawTopSegments[k].insert(rawTopSegments[k].end(), v.begin(), v.end());
+            for (auto& [k, v] : lbb) bpBottom[k].insert(v.begin(), v.end());
+            for (auto& [k, v] : lbt) bpTop[k].insert(v.begin(), v.end());
         }
 
-        spdlog::info("Raw segments prepared: bottom groups = {}, top groups = {}, total bottom segs = {}, total top segs = {}",
-                      rawBottomGroups, rawTopGroups, rawBottomCount, rawTopCount);
-
-        // 第三步：对每个 (genome, chr) 插入缝隙段（含首尾补齐），构建完整段集合，并用其计数更新 HAL 维度
-        spdlog::info("Phase 3 (pass 1): Filling gaps and updating HAL dimensions based on full segment sets...");
+        // 2.2 并行排序
+        for (auto& [k, v] : rawBottomSegments) pool.enqueue([&v] { std::sort(v.begin(), v.end()); });
+        for (auto& [k, v] : rawTopSegments) pool.enqueue([&v] { std::sort(v.begin(), v.end()); });
+        pool.waitAllTasksDone();
 
         std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> bottomSegmentsFull;
         std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> topSegmentsFull;
-
-        // 基于 refined_mappings 的边界构建"统一切分网格"，用以生成完整段集合，确保父子边界一致
-        std::map<std::pair<std::string, std::string>, hal_size_t> seqLengths;
-        std::map<std::pair<std::string, std::string>, std::set<hal_index_t>> bpBottom;
-        std::map<std::pair<std::string, std::string>, std::set<hal_index_t>> bpTop;
-
-        // 收集所有涉及的 (genome, chr) 以及各自的序列长度
+        
+        // 2.3 并行生成完整段列表
+        std::map<std::pair<std::string, std::string>, hal_size_t> seqLengths; // 需预先串行获取
         std::set<std::pair<std::string, std::string>> allKeys;
-        for (const auto& [block, mappings] : refined_mappings) {
-            for (const auto& m : mappings) {
-                allKeys.insert({m.parent_genome, m.parent_chr_name});
-                for (const auto& c : m.children) {
-                    allKeys.insert({c.child_genome, c.child_chr_name});
-                }
-            }
-        }
+        for(auto const& [key, val] : bpBottom) allKeys.insert(key);
+        for(auto const& [key, val] : bpTop) allKeys.insert(key);
+
         for (const auto& gchr : allKeys) {
-            const auto& genomeName = gchr.first;
-            const auto& chrName = gchr.second;
-            hal::Genome* g = alignment->openGenome(genomeName);
+            hal::Genome* g = alignment->openGenome(gchr.first);
             if (!g) continue;
-            if (auto* s = g->getSequence(chrName)) {
+            if (auto* s = g->getSequence(gchr.second)) {
                 seqLengths[gchr] = s->getSequenceLength();
             }
             alignment->closeGenome(g);
         }
 
-        // 以 refined_mappings 的 parent/child 边界作为切分点
-        for (const auto& [block, mappings] : refined_mappings) {
-            for (const auto& m : mappings) {
-                auto pKey = std::make_pair(m.parent_genome, m.parent_chr_name);
-                bpBottom[pKey].insert(static_cast<hal_index_t>(m.parent_start));
-                bpBottom[pKey].insert(static_cast<hal_index_t>(m.parent_start + m.parent_length));
-                for (const auto& c : m.children) {
-                    auto cKey = std::make_pair(c.child_genome, c.child_chr_name);
-                    bpTop[cKey].insert(static_cast<hal_index_t>(c.child_start));
-                    bpTop[cKey].insert(static_cast<hal_index_t>(c.child_start + c.child_length));
+        std::mutex bottom_full_mutex, top_full_mutex;
+        for (const auto& key : allKeys) {
+            pool.enqueue([&, key]() {
+                std::set<hal_index_t> uni_bp;
+                if(bpBottom.count(key)) uni_bp.insert(bpBottom.at(key).begin(), bpBottom.at(key).end());
+                if(bpTop.count(key)) uni_bp.insert(bpTop.at(key).begin(), bpTop.at(key).end());
+                if(seqLengths.count(key)) {
+                    uni_bp.insert(0);
+                    uni_bp.insert((hal_index_t)seqLengths.at(key));
                 }
-            }
-        }
-        // 加入 0 与 序列末尾，使整条染色体被完整覆盖（仅对各自角色存在的 key 生效）
-        for (auto& [gchr, bset] : bpBottom) {
-            if (auto itLen = seqLengths.find(gchr); itLen != seqLengths.end()) {
-                bset.insert(0);
-                bset.insert(static_cast<hal_index_t>(itLen->second));
-            }
-        }
-        for (auto& [gchr, tset] : bpTop) {
-            if (auto itLen = seqLengths.find(gchr); itLen != seqLengths.end()) {
-                tset.insert(0);
-                tset.insert(static_cast<hal_index_t>(itLen->second));
-            }
-        }
 
-        // 为每个 (genome, chr) 统一 top/bottom 的切分网格（取并集），确保 parse 对齐
-        auto buildFromUnifiedBreakpoints = [&](const std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>& roleBps,
-                                               const std::map<std::pair<std::string, std::string>, std::set<hal_index_t>>& otherBps)
-                                                -> std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> {
-            std::map<std::pair<std::string, std::string>, std::vector<SimpleSegmentInfo>> out;
-            for (const auto& [key, sMain] : roleBps) {
-                // 仅对该角色存在的 key 生成段；但切分点取 main 与 other 的并集
-                std::set<hal_index_t> uni = sMain;
-                if (auto it = otherBps.find(key); it != otherBps.end()) {
-                    uni.insert(it->second.begin(), it->second.end());
-                }
-                if (uni.size() < 2) { out[key] = {}; continue; }
+                if (uni_bp.size() < 2) return;
+
                 std::vector<SimpleSegmentInfo> segs;
-                segs.reserve(uni.size());
+                segs.reserve(uni_bp.size());
                 hal_index_t prev = -1;
-                for (hal_index_t x : uni) {
-                    if (prev == -1) { prev = x; continue; }
-                    if (x > prev) segs.push_back(SimpleSegmentInfo{prev, static_cast<hal_size_t>(x - prev)});
+                for(hal_index_t x : uni_bp) {
+                    if (prev != -1 && x > prev) segs.push_back({prev, (hal_size_t)(x - prev)});
                     prev = x;
                 }
-                out[key] = std::move(segs);
-            }
-            return out;
-        };
 
-        bottomSegmentsFull = buildFromUnifiedBreakpoints(bpBottom, bpTop);
-        topSegmentsFull = buildFromUnifiedBreakpoints(bpTop, bpBottom);
+                if (bpBottom.count(key)) {
+                    std::lock_guard<std::mutex> lk(bottom_full_mutex);
+                    bottomSegmentsFull[key] = segs;
+                }
+                if (bpTop.count(key)) {
+                    std::lock_guard<std::mutex> lk(top_full_mutex);
+                    topSegmentsFull[key] = segs;
+                }
+            });
+        }
+        pool.waitAllTasksDone();
 
         size_t bottomFullGroups = 0, topFullGroups = 0;
         size_t bottomFullCount = 0, topFullCount = 0;
