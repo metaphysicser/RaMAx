@@ -7,6 +7,7 @@
 #include <mutex>
 #include <chrono>
 #include <tuple>
+#include <unordered_map>
 
 namespace std {
     template<>
@@ -20,6 +21,16 @@ namespace std {
                 (hash_combine(result, args), ...);
             }, t);
             return result;
+        }
+    };
+
+    template<>
+    struct hash<std::pair<std::string, std::string>> {
+        size_t operator()(const std::pair<std::string, std::string>& p) const {
+            auto h1 = std::hash<std::string>{}(p.first);
+            auto h2 = std::hash<std::string>{}(p.second);
+            // A simple way to combine hashes
+            return h1 ^ (h2 << 1);
         }
     };
 }
@@ -2323,7 +2334,7 @@ namespace hal_converter {
 
         // 使用 setDimensions 一次性为每个基因组设置所有序列的 top/bottom 维度，避免区间重叠
         auto t_dim_start = __now();
-        spdlog::info("Phase 3 (pass 1): Resetting genome dimensions via setDimensions (no incremental updates)...");
+        spdlog::info("Phase 3 (pass 1): Updating segment dimensions (no DNA writes)...");
 
         // 需要更新的基因组集合
         std::set<std::string> genomesToUpdate;
@@ -2334,87 +2345,34 @@ namespace hal_converter {
         for (const auto& genomeName : genomesToUpdate) {
             hal::Genome* genome = alignment->openGenome(genomeName);
             if (!genome) {
-                spdlog::warn("Cannot open genome '{}' for setDimensions", genomeName);
+                spdlog::warn("Cannot open genome '{}' for updateDimensions", genomeName);
                 continue;
             }
 
-            std::vector<hal::Sequence::Info> dims;
-            dims.reserve(static_cast<size_t>(genome->getNumSequences()));
+            std::vector<hal::Sequence::UpdateInfo> topUpdates;
+            std::vector<hal::Sequence::UpdateInfo> bottomUpdates;
 
             for (auto seqIt = genome->getSequenceIterator(0); !seqIt->atEnd(); seqIt->toNext()) {
                 hal::Sequence* seq = seqIt->getSequence();
                 const std::string chrName = seq->getName();
-                const hal_size_t dnaLen = seq->getSequenceLength();
-
-                hal_size_t numTop = 0;
-                hal_size_t numBottom = 0;
 
                 if (auto it = topSegmentsFull.find(std::make_pair(genomeName, chrName)); it != topSegmentsFull.end()) {
-                    numTop = static_cast<hal_size_t>(it->second.size());
+                    topUpdates.emplace_back(chrName, static_cast<hal_size_t>(it->second.size()));
                 }
                 if (auto it = bottomSegmentsFull.find(std::make_pair(genomeName, chrName)); it != bottomSegmentsFull.end()) {
-                    numBottom = static_cast<hal_size_t>(it->second.size());
-                }
-
-                dims.emplace_back(chrName, dnaLen, numTop, numBottom);
-            }
-
-            genome->setDimensions(dims);
-
-            if (auto lit = seqpro_managers.find(genomeName); lit != seqpro_managers.end()) {
-                std::visit([&](const auto& mgr) {
-                    for (const auto& info : dims) {
-                        auto* hal_seq = genome->getSequence(info._name);
-                        if (!hal_seq) continue;
-                        hal_size_t len = info._length;
-                        if (len == 0) continue;
-                        std::string dna;
-                        using PtrType = std::decay_t<decltype(mgr)>;
-                        if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager>>) {
-                            auto chr_id = mgr->getSequenceId(info._name);
-                            if (chr_id != SeqPro::SequenceIndex::INVALID_ID) {
-                                dna = mgr->getSubSequence(chr_id, 0, len);
-                            }
-                        } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                            auto chr_id = mgr->getSequenceId(info._name);
-                            if (chr_id != SeqPro::SequenceIndex::INVALID_ID) {
-                                dna = mgr->getOriginalManager().getSubSequence(chr_id, 0, len);
-                            }
-                        }
-                        if (!dna.empty()) {
-                            hal_seq->setString(dna);
-                        }
-                    }
-                }, *lit->second);
-            } else {
-                auto ait = ancestor_sequences.find(genomeName);
-                if (ait != ancestor_sequences.end()) {
-                    const auto& chr2seq = ait->second;
-                    for (const auto& info : dims) {
-                        auto* hal_seq = genome->getSequence(info._name);
-                        if (!hal_seq) continue;
-                        auto cs = chr2seq.find(info._name);
-                        if (cs != chr2seq.end()) {
-                            // Trim/pad to expected length
-                            std::string dna = cs->second;
-                            if (dna.size() > info._length) {
-                                dna.resize(info._length);
-                            } else if (dna.size() < info._length) {
-                                dna.append(info._length - dna.size(), 'N');
-                            }
-                            hal_seq->setString(dna);
-                        }
-                    }
+                    bottomUpdates.emplace_back(chrName, static_cast<hal_size_t>(it->second.size()));
                 }
             }
+
+            if (!topUpdates.empty()) genome->updateTopDimensions(topUpdates);
+            if (!bottomUpdates.empty()) genome->updateBottomDimensions(bottomUpdates);
 
             alignment->closeGenome(genome);
             genomesUpdated++;
-            // spdlog::debug("  setDimensions applied to genome '{}' ({} sequences)", genomeName, dims.size());
         }
 
         auto t_dim_end = __now();
-        spdlog::info("  Pass3.dim: reset dims and DNA for {} genomes in {} ms", genomesUpdated, __ms(t_dim_start, t_dim_end));
+        spdlog::info("  Pass3.dim.update: updated top/bottom dims for {} genomes in {} ms", genomesUpdated, __ms(t_dim_start, t_dim_end));
 
         // 第二遍：从包含缝隙段的完整集合写入 HAL
         auto t_write_start = __now();
@@ -2529,71 +2487,14 @@ namespace hal_converter {
         auto t_write_top_end = __now();
         spdlog::info("  Pass3.writeTop: {} ms", __ms(t_write_top_start, t_write_top_end));
 
-        // 6.5 在同一基因组内建立 Top-Bottom parse 链接（pass 2.5）
-        auto t_parse_start = __now();
-        spdlog::info("Phase 3 (pass 2.5): Linking within-genome parse relations...");
-        size_t topParseLinked = 0;
-        size_t bottomParseLinked = 0;
-        for (const auto& [genomeChr, bSegs] : bottomSegments) {
-            const std::string& genomeName = genomeChr.first;
-            const std::string& chrName = genomeChr.second;
-            auto topSegsIt = topSegments.find(genomeChr);
-            if (topSegsIt == topSegments.end()) continue;
-            const auto& tSegs = topSegsIt->second;
-            auto genomeIt = openGenomes.find(genomeName);
-            if (genomeIt == openGenomes.end()) continue;
-            hal::Genome* genome = genomeIt->second;
-            size_t bi = 0;
-            for (const auto& t : tSegs) {
-                while (bi + 1 < bSegs.size() && (hal_index_t)(bSegs[bi].start + (hal_index_t)bSegs[bi].length) <= t.start) ++bi;
-                if (bi < bSegs.size()) {
-                    const auto& b = bSegs[bi];
-                    hal_index_t bStart = b.start;
-                    hal_index_t bEnd = b.start + (hal_index_t)b.length;
-                    if (t.start >= bStart && t.start < bEnd) {
-                        hal::Sequence* seq = genome->getSequence(chrName);
-                        hal_index_t seqStart = seq ? seq->getStartPosition() : 0;
-                        SegmentKey tKey = std::make_tuple(genomeName, chrName, seqStart + t.start, t.length);
-                        SegmentKey bKey = std::make_tuple(genomeName, chrName, seqStart + b.start, b.length);
-                        auto tFound = topIndexMap.find(tKey);
-                        auto bFound = bottomIndexMap.find(bKey);
-                        if (tFound != topIndexMap.end() && bFound != bottomIndexMap.end()) {
-                            hal_index_t tIdx = tFound->second;
-                            hal_index_t bIdx = bFound->second;
-                            auto topIt = genome->getTopSegmentIterator(tIdx);
-                            topIt->getTopSegment()->setBottomParseIndex(bIdx);
-                            ++topParseLinked;
-                        }
-                    }
-                }
-            }
-            size_t ti = 0;
-            for (const auto& b : bSegs) {
-                while (ti + 1 < tSegs.size() && (hal_index_t)(tSegs[ti].start + (hal_index_t)tSegs[ti].length) <= b.start) ++ti;
-                if (ti < tSegs.size()) {
-                    const auto& t = tSegs[ti];
-                    hal_index_t tStart = t.start;
-                    hal_index_t tEnd = t.start + (hal_index_t)t.length;
-                    if (b.start >= tStart && b.start < tEnd) {
-                        hal::Sequence* seq = genome->getSequence(chrName);
-                        hal_index_t seqStart = seq ? seq->getStartPosition() : 0;
-                        SegmentKey tKey = std::make_tuple(genomeName, chrName, seqStart + t.start, t.length);
-                        SegmentKey bKey = std::make_tuple(genomeName, chrName, seqStart + b.start, b.length);
-                        auto tFound = topIndexMap.find(tKey);
-                        auto bFound = bottomIndexMap.find(bKey);
-                        if (tFound != topIndexMap.end() && bFound != bottomIndexMap.end()) {
-                            hal_index_t tIdx = tFound->second;
-                            hal_index_t bIdx = bFound->second;
-                            auto botIt = genome->getBottomSegmentIterator(bIdx);
-                            botIt->getBottomSegment()->setTopParseIndex(tIdx);
-                            ++bottomParseLinked;
-                        }
-                    }
-                }
-            }
+        // 6.5 重建各基因组的 parse 信息（库内批量实现）
+        auto t_fixparse_start = __now();
+        spdlog::info("Phase 3 (pass 2.5): Fixing parse info per genome...");
+        for (auto& [genomeName, genome] : openGenomes) {
+            genome->fixParseInfo();
         }
-        auto t_parse_end = __now();
-        spdlog::info("  Pass3.parse: linked top->bottom: {}, bottom->top: {} in {} ms", topParseLinked, bottomParseLinked, __ms(t_parse_start, t_parse_end));
+        auto t_fixparse_end = __now();
+        spdlog::info("  Pass3.fixParseInfo: {} ms", __ms(t_fixparse_start, t_fixparse_end));
 
         // 6. 建立父子映射关系 (re-organized for data locality)
         auto t_map_start = __now();
@@ -2604,7 +2505,9 @@ namespace hal_converter {
             std::string parent_genome;
             std::string child_genome;
             std::string parent_chr_name;
+            std::string child_chr_name;
             hal_index_t parent_start;
+            hal_index_t child_start;
 
             // For lookup
             SegmentKey parent_key;
@@ -2612,13 +2515,20 @@ namespace hal_converter {
 
             // For linking
             bool is_reversed;
+        };
 
-            bool operator<(const ParentChildLink& other) const {
-                if (parent_genome != other.parent_genome) return parent_genome < other.parent_genome;
-                if (child_genome != other.child_genome) return child_genome < other.child_genome;
-                if (parent_chr_name != other.parent_chr_name) return parent_chr_name < other.parent_chr_name;
-                return parent_start < other.parent_start;
-            }
+        auto parent_sorter = [](const ParentChildLink& a, const ParentChildLink& b) {
+            if (a.parent_genome != b.parent_genome) return a.parent_genome < b.parent_genome;
+            if (a.child_genome != b.child_genome) return a.child_genome < b.child_genome;
+            if (a.parent_chr_name != b.parent_chr_name) return a.parent_chr_name < b.parent_chr_name;
+            return a.parent_start < b.parent_start;
+        };
+
+        auto child_sorter = [](const ParentChildLink& a, const ParentChildLink& b) {
+            if (a.child_genome != b.child_genome) return a.child_genome < b.child_genome;
+            if (a.parent_genome != b.parent_genome) return a.parent_genome < b.parent_genome;
+            if (a.child_chr_name != b.child_chr_name) return a.child_chr_name < b.child_chr_name;
+            return a.child_start < b.child_start;
         };
 
         std::vector<ParentChildLink> all_links;
@@ -2643,48 +2553,68 @@ namespace hal_converter {
                     hal_index_t childSeqStart = childSeq ? childSeq->getStartPosition() : 0;
                     SegmentKey cKey = std::make_tuple(child.child_genome, child.child_chr_name, childSeqStart + (hal_index_t)child.child_start, child.child_length);
                     all_links.push_back({
-                        mapping.parent_genome, child.child_genome, mapping.parent_chr_name, (hal_index_t)mapping.parent_start,
+                        mapping.parent_genome, child.child_genome, mapping.parent_chr_name, child.child_chr_name,
+                        (hal_index_t)mapping.parent_start, (hal_index_t)child.child_start,
                         pKey, cKey, child.is_reversed
                     });
                 }
             }
         }
 
-        std::sort(all_links.begin(), all_links.end());
-        
-        size_t successfulMappings = 0;
-
+        // Pass 3.1: Link Parent -> Child (sorted by parent)
+        auto t_p2c_start = __now();
+        std::sort(all_links.begin(), all_links.end(), parent_sorter);
+        size_t successful_p2c = 0;
         for(const auto& link : all_links) {
             auto parentIt = bottomIndexMap.find(link.parent_key);
             if (parentIt == bottomIndexMap.end()) continue;
-            hal_index_t parentBottomIndex = parentIt->second;
 
             auto childIt = topIndexMap.find(link.child_key);
             if (childIt == topIndexMap.end()) continue;
-            hal_index_t childTopIndex = childIt->second;
 
             hal::Genome* parentGenome = openGenomes.at(link.parent_genome);
             hal::Genome* childGenome = openGenomes.at(link.child_genome);
-
             hal_index_t childGenomeIndex = parentGenome->getChildIndex(childGenome);
             if (childGenomeIndex == hal::NULL_INDEX) continue;
 
-            auto parentBottomIt = parentGenome->getBottomSegmentIterator(parentBottomIndex);
+            auto parentBottomIt = parentGenome->getBottomSegmentIterator(parentIt->second);
             auto* parentBottomSeg = parentBottomIt->getBottomSegment();
-            auto childTopIt = childGenome->getTopSegmentIterator(childTopIndex);
-            auto* childTopSeg = childTopIt->getTopSegment();
 
             if (childGenomeIndex < parentBottomSeg->getNumChildren()) {
-                parentBottomSeg->setChildIndex(childGenomeIndex, childTopIndex);
+                parentBottomSeg->setChildIndex(childGenomeIndex, childIt->second);
                 parentBottomSeg->setChildReversed(childGenomeIndex, link.is_reversed);
-                childTopSeg->setParentIndex(parentBottomIndex);
-                childTopSeg->setParentReversed(link.is_reversed);
-                successfulMappings++;
+                successful_p2c++;
             }
         }
+        auto t_p2c_end = __now();
+        spdlog::info("  Pass3.parentChild.p2c: linked {} parent->child in {} ms", successful_p2c, __ms(t_p2c_start, t_p2c_end));
+
+        // Pass 3.2: Link Child -> Parent (sorted by child)
+        auto t_c2p_start = __now();
+        std::sort(all_links.begin(), all_links.end(), child_sorter);
+        size_t successful_c2p = 0;
+        for(const auto& link : all_links) {
+            auto parentIt = bottomIndexMap.find(link.parent_key);
+            if (parentIt == bottomIndexMap.end()) continue;
+
+            auto childIt = topIndexMap.find(link.child_key);
+            if (childIt == topIndexMap.end()) continue;
+
+            hal::Genome* childGenome = openGenomes.at(link.child_genome);
+            auto childTopIt = childGenome->getTopSegmentIterator(childIt->second);
+            auto* childTopSeg = childTopIt->getTopSegment();
+
+            childTopSeg->setParentIndex(parentIt->second);
+            childTopSeg->setParentReversed(link.is_reversed);
+            successful_c2p++;
+        }
+        auto t_c2p_end = __now();
+        spdlog::info("  Pass3.parentChild.c2p: linked {} child->parent in {} ms", successful_c2p, __ms(t_c2p_start, t_c2p_end));
+        
+        size_t successfulMappings = std::min(successful_p2c, successful_c2p);
 
         auto t_map_end = __now();
-        spdlog::info("  Pass3.parentChild: mapped {}/{} links in {} ms", successfulMappings, totalMappings, __ms(t_map_start, t_map_end));
+        spdlog::info("  Pass3.parentChild: mapped {}/{} links in {} ms (total)", successfulMappings, totalChildren, __ms(t_map_start, t_map_end));
 
         // 关闭所有打开的基因组
         auto t_close_start = __now();
