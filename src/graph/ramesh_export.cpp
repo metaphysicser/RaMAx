@@ -383,6 +383,33 @@ namespace RaMesh {
                 spdlog::debug("Final tree application took {} ms", __ms(__t4_start, __t4_end));
             } catch (const std::exception& e) {
                 spdlog::warn("Failed to apply final Newick tree: {}", e.what());
+                // 回退：基于当前 HAL 拓扑重建一个简化 Newick（不含真实分支长度，统一 :0）
+                try {
+                    auto buildNewickFromAlignment = [&](auto&& self, const std::string& name) -> std::string {
+                        auto children = alignment->getChildNames(name);
+                        std::string res;
+                        if (!children.empty()) {
+                            res += "(";
+                            for (size_t i = 0; i < children.size(); ++i) {
+                                if (i) res += ",";
+                                res += self(self, children[i]);
+                            }
+                            res += ")";
+                        }
+                        res += name + ":0"; // 无法可靠获取分支长度，给定占位 0
+                        return res;
+                    };
+                    std::string root = alignment->getRootName();
+                    if (root.empty()) {
+                        // 尝试使用最早创建的祖先作为根
+                        root = root_name.empty() ? std::string("ancestor") : root_name;
+                    }
+                    std::string fallback_newick = buildNewickFromAlignment(buildNewickFromAlignment, root) + ";";
+                    alignment->replaceNewickTree(fallback_newick);
+                    spdlog::info("Applied fallback Newick tree: {}", fallback_newick);
+                } catch (const std::exception& e2) {
+                    spdlog::warn("Fallback Newick application also failed: {}", e2.what());
+                }
             }
 
             // 确保实际根基因组名称与 --root 一致（必要时重命名）
