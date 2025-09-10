@@ -12,10 +12,10 @@
 #include <map>
 #include <vector>
 #include <spdlog/spdlog.h>
-#include <optional>
+#include <chrono>
 #include <variant>
-#include <functional>
-#include "../../submodule/hal/api/inc/hal.h"
+#include "../../submodule/hal/api/inc/halAlignmentInstance.h"
+#include "../../submodule/hal/api/inc/halGenome.h"
 
 // ============================================================
 // emitMafBlock —— 所有导出函数共享的“写一个 MAF 块”实现
@@ -208,6 +208,10 @@ namespace RaMesh {
                                             bool only_primary,
                                             const std::string& root_name) const
     {
+        auto __now = []() { return std::chrono::steady_clock::now(); };
+        auto __ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+        auto __us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+        auto __start_total = __now();
         spdlog::info("Starting HAL export to: {}", hal_path.string());
         spdlog::info("Export configuration: {} species, tree={}, only_primary={}",
                      seqpro_managers.size(), newick_tree.empty() ? "none" : "provided", only_primary);
@@ -228,9 +232,11 @@ namespace RaMesh {
             // - 基于真实Newick创建 root/内部祖先/叶 的拓扑
             // - 立刻为所有叶基因组 setDimensions + setString（来自 seqpro_managers）
             // ========================================
+            auto __t1_start = __now();
             spdlog::info("Phase 1: Establishing basic HAL structure...");
 
             // 1.1 创建HAL文件和alignment对象
+            auto __t11_start = __now();
             std::filesystem::path abs_hal_path = std::filesystem::absolute(hal_path);
             if (abs_hal_path.has_parent_path() && !abs_hal_path.parent_path().empty()) {
                 std::filesystem::create_directories(abs_hal_path.parent_path());
@@ -241,34 +247,50 @@ namespace RaMesh {
                 throw std::runtime_error("Failed to create HAL alignment instance");
             }
             spdlog::info("  HAL file created: {}", abs_hal_path.string());
+            auto __t11_end = __now();
+            spdlog::debug("  Phase 1.1 (open/create HAL) took {} ms", __ms(__t11_start, __t11_end));
 
-            // 1.2 解析系统发育树并识别祖先节点
+            // 1.2 解析系统发育树并识别祖先节点（单次解析并复用parser）
             std::vector<hal_converter::AncestorNode> ancestor_nodes;
             NewickParser parser; // 创建NewickParser对象用于获取分支长度
 
             spdlog::info("  Parsing phylogenetic tree...");
-            ancestor_nodes = hal_converter::parsePhylogeneticTree(newick_tree, seqpro_managers, root_name);
-            spdlog::info("  Found {} ancestor nodes from tree", ancestor_nodes.size());
-
-            // 如果有Newick树，解析它以获取分支长度信息
-            if (!newick_tree.empty()) {
-                try {
-                    parser = NewickParser(newick_tree);
-                    hal_converter::ensureRootNode(parser, seqpro_managers, root_name);
-                } catch (const std::exception& e) {
-                    spdlog::warn("Failed to parse Newick tree for branch lengths: {}", e.what());
+            auto __t12_start = __now();
+            if (newick_tree.empty()) {
+                throw std::runtime_error("Newick tree is required for HAL export but was empty");
+            }
+            auto __t12_end = __now();
+            spdlog::debug("  Phase 1.2 (parse/extract tree) took {} ms", __ms(__t12_start, __t12_end));
+            try {
+                parser = NewickParser(newick_tree);
+                hal_converter::ensureRootNode(parser, seqpro_managers, root_name);
+                auto [is_valid, error_msg] = hal_converter::validateLeafNames(parser, seqpro_managers);
+                if (!is_valid) {
+                    spdlog::warn("Leaf name validation failed: {}", error_msg);
+                    spdlog::warn("Proceeding with available species...");
                 }
+                ancestor_nodes = hal_converter::extractAncestorNodes(parser, seqpro_managers, root_name);
+                spdlog::info("  Found {} ancestor nodes from tree", ancestor_nodes.size());
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to parse Newick tree: {}", e.what());
+                throw;
             }
 
             // 1.3 创建拓扑并为叶落盘维度与DNA
             if (!ancestor_nodes.empty()) {
+                auto __t13_start = __now();
                 hal_converter::createGenomesFromPhylogeny(alignment, ancestor_nodes, parser, root_name);
                 spdlog::info("  Created genomes from phylogeny (topology only)");
                 // 为所有叶基因组设置真实维度与DNA
+                auto __t13a_start = __now();
                 hal_converter::setupLeafGenomesWithRealDNA(alignment, seqpro_managers);
                 spdlog::info("  Set up leaf genomes with real DNA");
+                auto __t13_end = __now();
+                spdlog::debug("  Phase 1.3 (create topology) took {} ms; leaves DNA took {} ms",
+                             __ms(__t13_start, __t13a_start), __ms(__t13a_start, __t13_end));
             }
-            spdlog::info("Phase 1 completed successfully");
+            auto __t1_end = __now();
+            spdlog::debug("Phase 1 completed successfully ({} ms)", __ms(__t1_start, __t1_end));
 
             // ========================================
             // 第二阶段：祖先序列重建并写入祖先基因组（维度+DNA）
@@ -277,6 +299,7 @@ namespace RaMesh {
             // - 2.3 按 voting 构建每条染色体的祖先序列，统一命名 ancestorName.chrN
             //       同步对祖先基因组 setDimensions + setString
             // ========================================
+            auto __t2_start = __now();
             spdlog::info("Phase 2: Reconstructing ancestor sequences...");
 
             // 声明祖先序列变量，供后续阶段使用 (ancestor_name -> chr_name -> chr_sequence)
@@ -287,6 +310,7 @@ namespace RaMesh {
                 // ========================================
                 // 子阶段 2.1：确定重建顺序与参考叶
                 // ========================================
+                auto __t21_start = __now();
                 spdlog::info("  Phase 2.1: Determining reconstruction order and reference leaves...");
 
                 auto reconstruction_plan = planAncestorReconstruction(ancestor_nodes, parser);
@@ -296,31 +320,37 @@ namespace RaMesh {
                     spdlog::debug("    Ancestor '{}' -> Reference leaf '{}'", ancestor_name, ref_leaf);
                 }
 
-                spdlog::info("  Phase 2.1 completed successfully");
+                auto __t21_end = __now();
+                spdlog::debug("  Phase 2.1 completed successfully ({} ms)", __ms(__t21_start, __t21_end));
 
                 // ========================================
                 // 子阶段 2.2：执行祖先节点重建
                 // ========================================
+                auto __t22_start = __now();
                 spdlog::info("  Phase 2.2: Executing ancestor sequence reconstruction...");
 
                 ancestor_reconstruction_data = hal_converter::reconstructAncestorSequences(
                     reconstruction_plan, ancestor_nodes, seqpro_managers, const_cast<RaMeshMultiGenomeGraph&>(*this));
 
-                spdlog::info("  Phase 2.2 completed successfully");
+                auto __t22_end = __now();
+                spdlog::debug("  Phase 2.2 completed successfully ({} ms)", __ms(__t22_start, __t22_end));
 
                 // ========================================
                 // 子阶段 2.3：构建祖先序列（投票法）
                 // ========================================
+                auto __t23_start = __now();
                 spdlog::info("  Phase 2.3: Building ancestor sequences using voting method...");
 
                 ancestor_sequences = hal_converter::buildAllAncestorSequencesByVoting(
                     ancestor_reconstruction_data, ancestor_nodes, seqpro_managers, reconstruction_plan, alignment);
-                spdlog::info("  Phase 2.3 completed successfully");
+                auto __t23_end = __now();
+                spdlog::debug("  Phase 2.3 completed successfully ({} ms)", __ms(__t23_start, __t23_end));
 
             } else {
                 spdlog::info("  Skipping ancestor reconstruction (no ancestors or blocks)");
             }
-            spdlog::info("Phase 2 completed successfully");
+            auto __t2_end = __now();
+            spdlog::debug("Phase 2 completed successfully ({} ms)", __ms(__t2_start, __t2_end));
 
             // ========================================
             // 第三阶段：映射阶段（从 RaMAx 块构建 HAL 段结构）
@@ -328,6 +358,7 @@ namespace RaMesh {
             // - 为各基因组创建并填充 Top/Bottom 段坐标
             // - 建立 parent-child 关系与 parse 信息
             // ========================================
+            auto __t3_start = __now();
             spdlog::info("Phase 3: Building HAL segments from blocks (gap-aware mapping phase)...");
             if (!blocks.empty() && !ancestor_nodes.empty()) {
                 hal_converter::analyzeBlocksAndBuildHalStructure(blocks, ancestor_nodes, alignment,
@@ -335,10 +366,12 @@ namespace RaMesh {
             } else {
                 spdlog::info("  Skipping mapping phase (no blocks or ancestors)");
             }
-            spdlog::info("Phase 3 completed successfully");
+            auto __t3_end = __now();
+            spdlog::debug("Phase 3 completed successfully ({} ms)", __ms(__t3_start, __t3_end));
 
             // 应用最终系统发育树（用用户指定根名重写）
             try {
+                auto __t4_start = __now();
                 NewickParser final_parser = parser; // 以原解析器为基础
                 hal_converter::ensureRootNode(final_parser, seqpro_managers, root_name);
                 std::string final_newick = hal_converter::reconstructNewickFromParser(final_parser);
@@ -346,12 +379,42 @@ namespace RaMesh {
                     alignment->replaceNewickTree(final_newick);
                     spdlog::info("Applied final Newick tree with root '{}': {}", root_name, final_newick);
                 }
+                auto __t4_end = __now();
+                spdlog::debug("Final tree application took {} ms", __ms(__t4_start, __t4_end));
             } catch (const std::exception& e) {
                 spdlog::warn("Failed to apply final Newick tree: {}", e.what());
+                // 回退：基于当前 HAL 拓扑重建一个简化 Newick（不含真实分支长度，统一 :0）
+                try {
+                    auto buildNewickFromAlignment = [&](auto&& self, const std::string& name) -> std::string {
+                        auto children = alignment->getChildNames(name);
+                        std::string res;
+                        if (!children.empty()) {
+                            res += "(";
+                            for (size_t i = 0; i < children.size(); ++i) {
+                                if (i) res += ",";
+                                res += self(self, children[i]);
+                            }
+                            res += ")";
+                        }
+                        res += name + ":0"; // 无法可靠获取分支长度，给定占位 0
+                        return res;
+                    };
+                    std::string root = alignment->getRootName();
+                    if (root.empty()) {
+                        // 尝试使用最早创建的祖先作为根
+                        root = root_name.empty() ? std::string("ancestor") : root_name;
+                    }
+                    std::string fallback_newick = buildNewickFromAlignment(buildNewickFromAlignment, root) + ";";
+                    alignment->replaceNewickTree(fallback_newick);
+                    spdlog::info("Applied fallback Newick tree: {}", fallback_newick);
+                } catch (const std::exception& e2) {
+                    spdlog::warn("Fallback Newick application also failed: {}", e2.what());
+                }
             }
 
             // 确保实际根基因组名称与 --root 一致（必要时重命名）
             try {
+                auto __t5_start = __now();
                 std::string currentRoot = alignment->getRootName();
                 if (currentRoot != root_name && !root_name.empty()) {
                     if (alignment->openGenome(root_name) == nullptr) {
@@ -374,9 +437,11 @@ namespace RaMesh {
                         alignment->replaceNewickTree(rebuilt);
                     }
                 } catch (...) {}
+                auto __t5_end = __now();
+                spdlog::debug("Root rename & final tree sync took {} ms", __ms(__t5_start, __t5_end));
             } catch (...) {}
-
-
+            auto __end_total = __now();
+            spdlog::debug("HAL export finished. Total time: {} ms ({} us)", __ms(__start_total, __end_total), __us(__start_total, __end_total));
 
     }
 } // namespace RaMesh
