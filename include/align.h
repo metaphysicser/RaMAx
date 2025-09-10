@@ -78,10 +78,22 @@ inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
     return m;
     }();
 
-inline void reverseComplement(std::string& seq) {
-    for (char& c : seq)
+// 只做“碱基互补”
+inline void complementSequence(std::string& seq) {
+    for (char& c : seq) {
         c = BASE_COMPLEMENT[static_cast<unsigned char>(c)];
+    }
+}
+
+// 只做“序列反转”
+inline void reverseSequence(std::string& seq) {
     std::reverse(seq.begin(), seq.end());
+}
+
+// 原来的 reverseComplement 就变成
+inline void reverseComplement(std::string& seq) {
+    complementSequence(seq);
+    reverseSequence(seq);
 }
 
 // ------------------------------------------------------------------
@@ -124,6 +136,8 @@ Score_t caculateMatchScore(const char* match, uint_t length);
  *  @param src  待追加的 CIGAR 片段
  * ------------------------------------------------------------------*/
 void appendCigar(Cigar_t& dst, const Cigar_t& src);
+
+void prependCigar(Cigar_t& dst, const Cigar_t& src);
 /* ------------------------------------------------------------------
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/
@@ -224,30 +238,31 @@ inline int auto_band(int qlen, int tlen,
 ///
 /// 其余参数均按 minimap2 常用设置来。
 ///
-inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
+inline KSW2AlignConfig makeTurboKSW2Config(
+    int qlen, int tlen,
     bool rev_cigar = false,
     double indel_rate = 0.05,
-    bool eqx_cigar = false)      // ← 新增
+    bool eqx_cigar = false)
 {
-    init_simd_mat();                          // 确保 scoring matrix 已准备好
+    init_simd_mat();                    // 确保打分矩阵已初始化
 
-    int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
-        KSW_EZ_APPROX_DROP |          // 近似最大 drop
-        KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
-    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
-    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+    int flags = KSW_EZ_APPROX_MAX       // 仅保留近似 max（可选）
+        | KSW_EZ_RIGHT;           // 右对齐 gap（与 bwa/minimap2 一致）
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR;
+    if (eqx_cigar) flags |= KSW_EZ_EQX;
 
     return {
-        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
+        .mat = dna5_simd_mat,                     // 5×5 DNA
         .alphabet_size = 5,
-        .gap_open = 5,                                     // -8 -1 model
+        .gap_open = 5,
         .gap_extend = 2,
         .end_bonus = 0,
-        .zdrop = 100,
-        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
-        .flag = flags
+        .zdrop = -1,                                // ❶ 关闭 Z-drop
+        .band_width = auto_band(qlen, tlen, indel_rate), // 可按需调整
+        .flag = flags                              // ❷ 无 KSW_EZ_APPROX_DROP
     };
 }
+
 
 
 KSW2AlignConfig makeDefaultKSW2Config();
@@ -255,7 +270,13 @@ KSW2AlignConfig makeDefaultKSW2Config();
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
 
+Cigar_t extendAlignKSW2(const std::string& ref,
+    const std::string& query,
+    int zdrop = 200);
 
+Cigar_t extendAlignWFA2(const std::string& ref,
+    const std::string& query,
+    int zdrop = 200);
 /* ────────────────────────────────────────────────────────────
  * 主函数：就地合并
  * ────────────────────────────────────────────────────────── */

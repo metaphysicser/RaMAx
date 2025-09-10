@@ -271,11 +271,16 @@ using AnchorVec = std::vector<Anchor>;
 
 AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
-    const SeqPro::ManagerVariant& query_mgr);
+    const SeqPro::ManagerVariant& query_mgr,
+    bool extend_end = true,
+    Length_t extend_len = 10000
+    );
 
 Anchor extendClusterToAnchor(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
-    const SeqPro::ManagerVariant& query_mgr);
+    const SeqPro::ManagerVariant& query_mgr,
+    bool extend_end = true, 
+    Length_t extend_len = 10000);
 
 // ------------------------------------------------------------------
 // 智能序列分块函数

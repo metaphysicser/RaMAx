@@ -470,43 +470,64 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 {
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
-	struct Node {
-		MatchCluster cl;
-		int_t        span;
-	};
-	auto cmp = [](const Node& a, const Node& b) { return a.span < b.span; };
+	uint_t anchor_count = static_cast<uint_t>((*cluster_vec_ptr).size());
+	std::vector<Anchor> anchors(anchor_count);
 
-	std::vector<Node> heap;
-	heap.reserve(cluster_vec_ptr->size());
+	ThreadPool pool(thread_num);
+	std::vector<std::future<void>> futures;
+	futures.reserve(thread_num);
 
-	for (auto& cl : *cluster_vec_ptr) {
-		if (cl.empty()) continue;
-		int_t sc = clusterSpan(cl);
-		if (sc >= min_span)
-			heap.push_back({ std::move(cl), sc });
+	// 计算每份的大小
+	uint_t chunk_size = (anchor_count + thread_num - 1) / thread_num;
+
+	for (int t = 0; t < thread_num; ++t) {
+		uint_t begin = t * chunk_size;
+		uint_t end = std::min(begin + chunk_size, anchor_count);
+		if (begin >= end) break;  // 没有任务时提前结束
+
+		futures.emplace_back(
+			pool.enqueue([&, begin, end]() {
+				for (uint_t i = begin; i < end; ++i) {
+					anchors[i] = extendClusterToAnchor(
+						(*cluster_vec_ptr)[i],
+						*ref_seqpro_manager,
+						query_seqpro_manager,
+						false
+					);
+				}
+				})
+		);
 	}
-	cluster_vec_ptr->clear();
-	std::make_heap(heap.begin(), heap.end(), cmp);
+
+	size_t done = 0;
+	size_t total = futures.size();
+
+	for (auto& f : futures) {
+		f.get();   // 阻塞直到当前 future 对应的任务完成
+		++done;
+		std::cout << "finish " << done << " / " << total << " tasks\n";
+	}
+
+	auto cmp = [](const Anchor& a, const Anchor& b) { return a.alignment_length < b.alignment_length; };
+
+	
+	std::make_heap(anchors.begin(),anchors.end(), cmp);
 
 	std::vector<IntervalMap> rMaps;
 	std::vector<IntervalMap> qMaps;
-	
 
-	// 初始化rMaps和qMaps
 
-	MatchClusterVec kept;
-	kept.reserve(heap.size());
 
-	while (!heap.empty()) {
+	while (!anchors.empty()) {
 
-		std::pop_heap(heap.begin(), heap.end(), cmp);
-		Node cur = std::move(heap.back());
-		heap.pop_back();
+		std::pop_heap(anchors.begin(), anchors.end(), cmp);
+		Anchor cur = std::move(anchors.back());
+		anchors.pop_back();
 
-		if (cur.span < min_span || cur.cl.empty()) continue;
+		if (cur.alignment_length < min_span) continue;
 
-		const ChrIndex refChr = cur.cl.front().ref_chr_index;
-		const ChrIndex qChr = cur.cl.front().qry_chr_index;
+		const ChrIndex refChr = cur.ref_chr_index;
+		const ChrIndex qChr = cur.qry_chr_index;
 
 		if (refChr >= rMaps.size()) {
 			rMaps.resize(refChr + 1);
@@ -515,19 +536,12 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 			qMaps.resize(qChr + 1);
 		}
 
-		Strand strand = cur.cl.front().strand();
-		uint_t rb = start1(cur.cl.front());
-		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
-		uint_t qb = 0;
-		uint_t qe = 0;
-		if (strand == FORWARD) {
-			qb = start2(cur.cl.front());
-			qe = start2(cur.cl.back()) + len2(cur.cl.back());
-		}
-		else {
-			qb = start2(cur.cl.back());
-			qe = start2(cur.cl.front()) + len2(cur.cl.front());
-		}
+		Strand strand = cur.strand;
+		uint_t rb = cur.ref_start;
+		uint_t re = cur.ref_start + cur.ref_len;
+		uint_t qb = cur.qry_start;
+		uint_t qe = cur.qry_start + cur.qry_len;
+
 
 		int_t RL = 0, RR = 0, QL = 0, QR = 0;
 
@@ -537,37 +551,128 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 		if (!ref_hit && !query_hit) {
 			insertInterval(rMaps[refChr], rb, re);
 			insertInterval(qMaps[qChr], qb, qe);
-			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
 			
-			AnchorVec anchor_vec = extendClusterToAnchorVec(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-			for (auto& anchor : anchor_vec) {
 
-				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
-
-			}
-			
-			
-			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {
-			//	AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
-			//	graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
-			//	// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
-			//	});
-
-			kept.emplace_back(cur.cl);
+			graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, cur, isMultiple);
 
 			continue;
-		}
-
-		for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR, query_hit, QL, QR)) {
-			int_t sc = clusterSpan(part);
-			if (sc >= min_span) {
-				heap.push_back({ part, sc });
-				std::push_heap(heap.begin(), heap.end(), cmp);
-			}
 		}
 	}
 	return;
 }
+///* ============================================================= *
+// *  把三维 clusters  ->  按 ref 的一维 clusters
+// *  并行对每个 ref 走 keepWithSplitGreedy，再写回三维结构
+// * ============================================================= */
+// /**
+//  * @brief  全局 MatchClusterVec 上执行“两级 map + 最大堆贪婪拆分”过滤
+//  *
+//  * @param cluster_vec_ptr  所有 clusters 的 shared_ptr
+//  * @param pool             ThreadPool（本实现单线程，参数仅留作占位）
+//  * @param min_span         最小跨度阈值
+//  */
+//void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span, bool isMultiple)
+//{
+//	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
+//
+//	struct Node {
+//		MatchCluster cl;
+//		int_t        span;
+//	};
+//	auto cmp = [](const Node& a, const Node& b) { return a.span < b.span; };
+//
+//	std::vector<Node> heap;
+//	heap.reserve(cluster_vec_ptr->size());
+//
+//	for (auto& cl : *cluster_vec_ptr) {
+//		if (cl.empty()) continue;
+//		int_t sc = clusterSpan(cl);
+//		if (sc >= min_span)
+//			heap.push_back({ std::move(cl), sc });
+//	}
+//	cluster_vec_ptr->clear();
+//	std::make_heap(heap.begin(), heap.end(), cmp);
+//
+//	std::vector<IntervalMap> rMaps;
+//	std::vector<IntervalMap> qMaps;
+//	
+//
+//	// 初始化rMaps和qMaps
+//
+//	MatchClusterVec kept;
+//	kept.reserve(heap.size());
+//
+//	while (!heap.empty()) {
+//
+//		std::pop_heap(heap.begin(), heap.end(), cmp);
+//		Node cur = std::move(heap.back());
+//		heap.pop_back();
+//
+//		if (cur.span < min_span || cur.cl.empty()) continue;
+//
+//		const ChrIndex refChr = cur.cl.front().ref_chr_index;
+//		const ChrIndex qChr = cur.cl.front().qry_chr_index;
+//
+//		if (refChr >= rMaps.size()) {
+//			rMaps.resize(refChr + 1);
+//		}
+//		if (qChr >= qMaps.size()) {
+//			qMaps.resize(qChr + 1);
+//		}
+//
+//		Strand strand = cur.cl.front().strand();
+//		uint_t rb = start1(cur.cl.front());
+//		uint_t re = start1(cur.cl.back()) + len1(cur.cl.back());
+//		uint_t qb = 0;
+//		uint_t qe = 0;
+//		if (strand == FORWARD) {
+//			qb = start2(cur.cl.front());
+//			qe = start2(cur.cl.back()) + len2(cur.cl.back());
+//		}
+//		else {
+//			qb = start2(cur.cl.back());
+//			qe = start2(cur.cl.front()) + len2(cur.cl.front());
+//		}
+//
+//		int_t RL = 0, RR = 0, QL = 0, QR = 0;
+//
+//		bool ref_hit = overlap1D(rMaps[refChr], rb, re, RL, RR);
+//		bool query_hit = overlap1D(qMaps[qChr], qb, qe, QL, QR);
+//
+//		if (!ref_hit && !query_hit) {
+//			insertInterval(rMaps[refChr], rb, re);
+//			insertInterval(qMaps[qChr], qb, qe);
+//			auto task_cl = std::make_shared<MatchCluster>(cur.cl);
+//			
+//			AnchorVec anchor_vec = extendClusterToAnchorVec(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+//			for (auto& anchor : anchor_vec) {
+//
+//				graph.insertAnchorIntoGraph(*ref_seqpro_manager,query_seqpro_manager, ref_name, query_name, anchor, isMultiple);
+//
+//			}
+//			
+//			
+//			//pool.enqueue([this, &graph, query_name, task_cl, &query_seqpro_manager] {
+//			//	AnchorVec anchor_vec = extendClusterToAnchor(*task_cl, *ref_seqpro_manager, query_seqpro_manager);
+//			//	graph.insertAnchorIntoGraph(ref_name, query_name, anchor_vec);
+//			//	// graph.insertClusterIntoGraph(ref_name, query_name, *task_cl);
+//			//	});
+//
+//			kept.emplace_back(cur.cl);
+//
+//			continue;
+//		}
+//
+//		for (auto& part : splitCluster(cur.cl, ref_hit, RL, RR, query_hit, QL, QR)) {
+//			int_t sc = clusterSpan(part);
+//			if (sc >= min_span) {
+//				heap.push_back({ part, sc });
+//				std::push_heap(heap.begin(), heap.end(), cmp);
+//			}
+//		}
+//	}
+//	return;
+//}
 
 void PairRareAligner::constructGraphByDpByRef(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, MatchClusterVecPtr cluster_vec_ptr, RaMesh::RaMeshMultiGenomeGraph& graph, ThreadPool& pool,uint_t thread_num, uint_t min_span, bool isMultiple)
 {

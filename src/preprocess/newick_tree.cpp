@@ -285,3 +285,63 @@ std::vector<std::string> NewickParser::getLeafNames() const {
     }
     return leaves;
 }
+
+// 在 NewickParser 声明里加（可放 public）：
+int NewickParser::findNodeIdByName(const std::string& name) const {
+    for (const auto& n : nodes_) {
+        if (n.name == name) return n.id;
+    }
+    return -1;
+}
+
+// 传入根 id，收集该子树所有 oldId，重建 nodes_ 并重新编号
+void NewickParser::restrictToSubtreeByRootId(int rootId) {
+    if (rootId < 0 || rootId >= (int)nodes_.size())
+        throw std::runtime_error("restrictToSubtreeByRootId: invalid root id");
+
+    // 收集子树所有 oldId
+    std::vector<int> stack{ rootId };
+    std::vector<int> kept; kept.reserve(nodes_.size());
+    std::vector<char> mark(nodes_.size(), 0);
+
+    while (!stack.empty()) {
+        int u = stack.back(); stack.pop_back();
+        if (mark[u]) continue;
+        mark[u] = 1;
+        kept.push_back(u);
+        const auto& nd = nodes_[u];
+        if (nd.leftChild != -1) stack.push_back(nd.leftChild);
+        if (nd.rightChild != -1) stack.push_back(nd.rightChild);
+    }
+
+    // oldId -> newId 映射
+    std::vector<int> old2new(nodes_.size(), -1);
+    std::vector<NewickTreeNode> newNodes; newNodes.reserve(kept.size());
+
+    // 先按 kept 的顺序建立新节点（重新编号为 0..k-1）
+    for (size_t i = 0; i < kept.size(); ++i) {
+        int oldId = kept[i];
+        old2new[oldId] = static_cast<int>(i);
+        NewickTreeNode nn = nodes_[oldId];
+        nn.id = static_cast<int>(i);
+        newNodes.push_back(std::move(nn));
+    }
+
+    // 修复 parent/children 指针到新编号；把 root 的 father 设为 -1
+    for (auto& nn : newNodes) {
+        // 映射 child
+        nn.leftChild = (nn.leftChild != -1 && old2new[nn.leftChild] != -1) ? old2new[nn.leftChild] : -1;
+        nn.rightChild = (nn.rightChild != -1 && old2new[nn.rightChild] != -1) ? old2new[nn.rightChild] : -1;
+        // 映射 father
+        nn.father = (nn.father != -1 && old2new[nn.father] != -1) ? old2new[nn.father] : -1;
+    }
+
+    // 确保新 root 的 father == -1
+    int newRoot = old2new[rootId];
+    if (newRoot >= 0 && newRoot < (int)newNodes.size()) {
+        newNodes[newRoot].father = -1;
+    }
+
+    nodes_.swap(newNodes);
+    currentIndex_ = static_cast<int>(nodes_.size());
+}
