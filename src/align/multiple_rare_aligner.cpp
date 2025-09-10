@@ -317,9 +317,10 @@ void addAlignedRegionsAsMask(
         return;
     }
     
+    #ifdef _DEBUG_
     spdlog::info("[addAlignedRegionsAsMask] Extracting aligned regions as mask intervals from {} blocks", 
                  graph.blocks.size());
-    
+    #endif
     // 按物种和染色体分组收集区间
     std::unordered_map<SpeciesName, std::unordered_map<ChrName, std::vector<SeqPro::MaskInterval>>> 
         species_chr_intervals;
@@ -358,10 +359,10 @@ void addAlignedRegionsAsMask(
             total_intervals++;
         }
     }
-    
+    #ifdef _DEBUG_
     spdlog::info("[addAlignedRegionsAsMask] Collected {} intervals from {} valid blocks across {} species", 
                  total_intervals, valid_blocks, species_chr_intervals.size());
-    
+    #endif
     // 为每个物种批量添加遮蔽区间
     for (auto& [species_name, chr_intervals] : species_chr_intervals) {
         try {
@@ -387,9 +388,10 @@ void addAlignedRegionsAsMask(
                 // 批量添加区间（segment中的坐标是遮蔽后的坐标，需要转换为原始坐标）
                 masked_manager->addMaskIntervals(seq_name, intervals);
                 species_total_intervals += intervals.size();
-                
+                #ifdef _DEBUG_
                 spdlog::debug("[addAlignedRegionsAsMask] Added {} intervals for {}:{}", 
                              intervals.size(), species_name, seq_name);
+                #endif
             }
             
             // 定案该物种的所有遮蔽区间

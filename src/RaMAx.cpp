@@ -57,6 +57,9 @@ struct CommonArgs {
     int index_threads = 0;                     // 索引构建专用线程数
     int align_threads = 0;                     // 比对专用线程数
 
+    // HAL root name
+    std::string root_name = "root";
+
     // 支持 cereal 序列化
     template<class Archive>
     void serialize(Archive &ar) {
@@ -89,6 +92,7 @@ struct CommonArgs {
             CEREAL_NVP(io_threads),
             CEREAL_NVP(index_threads),
             CEREAL_NVP(align_threads)
+            , CEREAL_NVP(root_name)
         );
     }
 };
@@ -390,6 +394,13 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
     auto *show_progress_flag = cmd->add_flag("--progress", args.show_progress,
                                              "Show progress bar.")
             ->group("Output Control");
+
+    // HAL root name option
+    cmd->add_option("--root", args.root_name,
+                    "Root genome name used in HAL (default: 'root')")
+        ->group("Output")
+        ->type_name("<string>")
+        ->transform(trim_whitespace);
 
     // Set dependencies and exclusions
     restart_flag->needs(workspace_opt);
@@ -732,13 +743,51 @@ int main(int argc, char **argv) {
         species_maf_files.emplace_back(sp, p);
     }
 
-    // 把species_names拼接到common_args.output_path中
-    // TODO双基因组比对模式后续要改为false，目前只是调试
-    graph->exportToMaf(common_args.output_path, seqpro_managers, true, true);
-    /// 导出没有反向链的maf仅供调试使用
-    // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
-    /// 导出多个参考maf
-    //graph->exportToMultipleMaf(species_maf_files, seqpro_managers, true, false);
+    // 清理seqpro_managers的所有遮蔽区间
+    for (const auto &[species_name, seq_mgr_variant] : seqpro_managers) {
+        std::visit([&](const auto& seq_mgr) {
+            seq_mgr->clearMaskedRegions();
+        }, *seq_mgr_variant);
+    }
+
+    // 根据输出格式选择导出方法
+    switch (common_args.output_format) {
+        case MultipleGenomeOutputFormat::MAF:
+            spdlog::info("Exporting to MAF format...");
+            // TODO双基因组比对模式后续要改为false，目前只是调试
+            graph->exportToMaf(common_args.output_path, seqpro_managers, true, true);
+            /// 导出没有反向链的maf仅供调试使用
+            // graph->exportToMafWithoutReverse(common_args.output_path, seqpro_managers, true, false);
+            /// 导出多个参考maf
+            //graph->exportToMultipleMaf(species_maf_files, seqpro_managers, true, false);
+            break;
+            
+        case MultipleGenomeOutputFormat::HAL:
+            spdlog::info("Exporting to HAL format...");
+            // 使用Newick树信息导出HAL格式
+            {
+                // 重新读取输入文件的第一行获取原始newick字符串
+                std::string newick_string;
+                std::ifstream ifs(common_args.input_path);
+                if (ifs.is_open() && std::getline(ifs, newick_string)) {
+                    // 去除首尾空白字符
+                    auto l = newick_string.find_first_not_of(" \t\r\n");
+                    auto r = newick_string.find_last_not_of(" \t\r\n");
+                    if (l != std::string::npos && r != std::string::npos) {
+                        newick_string = newick_string.substr(l, r - l + 1);
+                    }
+                    graph->exportToHal(common_args.output_path, seqpro_managers, newick_string, true, common_args.root_name);
+                } else {
+                    // 如果无法读取输入文件，则使用空的newick字符串（让exportToHal自动推断）
+                    spdlog::warn("Cannot read input file to extract Newick tree, will use automatic tree inference");
+                    graph->exportToHal(common_args.output_path, seqpro_managers, "", true, common_args.root_name);
+                }
+            }
+            break;
+            
+        default:
+            throw std::runtime_error("Unsupported output format for multiple genome alignment");
+    }
 
     // ------------------------------
     // 退出

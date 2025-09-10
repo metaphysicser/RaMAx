@@ -343,6 +343,12 @@ namespace RaMesh {
 
         void exportToMultipleMaf(const std::vector<std::pair<SpeciesName, FilePath>>& outs, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
 
+        void exportToHal(const FilePath& hal_path,
+                        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                        const std::string& newick_tree = "",
+                        bool only_primary = true,
+                        const std::string& root_name = "root") const;
+
         
         // ――― high-performance deletion methods ―――
         bool removeBlock(const BlockPtr& block);

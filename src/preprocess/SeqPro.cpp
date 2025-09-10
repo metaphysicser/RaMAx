@@ -898,6 +898,11 @@ void SequenceManager::setMaxThreads(size_t max_threads) {
   max_threads_ = std::max(size_t(1), max_threads);
 }
 
+void SequenceManager::clearMaskedRegions() {
+  // 对于SequenceManager，这是一个空操作
+  // 因为它不处理遮蔽区间
+}
+
 // ========================
 // MaskedSequenceManager 实现
 // ========================
@@ -1604,6 +1609,14 @@ void MaskedSequenceManager::clearMaskIntervals(SequenceId seq_id) {
   mask_manager_.clearMaskIntervals(seq_id);
   unfinalized_sequences_.erase(seq_id);
   cache_valid_ = false;
+}
+
+void MaskedSequenceManager::clearMaskedRegions() {
+  // 清除所有序列的遮蔽区间
+  std::vector<std::string> seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    clearMaskIntervals(seq_name);
+  }
 }
 
 bool MaskedSequenceManager::hasUnfinalizedIntervals() const {
