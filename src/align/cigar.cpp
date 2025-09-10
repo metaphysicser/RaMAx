@@ -110,6 +110,43 @@ void appendCigar(Cigar_t& dst, const Cigar_t& src)
 }
 
 /* ------------------------------------------------------------------
+ *  前置/拼接 CIGAR：若边界操作码相同则自动合并
+ *  ------------------------------------------------------------------
+ *  @param dst  目标 CIGAR（被前置）
+ *  @param src  待前置的 CIGAR 片段
+ * ------------------------------------------------------------------*/
+void prependCigar(Cigar_t& dst, const Cigar_t& src)
+{
+    if (src.empty()) return;                 // nothing to do
+
+    /* 1) dst 为空：直接 copy 整段 src */
+    if (dst.empty()) {
+        dst.insert(dst.begin(), src.begin(), src.end());
+        return;
+    }
+
+    /* 2) 检查“拼接点”——dst 的首元素 vs. src 的末元素 */
+    char op_dst; uint32_t len_dst;
+    intToCigar(dst.front(), op_dst, len_dst);
+
+    char op_src; uint32_t len_src;
+    intToCigar(src.back(), op_src, len_src);
+
+    if (op_dst == op_src) {
+        /* 2a) 操作码相同：将二者合并为一个条目 */
+        dst.front() = cigarToInt(op_dst, len_dst + len_src);
+        /*      把 src 的其余元素（0 .. size-2）插到最前面            */
+        dst.insert(dst.begin(),
+            src.begin(), src.end() - 1);   // 不含最后一个
+    }
+    else {
+        /* 2b) 操作码不同：整段直接插到前面 */
+        dst.insert(dst.begin(), src.begin(), src.end());
+    }
+}
+
+
+/* ------------------------------------------------------------------
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/
 void appendCigarOp(Cigar_t& dst, char op, uint32_t len)

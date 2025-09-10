@@ -730,410 +730,499 @@ ValidationResult validateAnchorsCorrectness(
 }
 
 
-AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
+/*------------------------------------------------------------------*/
+/*  WaveFront 配置：常规 affine + ends-free 版本                     */
+/*------------------------------------------------------------------*/
+inline wavefront_aligner_t* newDefaultWFA() {
+    static wavefront_aligner_attr_t attr = [] {
+        wavefront_aligner_attr_t a = wavefront_aligner_attr_default;
+        a.distance_metric = gap_affine;
+        a.affine_penalties.mismatch = 2;
+        a.affine_penalties.gap_opening = 3;
+        a.affine_penalties.gap_extension = 1;
+        a.memory_mode = wavefront_memory_ultralow;
+        a.heuristic.strategy = wf_heuristic_wfadaptive;
+        a.heuristic.min_wavefront_length = 10;
+        a.heuristic.max_distance_threshold = 50;
+        a.heuristic.steps_between_cutoffs = 1;
+        return a;
+        }();
+    return wavefront_aligner_new(&attr);
+}
+
+/* 可指定 ends-free 参数的 WFA（用于左右延伸）*/
+inline wavefront_aligner_t* newEndsFreeWFA(
+    int pat_begin_free, int pat_end_free,
+    int txt_begin_free, int txt_end_free)
+{
+    wavefront_aligner_attr_t a = wavefront_aligner_attr_default;
+    a.distance_metric = gap_affine;
+    a.affine_penalties = { 3, 1, 2 };        // 与 newDefaultWFA 相同
+    a.memory_mode = wavefront_memory_ultralow;
+    a.alignment_form.span = alignment_endsfree;
+    a.alignment_form.pattern_begin_free = pat_begin_free;
+    a.alignment_form.pattern_end_free = pat_end_free;
+    a.alignment_form.text_begin_free = txt_begin_free;
+    a.alignment_form.text_end_free = txt_end_free;
+    return wavefront_aligner_new(&a);
+}
+
+/*------------------------------------------------------------------*/
+/*  子串提取工具（支持 MaskedManager）                               */
+/*------------------------------------------------------------------*/
+inline std::string subSeq(const SeqPro::ManagerVariant& mv,
+    ChrIndex chr, Coord_t b, Coord_t l)
+{
+    return std::visit([&](auto& ptr) -> std::string {
+        using P = std::decay_t<decltype(ptr)>;
+        if constexpr (std::is_same_v<P,
+            std::unique_ptr<SeqPro::SequenceManager>>)
+            return ptr->getSubSequence(chr, b, l);
+        else
+            return ptr->getOriginalManager().getSubSequence(chr, b, l);
+        }, mv);
+}
+
+/*------------------------------------------------------------------*/
+/*     对单个 Anchor 进行左右 ends-free 延伸，更新坐标/CIGAR         */
+/*------------------------------------------------------------------*/
+static void extendAnchorEnds(Anchor& a,
     const SeqPro::ManagerVariant& ref_mgr,
-    const SeqPro::ManagerVariant& query_mgr)
+    const SeqPro::ManagerVariant& qry_mgr,
+    bool   left_extend = true,
+    bool   right_extend = true,
+    Length_t extend_len = 10000)
+{
+    if (!left_extend && !right_extend) return;
+
+    const bool fwd = (a.strand == FORWARD);
+    auto& cigar = a.cigar;
+    Length_t ref_chr_length = std::visit(
+        [&](auto& ptr) -> SeqPro::Length {
+            using P = std::decay_t<decltype(ptr)>;
+            if constexpr (std::is_same_v<P,
+                std::unique_ptr<SeqPro::SequenceManager>>) {
+                // plain SequenceManager → original length
+                return ptr->getSequenceLength(a.ref_chr_index);
+            }
+            else {
+                // MaskedSequenceManager → forward to its original manager
+                return ptr->getOriginalManager()
+                    .getSequenceLength(a.ref_chr_index);
+            }
+        },
+        ref_mgr
+    );
+
+    Length_t qry_chr_length = std::visit(
+        [&](auto& ptr) -> SeqPro::Length {
+            using P = std::decay_t<decltype(ptr)>;
+            if constexpr (std::is_same_v<P,
+                std::unique_ptr<SeqPro::SequenceManager>>) {
+                // plain SequenceManager → original length
+                return ptr->getSequenceLength(a.qry_chr_index);
+            }
+            else {
+                // MaskedSequenceManager → forward to its original manager
+                return ptr->getOriginalManager()
+                    .getSequenceLength(a.qry_chr_index);
+            }
+        },
+        qry_mgr
+    );
+
+    /* ---------- 左端延伸 ---------- */
+/* ---------- 左端延伸 ---------- */
+    if (left_extend) {
+        while (true) {
+            // 1) 计算这轮要对齐的 ref 区间 [ref_sub_start, ref_sub_start+ref_sub_len)
+            bool to_end = false;
+            Coord_t ref_sub_start = a.ref_start;
+            Length_t ref_sub_len = extend_len;
+			if (ref_sub_start < extend_len) {
+				// 如果 ref_start 小于 extend_len，说明要从头开始
+				ref_sub_len = ref_sub_start;  // 限制在染色体长度内
+				ref_sub_start = 0;             // 到头了
+                to_end = true;
+			}
+			else {
+				ref_sub_start -= extend_len;   // 向左延伸
+			}
+
+            // 2) 计算这轮要对齐的 qry 区间 [qry_sub_start, qry_sub_start+qry_sub_len)
+            Coord_t qry_sub_start;
+            Length_t qry_sub_len = extend_len;
+            
+            if (fwd) {
+                // + 链：向左延伸就是在 qry_start 之前取窗口
+                if (a.qry_start > extend_len) {
+                    qry_sub_start = a.qry_start - extend_len;
+                }
+                else {
+                    qry_sub_start = 0;
+                    qry_sub_len = a.qry_start;
+                    to_end = true; // 到头了
+                }
+            }
+            else {
+                // - 链：向左延伸对应 query 上在 (qry_start+qry_len) 之后
+                qry_sub_start = a.qry_start + a.qry_len;
+                if (qry_sub_start + qry_sub_len > qry_chr_length) {
+                    qry_sub_len = qry_chr_length - qry_sub_start;
+                    to_end = true;
+                }
+            }
+            if (!ref_sub_len || !qry_sub_len) {
+                // 如果子序列长度为 0，直接跳过
+                break;
+            }
+			Length_t sub_len = std::min(ref_sub_len, qry_sub_len);
+            // 3) 抽出子序列，revcomp（如果需要）
+            std::string ref_sub_seq = subSeq(ref_mgr, a.ref_chr_index,
+                ref_sub_start, sub_len);
+            std::string qry_sub_seq = subSeq(qry_mgr, a.qry_chr_index,
+                qry_sub_start, sub_len);
+            reverseSequence(ref_sub_seq);
+            if (fwd) {
+                reverseSequence(qry_sub_seq);
+            }
+            else {
+                complementSequence(qry_sub_seq);
+            }
+
+            // 4) 用 KSW2 延伸
+            
+            int tmp_ref_len = 0, tmp_qry_len = 0;
+            Cigar_t tmp_cigar = extendAlignKSW2(
+                ref_sub_seq, qry_sub_seq);
+
+            bool reach_break_len = false;
+            Cigar_t final_cigar;
+            for (auto& unit : tmp_cigar) {
+                uint32_t len;
+                char  op;   // 0=M,1=I,2=D,7='=',8='X'
+                intToCigar(unit, op, len);
+
+                if (op == 'I') {
+                    if (len > 200) {
+                        reach_break_len = true;
+                        break;
+                    }
+                    tmp_qry_len += len;
+
+                }
+                else if (op == 'D') {
+                    if (len > 200) {
+                        reach_break_len = true;
+                        break;
+                    }
+                    tmp_ref_len += len;
+                }
+                else {
+                    tmp_ref_len += len;
+                    tmp_qry_len += len;
+                }
+                final_cigar.push_back(unit);
+            }
+
+            // 5) 把本轮 tmp_cigar 插到总 cigar 前面
+			prependCigar(cigar, final_cigar);
+
+            // 6) 更新 Anchor 的 ref_start/ref_len
+			a.ref_start -= tmp_ref_len;
+			a.ref_len += tmp_ref_len;
+
+            if (fwd) {
+				a.qry_start -= tmp_qry_len;
+
+            }
+            a.qry_len += tmp_qry_len;
+            // 8) 退出条件：z-drop 或者已经到染色体/查询序列边界
+            bool ref_neq = tmp_ref_len != sub_len;
+            bool qry_neq = tmp_qry_len != sub_len;
+            if (ref_neq || qry_neq || to_end || reach_break_len) {
+                break;
+            }
+        }
+    }
+
+
+    /* ---------- 右端延伸 ---------- */
+    if (right_extend) {
+
+        while (true) {
+
+            Coord_t ref_start = a.ref_start + a.ref_len;
+            Length_t ref_sub_len = extend_len;
+            Coord_t qry_start;
+            if (fwd) {
+                qry_start = a.qry_start + a.qry_len;
+            }
+            else {
+                qry_start = a.qry_start;
+            }
+            Length_t qry_sub_len = extend_len;
+            bool to_end = false;
+           
+            if (ref_start + ref_sub_len > ref_chr_length) {
+                ref_sub_len = ref_chr_length - ref_start;  // 限制在染色体长度内
+				to_end = true;  // 到达染色体末尾
+            }
+
+            if (fwd) {
+                if (qry_start + qry_sub_len > qry_chr_length) {
+                    qry_sub_len = qry_chr_length - qry_start;  // 限制在染色体长度内
+                    to_end = true;
+                }
+            }
+            else {  
+                if (qry_start < qry_sub_len) {
+                    qry_sub_len = qry_start;  // 限制在染色体长度内
+                    qry_start = 0;            // 反向链从末尾开始
+                    to_end = true;
+                }
+                else {
+                    qry_start -= qry_sub_len;
+                }
+            }
+			if (!ref_sub_len || !qry_sub_len) {
+				// 如果子序列长度为 0，直接跳过
+				break;
+			}
+            Length_t sub_len = std::min(ref_sub_len, qry_sub_len);
+            std::string ref_sub_seq = subSeq(ref_mgr, a.ref_chr_index, ref_start, sub_len);
+            std::string qry_sub_seq = subSeq(qry_mgr, a.qry_chr_index, qry_start, sub_len);
+            if (!fwd) {
+                reverseComplement(qry_sub_seq);
+            }
+            
+            int tmp_ref_len = 0, tmp_qry_len = 0;
+            Cigar_t tmp_cigar = extendAlignKSW2(ref_sub_seq, qry_sub_seq);
+            bool reach_break_len = false;
+            Cigar_t final_cigar;
+            for (auto& unit : tmp_cigar) {
+                uint32_t len;
+                char  op;   // 0=M,1=I,2=D,7='=',8='X'
+                intToCigar(unit, op, len);
+
+                if (op == 'I') {
+                    if (len > 200) {
+                        reach_break_len = true;
+                        break;
+                    }
+                    tmp_qry_len += len;
+
+                }
+                else if (op == 'D') {
+                    if (len > 200) {
+                        reach_break_len = true;
+                        break;
+                    }
+                    tmp_ref_len += len;
+                }
+                else {
+                    tmp_ref_len += len;
+                    tmp_qry_len += len;
+                }
+				final_cigar.push_back(unit);
+            }
+
+            appendCigar(cigar, final_cigar);
+            a.ref_len += tmp_ref_len;
+
+            if (!fwd) {
+                a.qry_start -= tmp_qry_len;
+            }
+
+            a.qry_len += tmp_qry_len;
+
+            bool ref_neq = tmp_ref_len != sub_len;
+            bool qry_neq = tmp_qry_len != sub_len;
+            if (ref_neq || qry_neq || to_end || reach_break_len) {
+                break;
+            }
+
+            
+        }
+        
+    }
+}
+
+/* ---------- 核心实现：把 MatchCluster 扩展成一组 Anchor ---------- */
+static AnchorVec extendClusterCore(const MatchCluster& cluster,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& qry_mgr,
+    bool extend_end = true,
+    Length_t extend_len = 10000,
+    bool   split_large_gap = false)
 {
     AnchorVec anchors;
     if (cluster.empty()) return anchors;
 
-    // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
-    // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
-    auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
-    return std::visit([&](auto& p) {
-        using T = std::decay_t<decltype(p)>;
-        if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-            return p->getSubSequence(chr, b, l);
-        } else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-            return p->getOriginalManager().getSubSequence(chr, b, l);
-        }
-    }, mv);
-};
-
-    /* ===== 初始 anchor 状态 ===== */
+    /* === 初始 anchor 状态 === */
     const Match& first = cluster.front();
-    Strand strand = first.strand();
-    bool   fwd         = (strand == FORWARD); 
-    ChrIndex ref_chr = first.ref_chr_index;
-    ChrIndex qry_chr = first.qry_chr_index;
+    const Strand strand = first.strand();
+    const bool   fwd = strand == FORWARD;
+    const ChrIndex ref_chr = first.ref_chr_index;
+    const ChrIndex qry_chr = first.qry_chr_index;
 
     Coord_t ref_beg = start1(first);
     Coord_t ref_end = ref_beg;
+    Coord_t qry_beg = fwd ? start2(first)
+        : start2(first) + len2(first);
+    Coord_t qry_end = qry_beg;
 
-    Coord_t qry_beg = 0;
-    Coord_t qry_end = 0;
-	if (fwd) {
-		qry_beg = start2(first);
-	}
-	else {
-		qry_beg = start2(first) + len2(first);
-	}
-    qry_end = qry_beg;
-
-    Cigar_t cigar; cigar.reserve(cluster.size() * 2);  // 预估
-    Coord_t aln_len = 0;
-
-    auto pushEq = [&](uint32_t len) {
-        appendCigarOp(cigar, 'M', len);
-        aln_len += len;  
-        ref_end += len;  
-        if (fwd) {
-            qry_end += len;
-        }
-        else {
-            qry_end -= len;
-        }
-
-        };
-    auto flush = [&] {
-        if (fwd) {
-            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
-        }
-        else {
-            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
-        }
-        cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
-        aln_len = 0;
-
-        ref_beg = ref_end;          // 推进到下一段起点
-        qry_beg = qry_end;          // 同理（fwd 递增，rev 递减）
-        };
-
-
-    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
-    attributes.distance_metric = gap_affine;
-    attributes.affine_penalties.mismatch = 2;      // X > 0
-    attributes.affine_penalties.gap_opening = 3;   // O >= 0
-    attributes.affine_penalties.gap_extension = 1; // E > 0
-    attributes.memory_mode = wavefront_memory_ultralow;
-    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
-    attributes.heuristic.min_wavefront_length = 10;
-    attributes.heuristic.max_distance_threshold = 50;
-    attributes.heuristic.steps_between_cutoffs = 1;
-
-    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
-
-    /* ==================== 遍历 cluster ==================== */
-    for (size_t i = 0;i < cluster.size();++i) {
-        const Match& m = cluster[i];
-        pushEq(len1(m));                                  // 精确 match
-
-        if (i + 1 == cluster.size()) break;
-
-        const Match& nxt = cluster[i + 1];
-        Coord_t rgBeg = start1(m) + len1(m), rgEnd = start1(nxt);
-        Coord_t qgBeg = 0;
-        Coord_t qgEnd = 0;
-        if (fwd) {
-            qgBeg = start2(m) + len2(m);
-            qgEnd = start2(nxt);
-        } else {
-            qgBeg = start2(nxt) + len2(nxt);
-            qgEnd = start2(m);
-        } 
-        
-        uint32_t rgLen = rgEnd > rgBeg ? rgEnd - rgBeg : 0;
-        uint32_t qgLen = qgEnd > qgBeg ? qgEnd - qgBeg : 0;
-        // 无 gap
-        if (rgLen == 0 && qgLen == 0) {
-            continue;                       
-        }
-        Cigar_t buf;
-        Cigar_t gap = {};
-        if (rgLen == 0 || qgLen == 0) {
-            // 纯 I / 纯 D，不跑比对
-            char op = (rgLen == 0 ? 'I' : 'D');
-            uint32_t len = (rgLen == 0 ? qgLen : rgLen);
-            gap.push_back(cigarToInt(op, len));
-        }
-        else {
-            // 2) 获取 gap 片段
-            std::string ref_gap = subSeq(ref_mgr, ref_chr, rgBeg, rgEnd - rgBeg);
-            std::string qry_gap = subSeq(query_mgr, qry_chr, qgBeg, qgEnd - qgBeg);
-            if (strand == REVERSE) reverseComplement(qry_gap);
-
-            uint_t Lt = ref_gap.size();
-            uint_t Lq = qry_gap.size();
-            int64_t d = std::abs(static_cast<int64_t>(Lt) - static_cast<int64_t>(Lq));
-
-            double rho = double(d) / std::min(Lt, Lq);
-
-            
-            if (rho <= 0.3 && Lt > 10 && Lq > 10) {
-                int cigar_len;
-                uint32_t* cigar_tmp;
-                wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
-                cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
-                for (uint_t j = 0; j < cigar_len; ++j) {
-                    gap.push_back(cigar_tmp[j]);
-                }
-
-            }
-            else {
-                gap = globalAlignKSW2(ref_gap, qry_gap);
-            }
-
-            /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
-            buf.reserve(gap.size());
-        }
-
-        for (auto unit : gap) {
-            uint32_t len = unit >> 4;
-            uint8_t  op = unit & 0xf;          // 0=M,1=I,2=D,7='=',8='X'
-            bool big = ((op == 1 || op == 2) && len > 50);
-
-            if (big) {
-                // 先把已有片段 merge
-                if (!buf.empty()) { appendCigar(cigar, buf); buf.clear(); }
-                flush();                        // 输出 anchor
-                // 移动起点：I 影响 query，D 影响 ref
-                if (op == 1) {
-                    if (fwd) {
-                        qry_beg += len;
-                    }
-                    else {
-                        qry_beg -= len;
-                    }
-                }
-                else {
-                    ref_beg += len;
-                }       
-                ref_end = ref_beg; qry_end = qry_beg;
-            }
-            else {
-                buf.push_back(unit);
-                // 更新末端坐标
-                if (op == 1) {
-                    if (fwd) {
-                        qry_end += len;
-                    }
-                    else {
-                        qry_end -= len;
-                    }
-                }            
-                else if (op == 2)       ref_end += len;
-                else { 
-                    ref_end += len; 
-                    if (fwd) {
-                        qry_end += len;
-                    }
-                    else {
-                        qry_end -= len;
-                    }
-                }
-                if (op != 3) aln_len += len;     // 3(N)不会出现
-            }
-        }
-        if (!buf.empty()) appendCigar(cigar, buf);
-    }
-    flush();   
-    wavefront_aligner_delete(wf_aligner);// 收尾
-    return anchors;
-}
-
-Anchor extendClusterToAnchor(const MatchCluster& cluster,
-    const SeqPro::ManagerVariant& ref_mgr,
-    const SeqPro::ManagerVariant& query_mgr)
-{
-    if (cluster.empty()) return Anchor();
-    AnchorVec anchors;
-    // todo 为了修复Ramax的BUG作了修改，需要加RamaG的判定
-    // -- 快速 slice 提取：visit 一次，避免重复 λ 创建 --
-    auto subSeq = [&](const SeqPro::ManagerVariant& mv,
-        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
-            return std::visit([&](auto& p) {
-                using T = std::decay_t<decltype(p)>;
-                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-                    return p->getSubSequence(chr, b, l);
-                }
-                else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
-                    return p->getOriginalManager().getSubSequence(chr, b, l);
-                }
-                }, mv);
-        };
-
-    /* ===== 初始 anchor 状态 ===== */
-    const Match& first = cluster.front();
-    Strand strand = first.strand();
-    bool   fwd = (strand == FORWARD);
-    ChrIndex ref_chr = first.ref_chr_index;
-    ChrIndex qry_chr = first.qry_chr_index;
-
-    Coord_t ref_beg = start1(first);
-    Coord_t ref_end = ref_beg;
-
-    Coord_t qry_beg = 0;
-    Coord_t qry_end = 0;
-    if (fwd) {
-        qry_beg = start2(first);
-    }
-    else {
-        qry_beg = start2(first) + len2(first);
-    }
-    qry_end = qry_beg;
-
-    Cigar_t cigar; cigar.reserve(cluster.size() * 2);  // 预估
-    Coord_t aln_len = 0;
+    Cigar_t cigar; cigar.reserve(cluster.size() * 2);
+    Length_t aln_len = 0;
+    Length_t aln_match_len = 0;
 
     auto pushEq = [&](uint32_t len) {
         appendCigarOp(cigar, 'M', len);
         aln_len += len;
+        aln_match_len += len;
         ref_end += len;
-        if (fwd) {
-            qry_end += len;
-        }
-        else {
-            qry_end -= len;
-        }
-
+        fwd ? (qry_end += len) : (qry_end -= len);
         };
     auto flush = [&] {
-        if (fwd) {
-            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_beg, qry_end - qry_beg, strand, aln_len, 0, std::move(cigar));
-        }
-        else {
-            anchors.emplace_back(ref_chr, ref_beg, ref_end - ref_beg, qry_chr, qry_end, qry_beg - qry_end, strand, aln_len, 0, std::move(cigar));
-        }
+        Anchor a;
+        if (fwd)
+            a = Anchor(ref_chr, ref_beg, ref_end - ref_beg,
+                qry_chr, qry_beg, qry_end - qry_beg,
+                strand, aln_len, aln_match_len, std::move(cigar));
+        else
+            a = Anchor(ref_chr, ref_beg, ref_end - ref_beg,
+                qry_chr, qry_end, qry_beg - qry_end,
+                strand, aln_len, aln_match_len, std::move(cigar));
+            
+        anchors.emplace_back(a);
+        /* reset state for next segment */
         cigar.clear(); cigar.shrink_to_fit(); cigar.reserve(16);
         aln_len = 0;
-
-        ref_beg = ref_end;          // 推进到下一段起点
-        qry_beg = qry_end;          // 同理（fwd 递增，rev 递减）
+        aln_match_len = 0;
+        ref_beg = ref_end;
+        qry_beg = qry_end;
         };
 
+    /* === WaveFront 对齐器 === */
+    std::unique_ptr<wavefront_aligner_t, decltype(&wavefront_aligner_delete)>
+        wf(newDefaultWFA(), wavefront_aligner_delete);
 
-    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
-    attributes.distance_metric = gap_affine;
-    attributes.affine_penalties.mismatch = 2;      // X > 0
-    attributes.affine_penalties.gap_opening = 3;   // O >= 0
-    attributes.affine_penalties.gap_extension = 1; // E > 0
-    attributes.memory_mode = wavefront_memory_ultralow;
-    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
-    attributes.heuristic.min_wavefront_length = 10;
-    attributes.heuristic.max_distance_threshold = 50;
-    attributes.heuristic.steps_between_cutoffs = 1;
-
-    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
-
-    /* ==================== 遍历 cluster ==================== */
-    for (size_t i = 0;i < cluster.size();++i) {
+    /* ========== 遍历 cluster ========== */
+    for (size_t i = 0; i < cluster.size(); ++i) {
         const Match& m = cluster[i];
-        pushEq(len1(m));                                  // 精确 match
+        pushEq(len1(m));                         // 精确 match
 
         if (i + 1 == cluster.size()) break;
 
+        /* ---- 计算 gap ---- */
         const Match& nxt = cluster[i + 1];
-        Coord_t rgBeg = start1(m) + len1(m), rgEnd = start1(nxt);
-        Coord_t qgBeg = 0;
-        Coord_t qgEnd = 0;
-        if (fwd) {
-            qgBeg = start2(m) + len2(m);
-            qgEnd = start2(nxt);
-        }
-        else {
-            qgBeg = start2(nxt) + len2(nxt);
-            qgEnd = start2(m);
-        }
+        const Coord_t rgBeg = start1(m) + len1(m);
+        const Coord_t rgEnd = start1(nxt);
+        Coord_t qgBeg = fwd ? start2(m) + len2(m)
+            : start2(nxt) + len2(nxt);
+        Coord_t qgEnd = fwd ? start2(nxt)
+            : start2(m);
 
-        uint32_t rgLen = rgEnd > rgBeg ? rgEnd - rgBeg : 0;
-        uint32_t qgLen = qgEnd > qgBeg ? qgEnd - qgBeg : 0;
-        // 无 gap
-        if (rgLen == 0 && qgLen == 0) {
-            continue;
-        }
-        Cigar_t buf;
-        Cigar_t gap = {};
+        const uint32_t rgLen = rgEnd > rgBeg ? rgEnd - rgBeg : 0;
+        const uint32_t qgLen = qgEnd > qgBeg ? qgEnd - qgBeg : 0;
+        if (rgLen == 0 && qgLen == 0) continue;
+
+        Cigar_t buf, gap;
         if (rgLen == 0 || qgLen == 0) {
-            // 纯 I / 纯 D，不跑比对
-            char op = (rgLen == 0 ? 'I' : 'D');
-            uint32_t len = (rgLen == 0 ? qgLen : rgLen);
-            gap.push_back(cigarToInt(op, len));
+            /* 纯 I / 纯 D */
+            gap.push_back(cigarToInt(rgLen ? 'D' : 'I',
+                rgLen ? rgLen : qgLen));
         }
         else {
-            // 2) 获取 gap 片段
-            std::string ref_gap = subSeq(ref_mgr, ref_chr, rgBeg, rgEnd - rgBeg);
-            std::string qry_gap = subSeq(query_mgr, qry_chr, qgBeg, qgEnd - qgBeg);
-            if (strand == REVERSE) reverseComplement(qry_gap);
+            /* 需要对齐的 Indel 片段 */
+            std::string ref_gap = subSeq(ref_mgr, ref_chr, rgBeg, rgLen);
+            std::string qry_gap = subSeq(qry_mgr, qry_chr, qgBeg, qgLen);
+            if (!fwd) reverseComplement(qry_gap);
 
-            uint_t Lt = ref_gap.size();
-            uint_t Lq = qry_gap.size();
-            int64_t d = std::abs(static_cast<int64_t>(Lt) - static_cast<int64_t>(Lq));
+            const auto Lt = ref_gap.size();
+            const auto Lq = qry_gap.size();
+            const auto rho = std::abs((int64_t)Lt - (int64_t)Lq) /
+                double(std::min(Lt, Lq));
 
-            double rho = double(d) / std::min(Lt, Lq);
-
-
-            if (rho <= 0.3 && Lt > 10 && Lq > 10) {
-                int cigar_len;
-                uint32_t* cigar_tmp;
-                wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
-                cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
-                for (uint_t j = 0; j < cigar_len; ++j) {
-                    gap.push_back(cigar_tmp[j]);
-                }
-
+            if (rho <= 0.3 && Lt > 10 && Lq > 10) {   // 用 WFA
+                int cigar_len; uint32_t* tmp;
+                wavefront_align(wf.get(), ref_gap.c_str(), Lt,
+                    qry_gap.c_str(), Lq);
+                cigar_get_CIGAR(wf->cigar, false, &tmp, &cigar_len);
+                gap.assign(tmp, tmp + cigar_len);
             }
-            else {
+            else {                                  // KSW2 全局对齐
                 gap = globalAlignKSW2(ref_gap, qry_gap);
             }
-
-            /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
-            buf.reserve(gap.size());
         }
 
+        /* ---- 扫描 gap-cigar ---- */
+        buf.reserve(gap.size());
         for (auto unit : gap) {
             uint32_t len = unit >> 4;
-            uint8_t  op = unit & 0xf;          // 0=M,1=I,2=D,7='=',8='X'
-            //bool big = ((op == 1 || op == 2) && len > 50);
+            uint8_t  op = unit & 0xf;   // 0=M,1=I,2=D,7='=',8='X'
+            bool big = split_large_gap &&
+                (op == 1 || op == 2) && len > 50;
 
-            if (false) {
-                // 先把已有片段 merge
+            if (big) {
                 if (!buf.empty()) { appendCigar(cigar, buf); buf.clear(); }
-                flush();                        // 输出 anchor
-                // 移动起点：I 影响 query，D 影响 ref
-                if (op == 1) {
-                    if (fwd) {
-                        qry_beg += len;
-                    }
-                    else {
-                        qry_beg -= len;
-                    }
-                }
-                else {
-                    ref_beg += len;
-                }
-                ref_end = ref_beg; qry_end = qry_beg;
+                flush();
+
+                /* 纯大 Gap：移动起点 */
+                if (op == 1) fwd ? (qry_beg += len) : (qry_beg -= len);
+                else         ref_beg += len;
+
+                ref_end = ref_beg;
+                qry_end = qry_beg;
             }
             else {
                 buf.push_back(unit);
-                // 更新末端坐标
-                if (op == 1) {
-                    if (fwd) {
-                        qry_end += len;
-                    }
-                    else {
-                        qry_end -= len;
-                    }
+                /* 更新末端坐标 */
+                switch (op) {
+                case 1: fwd ? (qry_end += len) : (qry_end -= len); break;
+                case 2: ref_end += len;                            break;
+                default: ref_end += len;
+                    fwd ? (qry_end += len) : (qry_end -= len);
                 }
-                else if (op == 2)       ref_end += len;
-                else {
-                    ref_end += len;
-                    if (fwd) {
-                        qry_end += len;
-                    }
-                    else {
-                        qry_end -= len;
-                    }
-                }
-                if (op != 3) aln_len += len;     // 3(N)不会出现
+                if (op != 3) {
+                    aln_len += len;
+                    aln_match_len += len;
+                }   // op==3 (N) 不出现
             }
         }
         if (!buf.empty()) appendCigar(cigar, buf);
     }
     flush();
-    wavefront_aligner_delete(wf_aligner);// 收尾
-    return anchors[0];
+    if (extend_end) {
+        extendAnchorEnds(anchors.front(), ref_mgr, qry_mgr, true, false, extend_len);
+        extendAnchorEnds(anchors.back(), ref_mgr, qry_mgr, false, true, extend_len);
+    }
+    return anchors;
 }
+/*------------------------------------------------------------------*/
+/*  对外包装（老接口 + 新接口）                                      */
+/*------------------------------------------------------------------*/
+AnchorVec extendClusterToAnchorVec(const MatchCluster& c,
+    const SeqPro::ManagerVariant& r,
+    const SeqPro::ManagerVariant& q,
+    bool extend_end,
+    Length_t extend_len)
+{
+    return extendClusterCore(c, r, q,
+        extend_end, extend_len, true);
+}
+
+Anchor extendClusterToAnchor(const MatchCluster& c,
+    const SeqPro::ManagerVariant& r,
+    const SeqPro::ManagerVariant& q,
+    bool extend_end,
+    Length_t extend_len)
+{
+    AnchorVec v = extendClusterCore(c, r, q,
+        extend_end, extend_len, false);
+    return v.empty() ? Anchor() : std::move(v.front());
+}
+
 
 /// 同时验证 ref/query，两者都通过才算成功
 void validateClusters(const ClusterVecPtrByStrandByQueryRefPtr& cluster_vec_ptr)
