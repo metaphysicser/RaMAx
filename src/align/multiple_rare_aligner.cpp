@@ -1089,13 +1089,13 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
             //        graph, pool, min_span);
             //    });
-            for (auto& cluster : *cluster_ptr) {
-                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+            
+            pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                     graph, min_span, false);
 
                 //pra.constructGraphByDpByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                 //    graph, pool, thread_num, min_span, false);
-            }
+            
         }
     }
     pool.waitAllTasksDone();

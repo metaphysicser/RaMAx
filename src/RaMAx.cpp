@@ -129,7 +129,7 @@ inline void printRunConfiguration(const CommonArgs &args) {
     spdlog::info("  Sampling interval     : {}", args.sampling_interval);
     spdlog::info("  Min span              : {}", args.min_span);
     spdlog::info("  Repeat masking        : {}", args.enable_repeat_masking ? "Enabled" : "Disabled");
-    
+	spdlog::info("  Tree root             ：{}", args.root_name);
     spdlog::info("");
     
     // Quality control section
@@ -215,6 +215,12 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
             ->check(CLI::Range(1000000, std::numeric_limits<int>::max()))
             ->type_name("<int>")
             ->transform(trim_whitespace);
+
+    auto* root_opt = cmd->add_option("--root", args.root_name,
+        "Root genome name used in HAL (default: 'root')")
+        ->group("Output")
+        ->type_name("<string>")
+        ->transform(trim_whitespace);
 
     auto *overlap_size_opt = cmd->add_option("--overlap_size", args.overlap_size,
                                              "Size of overlap between chunks (default: 100000).")
@@ -395,12 +401,6 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
                                              "Show progress bar.")
             ->group("Output Control");
 
-    // HAL root name option
-    cmd->add_option("--root", args.root_name,
-                    "Root genome name used in HAL (default: 'root')")
-        ->group("Output")
-        ->type_name("<string>")
-        ->transform(trim_whitespace);
 
     // Set dependencies and exclusions
     restart_flag->needs(workspace_opt);
@@ -409,7 +409,7 @@ inline void setupCommonOptions(CLI::App *cmd, CommonArgs &args) {
                            chunk_size_opt, overlap_size_opt,
                            min_anchor_length_opt, max_anchor_frequency_opt,
                            search_mode_opt, allow_mem_flag, slow_build_flag,
-                           sampling_interval_opt, min_span_opt);
+                           sampling_interval_opt, min_span_opt, root_opt);
 
     // 互斥选项
     verbose_flag->excludes(quiet_flag);
@@ -562,196 +562,205 @@ int main(int argc, char **argv) {
     
     SpeciesPathMap species_path_map;
     NewickParser newick_tree;
-    parseSeqfile(
-        common_args.input_path,
-        newick_tree, species_path_map);
 
-    // 验证species_path_map里的每个物种的路径是否合法
-    for (const auto &[species, path]: species_path_map) {
-        if (isUrl(path.string())) {
-            verifyUrlReachable(path.string());
-        } else {
-            verifyLocalFile(path);
+    try {
+        std::string root = common_args.root_name;
+        parseSeqfile(
+            common_args.input_path,
+            newick_tree, species_path_map, root);
+
+        // 验证species_path_map里的每个物种的路径是否合法
+        for (const auto& [species, path] : species_path_map) {
+            if (isUrl(path.string())) {
+                verifyUrlReachable(path.string());
+            }
+            else {
+                verifyLocalFile(path);
+            }
+            spdlog::info("Input genome: {} (size: {})",
+                species,
+                getReadableFileSize(path));
         }
-        spdlog::info("Input genome: {} (size: {})",
-                     species,
-                     getReadableFileSize(path));
-    }
 
-    spdlog::info("");
-    spdlog::info("============================================================");
-    spdlog::info("                    DATA PREPROCESSING                     ");
-    spdlog::info("============================================================");
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                    DATA PREPROCESSING                     ");
+        spdlog::info("============================================================");
 
-    // ------------------------------
-    // 数据预处理阶段
-    // ------------------------------
+        // ------------------------------
+        // 数据预处理阶段
+        // ------------------------------
 
-    // 拷贝或下载原始文件（并行执行）
-    copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
+        // 拷贝或下载原始文件（并行执行）
+        copyRawData(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-    // 声明interval文件映射和SeqPro managers变量
-    std::map<SpeciesName, FilePath> interval_files_map;
-    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers;
-    SeqPro::Length reference_min_seq_length = std::numeric_limits<SeqPro::Length>::max();
+        // 声明interval文件映射和SeqPro managers变量
+        std::map<SpeciesName, FilePath> interval_files_map;
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers;
+        SeqPro::Length reference_min_seq_length = std::numeric_limits<SeqPro::Length>::max();
 
-    // 清洗 FASTA 文件（统一格式，替换非法字符）
-    cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
+        // 清洗 FASTA 文件（统一格式，替换非法字符）
+        cleanRawDataset(common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-    // 如果要重复遮蔽
-    if (common_args.enable_repeat_masking) {
-        spdlog::info("Repeat masking enabled. Generating interval files based on raw files...");
+        // 如果要重复遮蔽
+        if (common_args.enable_repeat_masking) {
+            spdlog::info("Repeat masking enabled. Generating interval files based on raw files...");
 
-        // 1. 生成interval文件
-        interval_files_map = repeatSeqMasking(
-            common_args.work_dir_path, species_path_map, common_args.thread_num);
+            // 1. 生成interval文件
+            interval_files_map = repeatSeqMasking(
+                common_args.work_dir_path, species_path_map, common_args.thread_num);
 
-        if (interval_files_map.empty()) {
-            // 没成功生成，中止程序建议用户检查一下
-            spdlog::error("No interval files were generated. Please check the input FASTA files and ensure they are valid.");
-            return 1;
+            if (interval_files_map.empty()) {
+                // 没成功生成，中止程序建议用户检查一下
+                spdlog::error("No interval files were generated. Please check the input FASTA files and ensure they are valid.");
+                return 1;
+            }
+            spdlog::info("Interval files generated successfully.");
+            spdlog::info("Creating SeqPro managers with repeat masking support...");
+
+            for (const auto& [species_name, cleaned_fasta_path] : species_path_map) {
+                if (interval_files_map.contains(species_name)) {
+                    try {
+                        auto original_manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+                        auto manager = std::make_unique<SeqPro::MaskedSequenceManager>(
+                            std::move(original_manager),
+                            interval_files_map[species_name]
+                        );
+                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
+                            species_name, cleaned_fasta_path.string());
+
+                        // 记录序列统计信息
+                        SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+                        auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+
+                        // 移动到seqpro_managers中
+                        seqpro_managers[species_name] = std::move(shared_manager);
+                    }
+                    catch (const std::exception& e) {
+                        spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
+                            e.what());
+                        return 1;
+                    }
+                }
+                else {
+                    try {
+                        auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
+
+                        spdlog::info("[{}] SeqPro Manager created without repeat masking: {}",
+                            species_name, cleaned_fasta_path.string());
+
+                        // 记录序列统计信息
+                        SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+
+                        auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+
+                        seqpro_managers[species_name] = std::move(shared_manager);
+                    }
+                    catch (const std::exception& e) {
+                        spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
+                            e.what());
+                        return 1;
+                    }
+                }
+            }
         }
-        spdlog::info("Interval files generated successfully.");
-        spdlog::info("Creating SeqPro managers with repeat masking support...");
+        else {
+            // 不开启重复遮蔽，基于清洗后的文件创建  MaskedSeqPro managers
+            spdlog::info("Repeat masking disabled. Creating standard SeqPro managers...");
 
-       for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
-            if (interval_files_map.contains(species_name)) {
+            for (const auto& [species_name, cleaned_fasta_path] : species_path_map) {
                 try {
                     auto original_manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
                     auto manager = std::make_unique<SeqPro::MaskedSequenceManager>(
-                        std::move(original_manager),
-                        interval_files_map[species_name]
+                        std::move(original_manager)
                     );
-                                        spdlog::info("[{}] SeqPro Manager created with repeat masking: {}",
-                                 species_name, cleaned_fasta_path.string());
-
+                    spdlog::info("[{}] SeqPro Manager created: {}", species_name,
+                        cleaned_fasta_path.string());
                     // 记录序列统计信息
                     SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
+
+
                     auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
 
-                    // 移动到seqpro_managers中
                     seqpro_managers[species_name] = std::move(shared_manager);
-                } catch (const std::exception &e) {
-                    spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
-                                  e.what());
-                    return 1;
                 }
-            } else {
-                try {
-                    auto manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
-
-                    spdlog::info("[{}] SeqPro Manager created without repeat masking: {}",
-                                 species_name, cleaned_fasta_path.string());
-
-                    // 记录序列统计信息
-                    SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
-
-                    auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
-
-                     seqpro_managers[species_name] = std::move(shared_manager);
-                } catch (const std::exception &e) {
+                catch (const std::exception& e) {
                     spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
-                                  e.what());
+                        e.what());
                     return 1;
                 }
             }
         }
-    } else {
-        // 不开启重复遮蔽，基于清洗后的文件创建  MaskedSeqPro managers
-        spdlog::info("Repeat masking disabled. Creating standard SeqPro managers...");
-
-        for (const auto &[species_name, cleaned_fasta_path]: species_path_map) {
-            try {
-                auto original_manager = std::make_unique<SeqPro::SequenceManager>(cleaned_fasta_path);
-                auto manager = std::make_unique<SeqPro::MaskedSequenceManager>(
-                    std::move(original_manager)
-                );
-                spdlog::info("[{}] SeqPro Manager created: {}", species_name,
-                             cleaned_fasta_path.string());
-                // 记录序列统计信息
-                SequenceUtils::recordReferenceSequenceStats(species_name, manager, reference_min_seq_length);
 
 
-                auto shared_manager = std::make_shared<SeqPro::ManagerVariant>(std::move(manager));
+        // ------------------------------
+        // 初始化比对器
+        // ------------------------------
+        MultipleRareAligner mra(
+            common_args.work_dir_path,
+            species_path_map,
+            newick_tree,
+            common_args.thread_num,
+            common_args.chunk_size,
+            common_args.overlap_size,
+            common_args.min_anchor_length,
+            common_args.max_anchor_frequency
+        );
 
-                seqpro_managers[species_name] = std::move(shared_manager);
-            } catch (const std::exception &e) {
-                spdlog::error("[{}] Error creating SeqPro manager: {}", species_name,
-                              e.what());
-                return 1;
-            }
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                    STAR ALIGNMENT                         ");
+        spdlog::info("============================================================");
+
+        // ------------------------------
+        // 步骤 1：构建索引
+        // ------------------------------
+        auto t_start_align = std::chrono::steady_clock::now();
+
+        // 初始化ref_global_cache：采样策略避免二分搜索
+        auto sampling_interval = std::min(static_cast<SeqPro::Length>(common_args.sampling_interval), reference_min_seq_length);
+        uint_t tree_root = 0;
+
+        std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> graph = mra.starAlignment(seqpro_managers, tree_root, common_args.search_mode, common_args.fast_build, common_args.allow_MEM, common_args.enable_repeat_masking, sampling_interval, common_args.min_span);
+
+        auto t_end_align = std::chrono::steady_clock::now();
+        std::chrono::duration<double> align_time = t_end_align - t_start_align;
+
+        spdlog::info("");
+        spdlog::info("============================================================");
+        spdlog::info("                       COMPLETION                          ");
+        spdlog::info("============================================================");
+        spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
+
+        std::vector<SpeciesName> species_names = newick_tree.getLeafNames();
+        // 原始输出文件，比如 "mammals.maf"
+        std::filesystem::path out0 = common_args.output_path;
+
+        // 拆分成 parent + stem + ext
+        auto parent = out0.parent_path();
+        auto stem = out0.stem().string();      // "mammals"
+        auto ext = out0.extension().string(); // ".maf"
+
+        // 构建 (SpeciesName, FilePath) 列表
+        std::vector<std::pair<SpeciesName, FilePath>> species_maf_files;
+        species_maf_files.reserve(species_names.size());
+
+        for (auto const& sp : species_names) {
+            // 生成新文件名：  mammals.<sp>.maf
+            std::string filename = stem + "." + sp + ext;
+            std::filesystem::path p = parent / filename;
+            species_maf_files.emplace_back(sp, p);
         }
-    }
 
+        // 清理seqpro_managers的所有遮蔽区间
+        for (const auto& [species_name, seq_mgr_variant] : seqpro_managers) {
+            std::visit([&](const auto& seq_mgr) {
+                seq_mgr->clearMaskedRegions();
+                }, *seq_mgr_variant);
+        }
 
-    // ------------------------------
-    // 初始化比对器
-    // ------------------------------
-    MultipleRareAligner mra(
-        common_args.work_dir_path,
-        species_path_map,
-        newick_tree,
-        common_args.thread_num,
-        common_args.chunk_size,
-        common_args.overlap_size,
-        common_args.min_anchor_length,
-        common_args.max_anchor_frequency
-    );
-
-    spdlog::info("");
-    spdlog::info("============================================================");
-    spdlog::info("                    STAR ALIGNMENT                         ");
-    spdlog::info("============================================================");
-
-    // ------------------------------
-    // 步骤 1：构建索引
-    // ------------------------------
-    auto t_start_align = std::chrono::steady_clock::now();
-
-    // 初始化ref_global_cache：采样策略避免二分搜索
-    auto sampling_interval = std::min(static_cast<SeqPro::Length>(common_args.sampling_interval), reference_min_seq_length);
-    uint_t tree_root = 0;
-
-    std::unique_ptr<RaMesh::RaMeshMultiGenomeGraph> graph = mra.starAlignment(seqpro_managers, tree_root, common_args.search_mode, common_args.fast_build, common_args.allow_MEM, common_args.enable_repeat_masking, sampling_interval, common_args.min_span);
-
-    auto t_end_align = std::chrono::steady_clock::now();
-    std::chrono::duration<double> align_time = t_end_align - t_start_align;
-    
-    spdlog::info("");
-    spdlog::info("============================================================");
-    spdlog::info("                       COMPLETION                          ");
-    spdlog::info("============================================================");
-    spdlog::info("Star alignment completed in {:.3f} seconds.", align_time.count());
-
-    std::vector<SpeciesName> species_names = newick_tree.getLeafNames();
-    // 原始输出文件，比如 "mammals.maf"
-    std::filesystem::path out0 = common_args.output_path;
-
-    // 拆分成 parent + stem + ext
-    auto parent = out0.parent_path();
-    auto stem = out0.stem().string();      // "mammals"
-    auto ext = out0.extension().string(); // ".maf"
-
-    // 构建 (SpeciesName, FilePath) 列表
-    std::vector<std::pair<SpeciesName, FilePath>> species_maf_files;
-    species_maf_files.reserve(species_names.size());
-
-    for (auto const& sp : species_names) {
-        // 生成新文件名：  mammals.<sp>.maf
-        std::string filename = stem + "." + sp + ext;
-        std::filesystem::path p = parent / filename;
-        species_maf_files.emplace_back(sp, p);
-    }
-
-    // 清理seqpro_managers的所有遮蔽区间
-    for (const auto &[species_name, seq_mgr_variant] : seqpro_managers) {
-        std::visit([&](const auto& seq_mgr) {
-            seq_mgr->clearMaskedRegions();
-        }, *seq_mgr_variant);
-    }
-
-    // 根据输出格式选择导出方法
-    switch (common_args.output_format) {
+        // 根据输出格式选择导出方法
+        switch (common_args.output_format) {
         case MultipleGenomeOutputFormat::MAF:
             spdlog::info("Exporting to MAF format...");
             // TODO双基因组比对模式后续要改为false，目前只是调试
@@ -761,7 +770,7 @@ int main(int argc, char **argv) {
             /// 导出多个参考maf
             //graph->exportToMultipleMaf(species_maf_files, seqpro_managers, true, false);
             break;
-            
+
         case MultipleGenomeOutputFormat::HAL:
             spdlog::info("Exporting to HAL format...");
             // 使用Newick树信息导出HAL格式
@@ -777,21 +786,30 @@ int main(int argc, char **argv) {
                         newick_string = newick_string.substr(l, r - l + 1);
                     }
                     graph->exportToHal(common_args.output_path, seqpro_managers, newick_string, true, common_args.root_name);
-                } else {
+                }
+                else {
                     // 如果无法读取输入文件，则使用空的newick字符串（让exportToHal自动推断）
                     spdlog::warn("Cannot read input file to extract Newick tree, will use automatic tree inference");
                     graph->exportToHal(common_args.output_path, seqpro_managers, "", true, common_args.root_name);
                 }
             }
             break;
-            
+
         default:
             throw std::runtime_error("Unsupported output format for multiple genome alignment");
+        }
+
+        // ------------------------------
+        // 退出
+        // ------------------------------
+        spdlog::info("RaMAx execution completed successfully!");
+        return 0;
+    } catch (const std::runtime_error& e) {
+        spdlog::error("{}", e.what());
+        spdlog::error("Use --help for usage information.");
+        spdlog::error("Exiting with error code 1.");
+        return 1;
     }
 
-    // ------------------------------
-    // 退出
-    // ------------------------------
-    spdlog::info("RaMAx execution completed successfully!");
-    return 0;
+   
 }

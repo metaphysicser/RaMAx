@@ -470,17 +470,44 @@ void PairRareAligner::constructGraphByGreedyByRef(SpeciesName query_name, SeqPro
 {
 	if (!cluster_vec_ptr || cluster_vec_ptr->empty()) return;
 
-	uint_t anchor_count = (*cluster_vec_ptr).size();
+	uint_t anchor_count = static_cast<uint_t>((*cluster_vec_ptr).size());
 	std::vector<Anchor> anchors(anchor_count);
 
-	for (uint_t i = 0; i < anchor_count; i++) {
-		anchors[i] = extendClusterToAnchor((*cluster_vec_ptr)[i], *ref_seqpro_manager, query_seqpro_manager);
+	ThreadPool pool(thread_num);
+	std::vector<std::future<void>> futures;
+	futures.reserve(thread_num);
+
+	// 计算每份的大小
+	uint_t chunk_size = (anchor_count + thread_num - 1) / thread_num;
+
+	for (int t = 0; t < thread_num; ++t) {
+		uint_t begin = t * chunk_size;
+		uint_t end = std::min(begin + chunk_size, anchor_count);
+		if (begin >= end) break;  // 没有任务时提前结束
+
+		futures.emplace_back(
+			pool.enqueue([&, begin, end]() {
+				for (uint_t i = begin; i < end; ++i) {
+					anchors[i] = extendClusterToAnchor(
+						(*cluster_vec_ptr)[i],
+						*ref_seqpro_manager,
+						query_seqpro_manager,
+						false
+					);
+				}
+				})
+		);
 	}
 
-	struct Node {
-		MatchCluster cl;
-		int_t        span;
-	};
+	size_t done = 0;
+	size_t total = futures.size();
+
+	for (auto& f : futures) {
+		f.get();   // 阻塞直到当前 future 对应的任务完成
+		++done;
+		std::cout << "finish " << done << " / " << total << " tasks\n";
+	}
+
 	auto cmp = [](const Anchor& a, const Anchor& b) { return a.alignment_length < b.alignment_length; };
 
 	

@@ -130,58 +130,58 @@ Cigar_t extendAlignWFA2(const std::string& ref,
     const std::string& query,
     int zdrop)        // Z-drop 阈值
 {
-    /* ---------- 1. 配置 WFA 属性 ---------- */
-    wavefront_aligner_attr_t attr = wavefront_aligner_attr_default;
+    ///* ---------- 1. 配置 WFA 属性 ---------- */
+    //wavefront_aligner_attr_t attr = wavefront_aligner_attr_default;
 
-    // 打分模式：Affine gap
-    attr.distance_metric = gap_affine;
-    attr.affine_penalties.mismatch = 2;  // X
-    attr.affine_penalties.gap_opening = 3;  // O
-    attr.affine_penalties.gap_extension = 1;  // E
+    //// 打分模式：Affine gap
+    //attr.distance_metric = gap_affine;
+    //attr.affine_penalties.mismatch = 2;  // X
+    //attr.affine_penalties.gap_opening = 3;  // O
+    //attr.affine_penalties.gap_extension = 1;  // E
 
-    // 端自由：左端锚定，右端自由（右向延伸）
-    attr.alignment_form.span = alignment_endsfree;
-    attr.alignment_form.pattern_begin_free = 0;
-    attr.alignment_form.pattern_end_free = pattern_end_free;
-    attr.alignment_form.text_begin_free = 0;
-    attr.alignment_form.text_end_free = text_end_free;
+    //// 端自由：左端锚定，右端自由（右向延伸）
+    //attr.alignment_form.span = alignment_endsfree;
+    //attr.alignment_form.pattern_begin_free = 0;
+    //attr.alignment_form.pattern_end_free = pattern_end_free;
+    //attr.alignment_form.text_begin_free = 0;
+    //attr.alignment_form.text_end_free = text_end_free;
 
 
-    // 内存/带宽启发式
-    attr.memory_mode = wavefront_memory_high;
-    attr.heuristic.strategy = wf_heuristic_zdrop;
-    attr.heuristic.zdrop = zdrop;   // 传入阈值
-    attr.heuristic.steps_between_cutoffs = 50;      // 每 50 波前检查一次
-    // 可选：自适应带宽剪枝（与全局版本一致）
-    attr.heuristic.strategy_secondary = wf_heuristic_banded_adaptive;
-    attr.heuristic.min_k = -10;
-    attr.heuristic.max_k = +10;
+    //// 内存/带宽启发式
+    //attr.memory_mode = wavefront_memory_high;
+    //attr.heuristic.strategy = wf_heuristic_zdrop;
+    //attr.heuristic.zdrop = zdrop;   // 传入阈值
+    //attr.heuristic.steps_between_cutoffs = 50;      // 每 50 波前检查一次
+    //// 可选：自适应带宽剪枝（与全局版本一致）
+    //attr.heuristic.strategy_secondary = wf_heuristic_banded_adaptive;
+    //attr.heuristic.min_k = -10;
+    //attr.heuristic.max_k = +10;
 
-    /* ---------- 2. 创建对齐器并执行 ---------- */
-    wavefront_aligner_t* wf_aligner = wavefront_aligner_new(&attr);
-    wavefront_align(wf_aligner,
-        ref.c_str(), ref.length(),
-        query.c_str(), query.length());
+    ///* ---------- 2. 创建对齐器并执行 ---------- */
+    //wavefront_aligner_t* wf_aligner = wavefront_aligner_new(&attr);
+    //wavefront_align(wf_aligner,
+    //    ref.c_str(), ref.length(),
+    //    query.c_str(), query.length());
 
-    /* ---------- 3. 取出 CIGAR ---------- */
-    uint32_t* cigar_buf = nullptr;
-    int       cigar_len = 0;
-    cigar_get_CIGAR(wf_aligner->cigar,
-        /*print=*/false,
-        &cigar_buf,
-        &cigar_len);
+    ///* ---------- 3. 取出 CIGAR ---------- */
+    //uint32_t* cigar_buf = nullptr;
+    //int       cigar_len = 0;
+    //cigar_get_CIGAR(wf_aligner->cigar,
+    //    /*print=*/false,
+    //    &cigar_buf,
+    //    &cigar_len);
 
-    /* ---------- 4. 拷贝到用户侧结构 ---------- */
-    Cigar_t cigar;
-    cigar.reserve(cigar_len);
-    for (int i = 0; i < cigar_len; ++i)
-        cigar.push_back(cigar_buf[i]);
+    ///* ---------- 4. 拷贝到用户侧结构 ---------- */
+    //Cigar_t cigar;
+    //cigar.reserve(cigar_len);
+    //for (int i = 0; i < cigar_len; ++i)
+    //    cigar.push_back(cigar_buf[i]);
 
-    /* ---------- 5. 清理 ---------- */
-    wavefront_aligner_delete(wf_aligner);
-    free(cigar_buf);   // `cigar_get_CIGAR` 内部 malloc
+    ///* ---------- 5. 清理 ---------- */
+    //wavefront_aligner_delete(wf_aligner);
+    //free(cigar_buf);   // `cigar_get_CIGAR` 内部 malloc
 
-    return cigar;      // 返回从序列左端到 “Z-drop / 序列右端” 的比对
+    //return cigar;      // 返回从序列左端到 “Z-drop / 序列右端” 的比对
 }
 
 

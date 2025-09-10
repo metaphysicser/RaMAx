@@ -346,7 +346,8 @@ public:
 
     std::vector<std::string> getLeafNames() const;
 
-
+    int findNodeIdByName(const std::string& name) const;
+    void restrictToSubtreeByRootId(int rootId);
 
 
 };
@@ -421,10 +422,9 @@ void repeatMaskRawData(
 //
 // 该函数会将第一行读入 newickTree，之后每行拆成 “speciesName -> filePath” 存入 speciesPathMap。
 // -----------------------------
-bool parseSeqfile(
-    const FilePath& seqfile_path,
-    NewickParser& newick_tree,
-    SpeciesPathMap& speciesPathMap
-);
+bool parseSeqfile(const FilePath &seqfile_path,
+                  NewickParser &newick_tree,
+                  SpeciesPathMap &species_map,
+                  const std::string& root = "");
 
 #endif // DATA_PROCESS_H
