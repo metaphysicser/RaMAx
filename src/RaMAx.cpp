@@ -5,7 +5,6 @@
 #include "data_process.h"
 #include "config.hpp"
 #include "index.h"
-#include "anchor.h"
 #include "rare_aligner.h"
 #include "sequence_utils.h"
 
@@ -775,23 +774,8 @@ int main(int argc, char **argv) {
             spdlog::info("Exporting to HAL format...");
             // 使用Newick树信息导出HAL格式
             {
-                // 重新读取输入文件的第一行获取原始newick字符串
-                std::string newick_string;
-                std::ifstream ifs(common_args.input_path);
-                if (ifs.is_open() && std::getline(ifs, newick_string)) {
-                    // 去除首尾空白字符
-                    auto l = newick_string.find_first_not_of(" \t\r\n");
-                    auto r = newick_string.find_last_not_of(" \t\r\n");
-                    if (l != std::string::npos && r != std::string::npos) {
-                        newick_string = newick_string.substr(l, r - l + 1);
-                    }
-                    graph->exportToHal(common_args.output_path, seqpro_managers, newick_string, true, common_args.root_name);
-                }
-                else {
-                    // 如果无法读取输入文件，则使用空的newick字符串（让exportToHal自动推断）
-                    spdlog::warn("Cannot read input file to extract Newick tree, will use automatic tree inference");
-                    graph->exportToHal(common_args.output_path, seqpro_managers, "", true, common_args.root_name);
-                }
+                // 直接使用已解析并可能裁剪过的 newick_tree，避免重复读取导致 --root 子树失效
+                graph->exportToHal(common_args.output_path, seqpro_managers, newick_tree, true, common_args.root_name);
             }
             break;
 

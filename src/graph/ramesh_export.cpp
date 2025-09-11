@@ -4,6 +4,7 @@
 // ------------------------------------------------------------
 #include "ramesh.h"
 #include "hal_converter.h"
+#include "data_process.h" // for NewickParser definition
 #include <fstream>
 #include <iomanip>
 #include <filesystem>
@@ -252,7 +253,7 @@ namespace RaMesh {
 
             // 1.2 解析系统发育树并识别祖先节点（单次解析并复用parser）
             std::vector<hal_converter::AncestorNode> ancestor_nodes;
-            NewickParser parser; // 创建NewickParser对象用于获取分支长度
+            ::NewickParser parser; // 创建NewickParser对象用于获取分支长度
 
             spdlog::info("  Parsing phylogenetic tree...");
             auto __t12_start = __now();
@@ -262,7 +263,7 @@ namespace RaMesh {
             auto __t12_end = __now();
             spdlog::debug("  Phase 1.2 (parse/extract tree) took {} ms", __ms(__t12_start, __t12_end));
             try {
-                parser = NewickParser(newick_tree);
+                parser = ::NewickParser(newick_tree);
                 hal_converter::ensureRootNode(parser, seqpro_managers, root_name);
                 auto [is_valid, error_msg] = hal_converter::validateLeafNames(parser, seqpro_managers);
                 if (!is_valid) {
@@ -372,7 +373,7 @@ namespace RaMesh {
             // 应用最终系统发育树（用用户指定根名重写）
             try {
                 auto __t4_start = __now();
-                NewickParser final_parser = parser; // 以原解析器为基础
+                ::NewickParser final_parser = parser; // 以原解析器为基础
                 hal_converter::ensureRootNode(final_parser, seqpro_managers, root_name);
                 std::string final_newick = hal_converter::reconstructNewickFromParser(final_parser);
                 if (!final_newick.empty()) {
@@ -430,7 +431,7 @@ namespace RaMesh {
                 // 再次用当前树更新（以防 rename 未同步树名）
                 try {
                     std::string treeNow = alignment->getNewickTree();
-                    NewickParser p2(treeNow);
+                    ::NewickParser p2(treeNow);
                     hal_converter::ensureRootNode(p2, seqpro_managers, root_name);
                     std::string rebuilt = hal_converter::reconstructNewickFromParser(p2);
                     if (!rebuilt.empty()) {
@@ -443,5 +444,20 @@ namespace RaMesh {
             auto __end_total = __now();
             spdlog::debug("HAL export finished. Total time: {} ms ({} us)", __ms(__start_total, __end_total), __us(__start_total, __end_total));
 
+    }
+
+    // 重载实现：直接使用已解析的 NewickParser，避免重复解析
+    void RaMeshMultiGenomeGraph::exportToHal(const FilePath& hal_path,
+                                            const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                                            const NewickParser& parser,
+                                            bool only_primary,
+                                            const std::string& root_name) const
+    {
+        // 通过重建 Newick 字符串委托给字符串版本，避免重复读取原始文件，保留子树裁剪
+        std::string rebuilt_newick = hal_converter::reconstructNewickFromParser(parser);
+        if (rebuilt_newick.empty()) {
+            throw std::runtime_error("exportToHal: reconstructed Newick from parser is empty");
+        }
+        exportToHal(hal_path, seqpro_managers, rebuilt_newick, only_primary, root_name);
     }
 } // namespace RaMesh
