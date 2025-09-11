@@ -192,7 +192,7 @@ public:
         const FilePath& output_fasta_path,
         const FilePath& output_fai_path,
         size_t line_width = 80);
-    
+
     // 根据interval文件隐藏指定区间，生成新的FASTA文件和对应的FAI索引
     bool hideIntervalsFromFileAndGenerateFai(
         const FilePath& interval_file_path,
@@ -346,7 +346,8 @@ public:
 
     std::vector<std::string> getLeafNames() const;
 
-
+    int findNodeIdByName(const std::string& name) const;
+    void restrictToSubtreeByRootId(int rootId);
 
 
 };
@@ -421,10 +422,9 @@ void repeatMaskRawData(
 //
 // 该函数会将第一行读入 newickTree，之后每行拆成 “speciesName -> filePath” 存入 speciesPathMap。
 // -----------------------------
-bool parseSeqfile(
-    const FilePath& seqfile_path,
+bool parseSeqfile(const FilePath& seqfile_path,
     NewickParser& newick_tree,
-    SpeciesPathMap& speciesPathMap
-);
+    SpeciesPathMap& species_map,
+    const std::string& root = "");
 
 #endif // DATA_PROCESS_H
