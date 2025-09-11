@@ -782,7 +782,7 @@ int main(int argc, char** argv) {
             // 使用Newick树信息导出HAL格式
             {
                 // 直接使用已解析并可能裁剪过的 newick_tree，避免重复读取导致 --root 子树失效
-                // graph->exportToHal(common_args.output_path, seqpro_managers, newick_tree, true, common_args.root_name);
+                graph->exportToHal(common_args.output_path, seqpro_managers, newick_tree, true, common_args.root_name);
             }
             break;
 

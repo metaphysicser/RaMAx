@@ -8,16 +8,17 @@
 #include <atomic>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <map>
 #include <shared_mutex>
-#include <iostream>
 #include <chrono>
 #include <algorithm>
 
 #include "config.hpp"
 #include "anchor.h"
+
+// 前向声明：NewickParser 位于全局命名空间（见 data_process.h）
+class NewickParser;
 
 namespace RaMesh {
 
@@ -346,6 +347,13 @@ namespace RaMesh {
         void exportToHal(const FilePath& hal_path,
                         const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
                         const std::string& newick_tree = "",
+                        bool only_primary = true,
+                        const std::string& root_name = "root") const;
+
+        // 重载：直接复用已解析的 NewickParser，避免重复读取导致子树选择失效
+        void exportToHal(const FilePath& hal_path,
+                        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                        const NewickParser& parser,
                         bool only_primary = true,
                         const std::string& root_name = "root") const;
 
