@@ -167,6 +167,10 @@ namespace RaMesh {
         void removeBatch(const std::vector<SegPtr>& segments);
         void invalidateSampling(uint_t start, uint_t end);
 
+        void resortSegments();
+
+        void alignInterval(const SpeciesName ref_name, const SpeciesName query_name, const ChrName query_chr_name, SegPtr cur_node, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, bool left_extend, bool right_extend);
+
         void removeOverlap(bool if_ref);
 
         SegPtr head{ nullptr };
@@ -226,6 +230,8 @@ namespace RaMesh {
 
         void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
 
+
+		void extendRefNodes(const SpeciesName& ref_name, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, uint_t thread_num);
         void debugPrint(bool show_detail) const;
         
         // 图正确性验证函数

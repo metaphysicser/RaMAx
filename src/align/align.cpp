@@ -101,7 +101,44 @@ Cigar_t globalAlignWFA2(const std::string& ref,
     uint32_t* cigar_buffer; // Buffer to hold the resulting CIGAR operations.
     int cigar_length = 0; // Length of the CIGAR string.
     // Retrieve the CIGAR string from the wavefront aligner.
-    // cigar_get_CIGAR(aligner->cigar, true, &cigar_buffer, &cigar_length);
+    cigar_get_CIGAR(wf_aligner->cigar, true, &cigar_buffer, &cigar_length);
+
+    /* ---------- 4. 拷贝 / 释放 CIGAR ---------- */
+    Cigar_t cigar;
+
+    for (int i = 0; i < cigar_length; ++i)
+        cigar.push_back(cigar_buffer[i]);
+
+    wavefront_aligner_delete(wf_aligner);
+
+    return cigar;
+}
+
+Cigar_t extendAlignWFA2(const std::string& ref,
+    const std::string& query)
+{
+    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+    attributes.distance_metric = gap_affine;
+    attributes.affine_penalties.mismatch = 2;      // X > 0
+    attributes.affine_penalties.gap_opening = 3;   // O >= 0
+    attributes.affine_penalties.gap_extension = 1; // E > 0
+    attributes.memory_mode = wavefront_memory_high;
+    attributes.heuristic.strategy = wf_heuristic_zdrop;
+    attributes.heuristic.zdrop = 50;
+    attributes.heuristic.steps_between_cutoffs = 1;
+    //// Create a WFAligner
+    //
+    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
+
+    wavefront_align(wf_aligner, ref.c_str(), ref.length(), query.c_str(), query.length());
+    /*wfa::WFAlignerGapAffine aligner(2, 3, 1, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryUltralow);
+
+    aligner.alignEnd2End(ref, query);*/
+
+    uint32_t* cigar_buffer; // Buffer to hold the resulting CIGAR operations.
+    int cigar_length = 0; // Length of the CIGAR string.
+    // Retrieve the CIGAR string from the wavefront aligner.
+    cigar_get_CIGAR(wf_aligner->cigar, true, &cigar_buffer, &cigar_length);
 
     /* ---------- 4. 拷贝 / 释放 CIGAR ---------- */
     Cigar_t cigar;
@@ -197,6 +234,43 @@ uint_t mergeAlignmentByRef(
     return total_aligned_length;
 
 }
+
+AlignCount countAlignedBases(const Cigar_t& cigar) {
+    AlignCount cnt;
+    for (auto op : cigar) {
+        uint32_t len;
+        char type;
+        intToCigar(op, type, len);
+        switch (type) {
+        case 'M': // match or mismatch
+        case '=': // match
+        case 'X': // mismatch
+            cnt.ref_bases += len;
+            cnt.query_bases += len;
+            break;
+        case 'I': // insertion wrt ref
+            cnt.query_bases += len;
+            break;
+        case 'D': // deletion wrt ref
+            cnt.ref_bases += len;
+            break;
+            // 视情况处理 clip/skip
+        case 'S': // soft clip
+            cnt.query_bases += len;
+            break;
+        case 'H': // hard clip
+            // 不计入
+            break;
+        case 'N': // skipped region in ref
+            cnt.ref_bases += len;
+            break;
+        default:
+            break;
+        }
+    }
+    return cnt;
+}
+
 
 
 
