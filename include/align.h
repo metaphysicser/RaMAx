@@ -78,11 +78,24 @@ inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
     return m;
     }();
 
-inline void reverseComplement(std::string& seq) {
-    for (char& c : seq)
+// 互补
+inline void baseComplement(std::string& seq) {
+    for (char& c : seq) {
         c = BASE_COMPLEMENT[static_cast<unsigned char>(c)];
+    }
+}
+
+// 反转
+inline void reverseSeq(std::string& seq) {
     std::reverse(seq.begin(), seq.end());
 }
+
+// 先取反，再反转
+inline void reverseComplement(std::string& seq) {
+    baseComplement(seq);
+    reverseSeq(seq);
+}
+
 
 // ------------------------------------------------------------------
 // CIGAR 表示与转换
@@ -124,6 +137,8 @@ Score_t caculateMatchScore(const char* match, uint_t length);
  *  @param src  待追加的 CIGAR 片段
  * ------------------------------------------------------------------*/
 void appendCigar(Cigar_t& dst, const Cigar_t& src);
+
+void prependCigar(Cigar_t& dst, const Cigar_t& src);
 /* ------------------------------------------------------------------
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/
@@ -177,6 +192,14 @@ uint32_t countMatchOperations(const Cigar_t& cigar);
 // 返回：非D操作的总长度
 // ------------------------------------------------------------------
 uint32_t countNonDeletionOperations(const Cigar_t& cigar);
+
+struct AlignCount {
+    size_t ref_bases = 0;
+    size_t query_bases = 0;
+};
+
+AlignCount countAlignedBases(const Cigar_t& cigar);
+
 
 
 
@@ -254,6 +277,9 @@ KSW2AlignConfig makeDefaultKSW2Config();
 
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
+
+Cigar_t extendAlignWFA2(const std::string& ref,
+    const std::string& query);
 
 
 /* ────────────────────────────────────────────────────────────

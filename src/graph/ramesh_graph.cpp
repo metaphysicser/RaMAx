@@ -269,6 +269,64 @@ namespace RaMesh {
         qry_end.insertSegment(q_seg);
     }
 
+
+    void RaMeshMultiGenomeGraph::extendRefNodes(const SpeciesName& ref_name, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, uint_t thread_num)
+    {
+        ThreadPool pool(thread_num);
+		for (auto& [sp, g] : species_graphs) {
+			if (sp == ref_name) {
+                continue;
+            }
+            for (auto& [chr_name, end] : g.chr2end) {
+                SegPtr cur_node = end.head;
+
+                while (cur_node != NULL) {
+                    //pool.enqueue([this, &ref_name, &sp, &chr_name, &end, &cur_node, &managers]() {
+                    //    
+                    //    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, false, true);
+                    //    
+                    //});
+                    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, false, true);
+                    cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                }
+
+            }
+			
+		}
+		pool.waitAllTasksDone();
+
+        for (auto& [sp, g] : species_graphs) {
+            if (sp == ref_name) {
+                continue;
+            }
+            for (auto& [chr_name, end] : g.chr2end) {
+                SegPtr cur_node = end.head;
+
+                while (cur_node != NULL) {
+                    //pool.enqueue([this, &ref_name, &sp, &end, &chr_name, &cur_node, &managers]() {
+
+                    //    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
+
+                    //    });
+                    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
+                    cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                }
+
+            }
+
+        }
+        pool.waitAllTasksDone();
+
+        // 调整ref的链表排序
+        auto it = species_graphs.find(ref_name);
+        if (it != species_graphs.end()) {
+            for (auto& [chr_name, end] : it->second.chr2end) {
+                end.resortSegments();
+            }
+        }
+        return;
+    }
+
     /* ==============================================================
      * 4.  debugPrint (multi-genome)  -- 新版，参数改为 show_detail
      * ==============================================================*/

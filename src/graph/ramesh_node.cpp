@@ -386,6 +386,186 @@ namespace RaMesh {
             }
         }
     }
+    void RaMesh::GenomeEnd::alignInterval(const SpeciesName ref_name,
+        const SpeciesName query_name,
+        const ChrName query_chr_name,
+        SegPtr cur_node,
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> managers,
+        bool left_extend,
+        bool right_extend) {
+        if (cur_node == head || cur_node == tail || cur_node == NULL) return;
+
+        auto fetchSeq = [](const SeqPro::ManagerVariant& mv,
+            const ChrName& chr, Coord_t b, Coord_t l) {
+                return std::visit([&](auto& p) {
+                    using T = std::decay_t<decltype(p)>;
+                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>)
+                        return p->getSubSequence(chr, b, l);
+                    else
+                        return p->getOriginalManager().getSubSequence(chr, b, l);
+                    }, mv);
+            };
+
+        auto getChrLen = [](const SeqPro::ManagerVariant& mv, const ChrName& chr) {
+            return std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>)
+                    return p->getSequenceLength(chr);
+                else
+                    return p->getOriginalManager().getSequenceLength(chr);
+                }, mv);
+            };
+
+        // ---------------- 左扩展 ----------------
+        if (left_extend) {
+            int_t query_len = 0;
+            Strand strand = cur_node->strand;
+            int_t query_start = 0;
+
+            if (strand == FORWARD) {
+                // 正向：以 prev 的 end 作为左界
+                SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+                query_start = (!query_left_node->isHead()) ? query_left_node->start + query_left_node->length : 0;
+                query_len = cur_node->start - query_start;
+            }
+            else {
+                // 反向：以 next 的 start 作为左界
+                SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                query_start = cur_node->start + cur_node->length;
+                if (!query_right_node->isTail())
+                    query_len = query_right_node->start - query_start;
+                else
+                    query_len = getChrLen(*managers[query_name], query_chr_name) - query_start;
+            }
+
+
+            BlockPtr cur_block = cur_node->parent_block;
+            SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+			BlockPtr left_block = query_left_node->parent_block;
+            SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+			SegPtr ref_left_node = left_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+            int_t ref_start = (!ref_left_node->isHead()) ? ref_left_node->start + ref_left_node->length : 0;
+            int_t ref_len = ref_cur_node->start - ref_start;
+
+            // === 实际比对逻辑 ===
+            if (query_len > 0 && ref_len > 0) {
+                std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
+                std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
+
+                // TODO: 在这里执行左扩展比对，比如 Smith-Waterman 或者自定义比对逻辑
+                std::reverse(ref_seq.begin(), ref_seq.end());
+                if (strand == FORWARD) {
+                    reverseSeq(query_seq);
+                }
+                else {
+					baseComplement(query_seq);
+                }
+
+				Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
+				std::reverse(result.begin(), result.end());
+				AlignCount cnt = countAlignedBases(result);
+                if (strand == FORWARD) {
+                    cur_node->start -= cnt.query_bases;
+                }
+				
+				cur_node->length += cnt.query_bases;
+                ref_cur_node->start -= cnt.ref_bases;
+                ref_cur_node->length += cnt.ref_bases;
+				prependCigar(cur_node->cigar, result);
+					
+            }
+        }
+
+        // ---------------- 右扩展 ----------------
+        if (right_extend) {
+            int_t query_len = 0;
+            Strand strand = cur_node->strand;
+            int_t query_start = 0;
+
+            if (strand == FORWARD) {
+                SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                query_start = cur_node->start + cur_node->length;
+                if (!query_right_node->isTail()) {
+                    query_len = query_right_node->start - query_start;
+                }
+                else {
+                    query_len = getChrLen(*managers[query_name], query_chr_name) - query_start;
+                }
+            }
+            else {
+                SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+                if (!query_left_node->isHead()) {
+                    query_start = query_left_node->start + query_left_node->length;
+                    query_len = cur_node->start - query_start;
+                }
+                else {
+                    query_start = 0;
+                    query_len = cur_node->start;
+                }
+            }
+
+            BlockPtr cur_block = cur_node->parent_block;
+            SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+            BlockPtr right_block = query_right_node->parent_block;
+            SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+            SegPtr ref_right_node = right_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+            int_t ref_start = ref_cur_node->start + ref_cur_node->length;
+            int_t ref_len = (!ref_right_node->isTail()) ? ref_right_node->start - ref_start : getChrLen(*managers[ref_name], cur_block->ref_chr) - ref_start;
+
+            // === 实际比对逻辑 ===
+            if (query_len > 0 && ref_len > 0) {
+                std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
+                std::string ref_seq = fetchSeq(*managers[ref_name], p_block->ref_chr, ref_start, ref_len);
+
+                // TODO: 在这里执行右扩展比对
+                if (strand == FORWARD) {
+                }
+                else {
+					reverseSeq(ref_seq);
+                }
+
+                Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
+
+                AlignCount cnt = countAlignedBases(result);
+                if (strand == REVERSE) {
+                    cur_node->start -= cnt.query_bases;
+                }
+
+                cur_node->length += cnt.query_bases;
+
+                ref_anchor->length += cnt.ref_bases;
+                appendCigar(cur_node->cigar, result);
+            }
+        }
+    }
+
+    // 串行重新排序：按照 start 坐标
+    void GenomeEnd::resortSegments() {
+        std::vector<SegPtr> segs;
+        SegPtr cur = head->primary_path.next.load(std::memory_order_acquire);
+        while (cur && !cur->isTail()) {
+            segs.push_back(cur);
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+
+        if (segs.empty()) return;
+
+        // 按 start 排序
+        std::sort(segs.begin(), segs.end(), [](const SegPtr& a, const SegPtr& b) {
+            return a->start < b->start;
+            });
+
+        // 重新链接：head -> segs[0] -> ... -> segs[n-1] -> tail
+        Segment::linkChain(segs);
+        head->primary_path.next.store(segs.front(), std::memory_order_release);
+        segs.front()->primary_path.prev.store(head, std::memory_order_release);
+
+        tail->primary_path.prev.store(segs.back(), std::memory_order_release);
+        segs.back()->primary_path.next.store(tail, std::memory_order_release);
+    }
+
 
     /* -------------------------------------------------------------
      *  移除同一染色体链表中的重叠 Segment

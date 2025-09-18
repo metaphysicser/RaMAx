@@ -418,7 +418,11 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
     // 在解析完成后检查slow_build标志并相应设置fast_build
 }
 
-
+#include "bindings/cpp/WFAligner.hpp"
+extern "C" {
+#include "alignment/cigar.h" 
+#include "wavefront/wavefront_align.h"
+}
 int main(int argc, char** argv) {
     // 初始化异步日志线程池（spdlog）
     spdlog::init_thread_pool(8192, 1); // 日志缓冲区容量 8192，单线程日志写入

@@ -109,6 +109,30 @@ void appendCigar(Cigar_t& dst, const Cigar_t& src)
 		dst.push_back(src[idx]);
 }
 
+void prependCigar(Cigar_t& dst, const Cigar_t& src)
+{
+    if (src.empty()) return; // nothing to do
+    size_t end = src.size();
+
+    if (!dst.empty()) {
+        char op_dst; uint32_t len_dst;
+        intToCigar(dst.front(), op_dst, len_dst);
+
+        char op_src; uint32_t len_src;
+        intToCigar(src.back(), op_src, len_src);
+
+        if (op_dst == op_src) {
+            // 合并 src.back() 和 dst.front()
+            dst.front() = cigarToInt(op_dst, len_dst + len_src);
+            end = src.size() - 1; // 最后一个元素已被合并，不再插入
+        }
+    }
+
+    // 把 src[0 ... end-1] 插到 dst 前面
+    dst.insert(dst.begin(), src.begin(), src.begin() + end);
+}
+
+
 /* ------------------------------------------------------------------
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/

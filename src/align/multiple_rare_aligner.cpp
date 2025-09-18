@@ -555,11 +555,14 @@ starAlignment(
 
         constructMultipleGraphsByGreedyByRef(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+
+        multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
 #endif // _DEBUG_
-		spdlog::info("construct multiple genome graphs for {} done", ref_name);
+        spdlog::info("construct multiple genome graphs for {} done", ref_name);
+
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
@@ -1089,13 +1092,13 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
             //        graph, pool, min_span);
             //    });
-            for (auto& cluster : *cluster_ptr) {
-                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+            
+            pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                     graph, min_span, false);
 
                 //pra.constructGraphByDpByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                 //    graph, pool, thread_num, min_span, false);
-            }
+            
         }
     }
     pool.waitAllTasksDone();
