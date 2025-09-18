@@ -440,10 +440,12 @@ namespace RaMesh {
 
 
             BlockPtr cur_block = cur_node->parent_block;
-            SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
-			BlockPtr left_block = query_left_node->parent_block;
+            ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
-			SegPtr ref_left_node = left_block->anchors[{ ref_name, cur_block->ref_chr }];
+            SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
+            while (!ref_left_node->isHead() && ref_left_node->parent_block->ref_chr != ref_chr_name) {
+                ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
+            }
 
             int_t ref_start = (!ref_left_node->isHead()) ? ref_left_node->start + ref_left_node->length : 0;
             int_t ref_len = ref_cur_node->start - ref_start;
@@ -506,10 +508,12 @@ namespace RaMesh {
             }
 
             BlockPtr cur_block = cur_node->parent_block;
-            SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
-            BlockPtr right_block = query_right_node->parent_block;
+            ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
-            SegPtr ref_right_node = right_block->anchors[{ ref_name, cur_block->ref_chr }];
+            SegPtr ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
+            while (!ref_right_node->isTail() && ref_right_node->parent_block->ref_chr != ref_chr_name) {
+                ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
+            }          
 
             int_t ref_start = ref_cur_node->start + ref_cur_node->length;
             int_t ref_len = (!ref_right_node->isTail()) ? ref_right_node->start - ref_start : getChrLen(*managers[ref_name], cur_block->ref_chr) - ref_start;
@@ -517,7 +521,7 @@ namespace RaMesh {
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
                 std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
-                std::string ref_seq = fetchSeq(*managers[ref_name], p_block->ref_chr, ref_start, ref_len);
+                std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
 
                 // TODO: 在这里执行右扩展比对
                 if (strand == FORWARD) {
@@ -535,7 +539,7 @@ namespace RaMesh {
 
                 cur_node->length += cnt.query_bases;
 
-                ref_anchor->length += cnt.ref_bases;
+                ref_cur_node->length += cnt.ref_bases;
                 appendCigar(cur_node->cigar, result);
             }
         }
@@ -564,6 +568,23 @@ namespace RaMesh {
 
         tail->primary_path.prev.store(segs.back(), std::memory_order_release);
         segs.back()->primary_path.next.store(tail, std::memory_order_release);
+
+#ifdef _DEBUG_
+        cur = head->primary_path.next.load(std::memory_order_acquire);
+        uint_t prev_start = 0;
+        bool first = true;
+        while (cur && !cur->isTail()) {
+            if (!first && cur->start < prev_start) {
+                std::cerr << "[GenomeEnd::resortSegments] ERROR: "
+                    << "segment order invalid: "
+                    << cur->start << " < " << prev_start << std::endl;
+                break; // 发现问题就退出
+            }
+            prev_start = cur->start;
+            first = false;
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+#endif
     }
 
 

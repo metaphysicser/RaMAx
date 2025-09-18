@@ -316,7 +316,14 @@ namespace RaMesh {
 
         }
         pool.waitAllTasksDone();
-
+        //for (auto& [sp, g] : species_graphs) {
+        //    auto it = species_graphs.find(sp);
+        //    if (it != species_graphs.end()) {
+        //        for (auto& [chr_name, end] : it->second.chr2end) {
+        //            end.resortSegments();
+        //        }
+        //    }
+        //}
         // 调整ref的链表排序
         auto it = species_graphs.find(ref_name);
         if (it != species_graphs.end()) {
