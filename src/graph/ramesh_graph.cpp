@@ -442,7 +442,10 @@ namespace RaMesh {
         }
 
         // 限制详细输出数量，但不影响错误统计
-        if (options.verbose && type_count < options.max_verbose_errors_per_type) {
+        const std::string& verbose_species = species.empty() ? std::string{"__GLOBAL__"} : species;
+        size_t species_verbose_count = result.getSpeciesVerboseCount(verbose_species, type);
+
+        if (options.verbose && species_verbose_count < options.max_verbose_errors_per_type) {
             // 优化字符串拼接：使用预分配的字符串缓冲区
             std::string full_message;
             full_message.reserve(256); // 预分配合理大小
@@ -475,6 +478,8 @@ namespace RaMesh {
                     spdlog::critical(full_message);
                     break;
             }
+
+            result.incrementSpeciesVerboseCount(verbose_species, type);
         }
     }
 
@@ -3034,6 +3039,38 @@ namespace RaMesh {
         bool reference_overlap_found = false;
         size_t reference_chr_visited = 0;
 
+        auto remove_zero_length_segment = [&](const GenomeEnd& genome_end_ref,
+                                              const SegPtr& segment) -> SegPtr {
+            if (!segment || segment->isHead() || segment->isTail()) {
+                return segment ? segment->primary_path.next.load(std::memory_order_acquire) : nullptr;
+            }
+
+            SegPtr next_ptr = segment->primary_path.next.load(std::memory_order_acquire);
+            auto& genome_end_mut = const_cast<GenomeEnd&>(genome_end_ref);
+
+            {
+                std::unique_lock end_lock(genome_end_mut.rw);
+                Segment::unlinkSegment(segment);
+                uint_t start = segment->start;
+                uint_t end = start + std::max<uint_t>(segment->length, 1);
+                genome_end_mut.invalidateSampling(start, end);
+            }
+
+            if (auto block = segment->parent_block) {
+                std::unique_lock block_lock(block->rw);
+                for (auto it = block->anchors.begin(); it != block->anchors.end(); ++it) {
+                    if (it->second == segment) {
+                        block->anchors.erase(it);
+                        break;
+                    }
+                }
+            }
+
+            segment->parent_block.reset();
+
+            return next_ptr;
+        };
+
         for (const auto &[species_name, genome_graph]: species_graphs) {
             std::shared_lock species_lock(genome_graph.rw);
 
@@ -3121,10 +3158,18 @@ namespace RaMesh {
                         if (options.isEnabled(VerificationType::COORDINATE_OVERLAP)) {
                             // 检查segment长度有效性
                             if (current->length == 0) {
-                                addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::WARNING,
                                                    species_name, chr_name, segment_count, current->start,
-                                                   "Segment has zero length",
+                                                   "Zero-length segment removed automatically",
                                                    "start=" + std::to_string(current->start));
+
+                                SegPtr removal_prev = current->primary_path.prev.load(std::memory_order_acquire);
+                                current = remove_zero_length_segment(genome_end, current);
+                                prev = removal_prev;
+                                if (!current) {
+                                    break;
+                                }
+                                continue;
                             }
 
                             // 检查坐标是否有重叠

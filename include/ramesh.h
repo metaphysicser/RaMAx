@@ -372,6 +372,8 @@ namespace RaMesh {
 
             // 优化的错误计数器：避免每次都遍历整个错误向量
             mutable std::unordered_map<VerificationType, size_t> error_counts;
+            mutable std::unordered_map<std::string,
+                   std::unordered_map<VerificationType, size_t>> verbose_counts_by_species;
 
             size_t getErrorCount(VerificationType type) const {
                 return std::count_if(errors.begin(), errors.end(),
@@ -389,6 +391,19 @@ namespace RaMesh {
             // 增加错误计数
             void incrementErrorCount(VerificationType type) {
                 error_counts[type]++;
+            }
+
+            size_t getSpeciesVerboseCount(const std::string& species,
+                                           VerificationType type) const {
+                auto sit = verbose_counts_by_species.find(species);
+                if (sit == verbose_counts_by_species.end()) return 0;
+                auto tit = sit->second.find(type);
+                return tit != sit->second.end() ? tit->second : 0;
+            }
+
+            void incrementSpeciesVerboseCount(const std::string& species,
+                                              VerificationType type) {
+                verbose_counts_by_species[species][type]++;
             }
         };
 
