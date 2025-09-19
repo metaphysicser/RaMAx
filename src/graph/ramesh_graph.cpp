@@ -2933,25 +2933,36 @@ namespace RaMesh {
     }
 
     void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
-
         // 优化每个物种图的采样表
-        for (auto &[species, genome_graph]: species_graphs) {
-            std::shared_lock species_lock(genome_graph.rw);
+        for (auto& [species, genome_graph] : species_graphs) {
+            std::unique_lock species_lock(genome_graph.rw); // 需要写锁，因为可能要修改链表结构
 
-            for (auto &[chr, genome_end]: genome_graph.chr2end) {
-                // 重建采样表以提高查询效率
+            for (auto& [chr, genome_end] : genome_graph.chr2end) {
+                std::unique_lock end_lock(genome_end.rw);
+
+                // 清理采样表，准备重新构建
                 genome_end.sample_vec.clear();
-                uint_t last_seg_end = 0;
 
                 SegPtr current = genome_end.head->primary_path.next.load(std::memory_order_acquire);
-
                 while (current && !current->isTail()) {
-                    genome_end.setToSampling(current);
-                    current = current->primary_path.next.load(std::memory_order_acquire);
+                    SegPtr next = current->primary_path.next.load(std::memory_order_acquire);
+
+                    if (current->length == 0) {
+                        // 删除该 segment
+                        // Segment::unlinkSegment(current);
+                        Segment::deleteSegment(current);
+                    }
+                    else {
+                        // 保留，加入采样表
+                        genome_end.setToSampling(current);
+                    }
+
+                    current = next;
                 }
             }
         }
     }
+
 
     RaMeshMultiGenomeGraph::DeletionStats RaMeshMultiGenomeGraph::performMaintenance(bool full_gc) {
         auto start_time = std::chrono::high_resolution_clock::now();
