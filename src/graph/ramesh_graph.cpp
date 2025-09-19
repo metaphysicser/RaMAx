@@ -295,26 +295,26 @@ namespace RaMesh {
 		}
 		pool.waitAllTasksDone();
 
-        for (auto& [sp, g] : species_graphs) {
-            if (sp == ref_name) {
-                continue;
-            }
-            for (auto& [chr_name, end] : g.chr2end) {
-                SegPtr cur_node = end.head;
+        //for (auto& [sp, g] : species_graphs) {
+        //    if (sp == ref_name) {
+        //        continue;
+        //    }
+        //    for (auto& [chr_name, end] : g.chr2end) {
+        //        SegPtr cur_node = end.head;
 
-                while (cur_node != NULL) {
-                    //pool.enqueue([this, &ref_name, &sp, &end, &chr_name, &cur_node, &managers]() {
+        //        while (cur_node != NULL) {
+        //            //pool.enqueue([this, &ref_name, &sp, &end, &chr_name, &cur_node, &managers]() {
 
-                    //    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
+        //            //    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
 
-                    //    });
-                    end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
-                    cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
-                }
+        //            //    });
+        //            end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true, false);
+        //            cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+        //        }
 
-            }
+        //    }
 
-        }
+        //}
         pool.waitAllTasksDone();
         //for (auto& [sp, g] : species_graphs) {
         //    auto it = species_graphs.find(sp);

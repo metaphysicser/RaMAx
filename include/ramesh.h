@@ -77,6 +77,8 @@ namespace RaMesh {
         RaMeshPath  primary_path;
         BlockPtr   parent_block;
 
+        bool left_extend{ false };
+		bool right_extend{ false };
         mutable std::shared_mutex rw;        // guards non‑list fields
 
         // ――― predicates ―――
@@ -229,6 +231,26 @@ namespace RaMesh {
 			//const AnchorVec& anchor_vec);
 
         void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
+
+        void markAllExtended() {
+            std::unique_lock lock(rw); // 锁保护整个 species_graphs
+            for (auto& [species, genome_graph] : species_graphs) {
+                std::shared_lock g_lock(genome_graph.rw);
+                for (auto& [chr, end] : genome_graph.chr2end) {
+                    std::shared_lock e_lock(end.rw);
+
+                    SegPtr cur = end.head;
+                    while (cur) {
+                        if (!cur->isHead() && !cur->isTail()) {
+                            std::unique_lock s_lock(cur->rw);
+                            cur->left_extend = true;
+                            cur->right_extend = true;
+                        }
+                        cur = cur->primary_path.next.load(std::memory_order_acquire);
+                    }
+                }
+            }
+        };
 
 
 		void extendRefNodes(const SpeciesName& ref_name, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, uint_t thread_num);
