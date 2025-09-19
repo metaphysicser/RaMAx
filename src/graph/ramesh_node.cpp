@@ -27,6 +27,7 @@ namespace RaMesh {
         // list pointers – initialise nullptr
         s->primary_path.next.store(nullptr, std::memory_order_relaxed);
         s->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+
         return std::shared_ptr<Segment>(s);
     }
 
@@ -394,7 +395,7 @@ namespace RaMesh {
         bool left_extend,
         bool right_extend) {
         if (cur_node == head || cur_node == tail || cur_node == NULL) return;
-
+		if (cur_node->right_extend) return; // 已经扩展过了
         auto fetchSeq = [](const SeqPro::ManagerVariant& mv,
             const ChrName& chr, Coord_t b, Coord_t l) {
                 return std::visit([&](auto& p) {
@@ -417,7 +418,8 @@ namespace RaMesh {
             };
 
         // ---------------- 左扩展 ----------------
-        if (left_extend) {
+        if (left_extend && cur_node->left_extend == false) {
+            
             int_t query_len = 0;
             Strand strand = cur_node->strand;
             int_t query_start = 0;
@@ -442,6 +444,9 @@ namespace RaMesh {
             BlockPtr cur_block = cur_node->parent_block;
             ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+            cur_node->left_extend = true;
+            ref_cur_node->left_extend = true;
             SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
             while (!ref_left_node->isHead() && ref_left_node->parent_block->ref_chr != ref_chr_name) {
                 ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
@@ -480,7 +485,7 @@ namespace RaMesh {
         }
 
         // ---------------- 右扩展 ----------------
-        if (right_extend) {
+        if (right_extend && cur_node->right_extend == false) {
             int_t query_len = 0;
             Strand strand = cur_node->strand;
             int_t query_start = 0;
@@ -510,6 +515,10 @@ namespace RaMesh {
             BlockPtr cur_block = cur_node->parent_block;
             ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+			cur_node->right_extend = true;
+			ref_cur_node->right_extend = true;
+
             SegPtr ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
             while (!ref_right_node->isTail() && ref_right_node->parent_block->ref_chr != ref_chr_name) {
                 ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
