@@ -379,6 +379,37 @@ namespace RaMesh {
         options.max_total_errors = 500000;         // 完整统计所有错误
         options.max_verbose_errors_per_type = 5;   // 每种类型只显示前5条详细信息
 
+        // 默认情况下不执行高开销的内存与线程检查，可按需启用
+        options.disable(VerificationType::MEMORY_INTEGRITY);
+        options.disable(VerificationType::THREAD_SAFETY);
+        options.disable(VerificationType::PERFORMANCE_ISSUES);
+
+        VerificationResult result = verifyGraphCorrectness(options);
+        return result.is_valid;
+    }
+
+    bool RaMeshMultiGenomeGraph::verifyGraphCorrectness(const SpeciesName& reference_species,
+                                                        bool verbose,
+                                                        bool show_detailed_segments,
+                                                        bool require_reference_overlap,
+                                                        bool forbid_non_reference_overlap,
+                                                        bool allow_reference_overlap) const {
+        VerificationOptions options;
+        options.verbose = verbose;
+        options.show_detailed_segments = show_detailed_segments;
+        options.max_errors_per_type = 100000;
+        options.max_total_errors = 500000;
+        options.max_verbose_errors_per_type = 5;
+
+        options.disable(VerificationType::MEMORY_INTEGRITY);
+        options.disable(VerificationType::THREAD_SAFETY);
+        options.disable(VerificationType::PERFORMANCE_ISSUES);
+
+        options.enableReferenceOverlapPolicy(reference_species,
+                                             allow_reference_overlap,
+                                             require_reference_overlap,
+                                             forbid_non_reference_overlap);
+
         VerificationResult result = verifyGraphCorrectness(options);
         return result.is_valid;
     }
@@ -2993,12 +3024,26 @@ namespace RaMesh {
             }
         }
 
+        const bool reference_policy_enabled = options.reference_policy.enabled;
+        const SpeciesName& reference_species = options.reference_policy.reference_species;
+        const bool allow_reference_overlap = !reference_policy_enabled || options.reference_policy.allow_reference_overlap;
+        const bool require_reference_overlap = reference_policy_enabled && options.reference_policy.require_reference_overlap;
+        const bool forbid_non_reference_overlap = !reference_policy_enabled || options.reference_policy.forbid_non_reference_overlap;
+
+        size_t reference_overlap_counter = 0;
+        bool reference_overlap_found = false;
+        size_t reference_chr_visited = 0;
+
         for (const auto &[species_name, genome_graph]: species_graphs) {
             std::shared_lock species_lock(genome_graph.rw);
 
             for (const auto &[chr_name, genome_end]: genome_graph.chr2end) {
                 if (!genome_end.head || !genome_end.tail) {
                     continue; // 已在指针有效性检查中报告
+                }
+
+                if (reference_policy_enabled && species_name == reference_species) {
+                    reference_chr_visited++;
                 }
 
                 // 为链表完整性检查准备数据结构
@@ -3087,12 +3132,28 @@ namespace RaMesh {
                                 uint_t prev_end = prev->start + prev->length;
                                 if (current->start < prev_end) {
                                     uint_t overlap_size = prev_end - current->start;
-                                    addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
-                                                       species_name, chr_name, segment_count, current->start,
-                                                       "Segment coordinates overlap",
-                                                       "prev_end=" + std::to_string(prev_end) +
-                                                       ", current_start=" + std::to_string(current->start) +
-                                                       ", overlap_size=" + std::to_string(overlap_size) + "bp");
+                                    bool is_reference_species = reference_policy_enabled && species_name == reference_species;
+
+                                    if (is_reference_species) {
+                                        reference_overlap_found = true;
+                                        reference_overlap_counter++;
+
+                                        if (!allow_reference_overlap) {
+                                            addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                                               species_name, chr_name, segment_count, current->start,
+                                                               "Reference segment coordinates overlap",
+                                                               "prev_end=" + std::to_string(prev_end) +
+                                                               ", current_start=" + std::to_string(current->start) +
+                                                               ", overlap_size=" + std::to_string(overlap_size) + "bp");
+                                        }
+                                    } else if (forbid_non_reference_overlap) {
+                                        addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::ERROR,
+                                                           species_name, chr_name, segment_count, current->start,
+                                                           "Segment coordinates overlap",
+                                                           "prev_end=" + std::to_string(prev_end) +
+                                                           ", current_start=" + std::to_string(current->start) +
+                                                           ", overlap_size=" + std::to_string(overlap_size) + "bp");
+                                    }
                                 }
                             }
                         }
@@ -3188,6 +3249,21 @@ namespace RaMesh {
             }
         }
 
+        if (reference_policy_enabled && require_reference_overlap && !reference_overlap_found) {
+            std::string detail;
+            if (reference_chr_visited > 0) {
+                detail = "Visited " + std::to_string(reference_chr_visited) +
+                         " chromosome(s) for reference species but no overlaps were detected";
+            } else {
+                detail = "Reference species not present in current graph";
+            }
+
+            addVerificationError(result, options, VerificationType::COORDINATE_OVERLAP, ErrorSeverity::CRITICAL,
+                               reference_species, "", 0, 0,
+                               "Reference species expected to have overlapping segments but none were found",
+                               detail);
+        }
+
         // 输出各类型的统计信息
         if (options.verbose) {
             if (options.isEnabled(VerificationType::LINKED_LIST_INTEGRITY)) {
@@ -3212,6 +3288,14 @@ namespace RaMesh {
                 size_t total_errors = result.getErrorCountFast(VerificationType::MEMORY_INTEGRITY);
                 if (total_errors > 0) {
                     spdlog::debug("MEMORY_INTEGRITY: {} total errors", total_errors);
+                }
+            }
+            if (reference_policy_enabled) {
+                if (reference_overlap_counter > 0) {
+                    spdlog::debug("REFERENCE_OVERLAP: {} overlap(s) observed for {}",
+                               reference_overlap_counter, reference_species);
+                } else {
+                    spdlog::debug("REFERENCE_OVERLAP: no overlaps observed for {}", reference_species);
                 }
             }
         }
