@@ -516,16 +516,29 @@ namespace RaMesh {
             ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
 
-			cur_node->right_extend = true;
-			ref_cur_node->right_extend = true;
 
             SegPtr ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
-            while (!ref_right_node->isTail() && ref_right_node->parent_block->ref_chr != ref_chr_name) {
+            while (true) {
+				if (ref_right_node->isTail()) break;
+                if (ref_right_node->left_extend && ref_right_node->right_extend) break;
+                bool find = false;
+                for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
+                    if (key.first == query_name) {
+                        find = true;
+                        break;
+                    }
+                }
+                if (find) {
+                    break;
+                }
                 ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
             }          
 
             int_t ref_start = ref_cur_node->start + ref_cur_node->length;
             int_t ref_len = (!ref_right_node->isTail()) ? ref_right_node->start - ref_start : getChrLen(*managers[ref_name], cur_block->ref_chr) - ref_start;
+
+            cur_node->right_extend = true;
+            ref_cur_node->right_extend = true;
 
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
