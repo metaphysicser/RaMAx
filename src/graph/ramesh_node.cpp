@@ -395,7 +395,8 @@ namespace RaMesh {
         bool left_extend,
         bool right_extend) {
         if (cur_node == head || cur_node == tail || cur_node == NULL) return;
-		if (cur_node->right_extend && cur_node->left_extend) return; // 已经扩展过了
+		//if (cur_node->right_extend) return; // 已经扩展过了
+        if (cur_node->right_extend && cur_node->left_extend) return; // 已经扩展过了
         auto fetchSeq = [](const SeqPro::ManagerVariant& mv,
             const ChrName& chr, Coord_t b, Coord_t l) {
                 return std::visit([&](auto& p) {
@@ -491,6 +492,22 @@ namespace RaMesh {
                 // 关键修复2：左扩展得到的 CIGAR 需要反转操作顺序再拼到左侧
                 std::reverse(result.begin(), result.end());
 
+                // 确保cigar的最前端不是I或D
+                // 确保 cigar 的最前端不是 I 或 D
+                while (!result.empty()) {
+                    char op; uint32_t len;
+                    intToCigar(result.front(), op, len);
+                    if (op == 'I' || op == 'D') {
+                        // 如果是 indel，则直接丢弃该操作
+                        result.erase(result.begin());
+                    }
+                    else {
+                        // 第一个合法操作符是 M/=/X 等时，停止
+                        break;
+                    }
+                }
+
+
                 AlignCount cnt = countAlignedBases(result);
 
                 bool extended = (cnt.query_bases > 0) || (cnt.ref_bases > 0);
@@ -583,6 +600,18 @@ namespace RaMesh {
                 }
 
                 Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
+                while (!result.empty()) {
+                    char op; uint32_t len;
+                    intToCigar(result.back(), op, len);
+                    if (op == 'I' || op == 'D') {
+                        // 如果是 indel，则直接丢弃该操作
+                        result.erase(result.end());
+                    }
+                    else {
+                        // 第一个合法操作符是 M/=/X 等时，停止
+                        break;
+                    }
+                }
 
                 AlignCount cnt = countAlignedBases(result);
                 if (strand == REVERSE) {
