@@ -395,7 +395,7 @@ namespace RaMesh {
         bool left_extend,
         bool right_extend) {
         if (cur_node == head || cur_node == tail || cur_node == NULL) return;
-		if (cur_node->right_extend) return; // 已经扩展过了
+		if (cur_node->right_extend && cur_node->left_extend) return; // 已经扩展过了
         auto fetchSeq = [](const SeqPro::ManagerVariant& mv,
             const ChrName& chr, Coord_t b, Coord_t l) {
                 return std::visit([&](auto& p) {
@@ -418,16 +418,18 @@ namespace RaMesh {
             };
 
         // ---------------- 左扩展 ----------------
+        // ---------------- 左扩展 ----------------
         if (left_extend && cur_node->left_extend == false) {
-            
-            int_t query_len = 0;
-            Strand strand = cur_node->strand;
-            int_t query_start = 0;
 
+            int_t  query_len = 0;
+            Strand strand = cur_node->strand;
+            int_t  query_start = 0;
+
+            // 计算 query 侧左侧可扩区间
             if (strand == FORWARD) {
                 // 正向：以 prev 的 end 作为左界
                 SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
-                query_start = (!query_left_node->isHead()) ? query_left_node->start + query_left_node->length : 0;
+                query_start = (!query_left_node->isHead()) ? (query_left_node->start + query_left_node->length) : 0;
                 query_len = cur_node->start - query_start;
             }
             else {
@@ -440,49 +442,77 @@ namespace RaMesh {
                     query_len = getChrLen(*managers[query_name], query_chr_name) - query_start;
             }
 
-
             BlockPtr cur_block = cur_node->parent_block;
-            ChrName ref_chr_name = cur_block->ref_chr;
-            SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+            ChrName  ref_chr_name = cur_block->ref_chr;
+            SegPtr   ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
 
-            cur_node->left_extend = true;
-            ref_cur_node->left_extend = true;
+            // 与右扩展对称：向左寻找“合适的”参考节点
             SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
-            while (!ref_left_node->isHead() && ref_left_node->parent_block->ref_chr != ref_chr_name) {
+            while (true) {
+                if (ref_left_node->isHead()) break;
+                if (ref_left_node->left_extend && ref_left_node->right_extend) break;
+                bool find = false;
+                for (const auto& [key, seg] : ref_left_node->parent_block->anchors) {
+                    if (key.first == query_name) {
+                        find = true;  // 找到包含该 query 物种的 block，则作为边界
+                        break;
+                    }
+                }
+                if (find) break;
                 ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
             }
 
-            int_t ref_start = (!ref_left_node->isHead()) ? ref_left_node->start + ref_left_node->length : 0;
+            int_t ref_start = (!ref_left_node->isHead()) ? (ref_left_node->start + ref_left_node->length) : 0;
             int_t ref_len = ref_cur_node->start - ref_start;
+
+            // 只有真正发生扩展时再置标记（避免无扩展就“封死”）
+            cur_node->left_extend = true;
+            ref_cur_node->left_extend = true;
 
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
                 std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
                 std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
 
-                // TODO: 在这里执行左扩展比对，比如 Smith-Waterman 或者自定义比对逻辑
+                // 关键修复1：把“左扩展”转换为“向右比对”
+                // 参考序列反转
                 std::reverse(ref_seq.begin(), ref_seq.end());
                 if (strand == FORWARD) {
+                    // 正向链：query 只需反转
                     reverseSeq(query_seq);
                 }
                 else {
-					baseComplement(query_seq);
+                    // 反向链：必须做反向互补（之前代码只做 complement 少了 reverse）
+                    baseComplement(query_seq);
                 }
 
-				Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
-				std::reverse(result.begin(), result.end());
-				AlignCount cnt = countAlignedBases(result);
-                if (strand == FORWARD) {
-                    cur_node->start -= cnt.query_bases;
+                Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
+
+                // 关键修复2：左扩展得到的 CIGAR 需要反转操作顺序再拼到左侧
+                std::reverse(result.begin(), result.end());
+
+                AlignCount cnt = countAlignedBases(result);
+
+                bool extended = (cnt.query_bases > 0) || (cnt.ref_bases > 0);
+                if (extended) {
+                    // 更新 query 段坐标
+                    if (strand == FORWARD) {
+                        cur_node->start -= cnt.query_bases;
+                    }
+                    cur_node->length += cnt.query_bases;
+
+                    // 更新 ref 段坐标
+                    ref_cur_node->start -= cnt.ref_bases;
+                    ref_cur_node->length += cnt.ref_bases;
+
+                    // 拼接到左侧
+                    prependCigar(cur_node->cigar, result);
+
+
                 }
-				
-				cur_node->length += cnt.query_bases;
-                ref_cur_node->start -= cnt.ref_bases;
-                ref_cur_node->length += cnt.ref_bases;
-				prependCigar(cur_node->cigar, result);
-					
             }
         }
+
 
         // ---------------- 右扩展 ----------------
         if (right_extend && cur_node->right_extend == false) {
