@@ -586,7 +586,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::strin
             anchor_ptr_list.reserve(region_vec.size());
             for (uint_t i = 0; i < region_vec.size(); i++) {
                 if (last_pos == region_vec[i].start) {
-                    continue;
+                    break;
                 }
                 Match match(region_vec[i].chr_index, region_vec[i].start, query_chr_index, qry_start, match_length, strand);
                 /*Score_t score = caculateMatchScore(query.c_str() + total_length,
