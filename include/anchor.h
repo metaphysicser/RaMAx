@@ -171,8 +171,13 @@ inline void releaseCluster(MatchVec& cluster) {
 /* ---------- 辅助：计算簇跨度 ---------- */
 inline int_t clusterSpan(const MatchCluster& cl)
 {
-    return start1(cl.back()) + len1(cl.back())
-        - start1(cl.front());
+    //return start1(cl.back()) + len1(cl.back())
+    //    - start1(cl.front());
+    int_t total_len = 0;
+    for (const auto& m : cl) {
+        total_len += len1(m);
+    }
+    return total_len;
 }
 
 void groupMatchByQueryRef(MatchVec3DPtr& anchors,

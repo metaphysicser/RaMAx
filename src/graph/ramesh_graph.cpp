@@ -298,28 +298,28 @@ void RaMeshMultiGenomeGraph::extendRefNodes(
   }
   pool.waitAllTasksDone();
 
-  for (auto& [sp, g] : species_graphs) {
-      if (sp == ref_name) {
-          continue;
-      }
-      for (auto& [chr_name, end] : g.chr2end) {
-          SegPtr cur_node = end.head;
+  //for (auto& [sp, g] : species_graphs) {
+  //    if (sp == ref_name) {
+  //        continue;
+  //    }
+  //    for (auto& [chr_name, end] : g.chr2end) {
+  //        SegPtr cur_node = end.head;
 
-          while (cur_node != NULL) {
-              // pool.enqueue([this, &ref_name, &sp, &chr_name, &end, &cur_node,
-              // &managers]() {
-              //
-              //     end.alignInterval(ref_name, sp, chr_name, cur_node, managers,
-              //     false, true);
-              //
-              // });
-              end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true,
-                  false);
-              cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
-          }
-      }
-  }
-  pool.waitAllTasksDone();
+  //        while (cur_node != NULL) {
+  //            // pool.enqueue([this, &ref_name, &sp, &chr_name, &end, &cur_node,
+  //            // &managers]() {
+  //            //
+  //            //     end.alignInterval(ref_name, sp, chr_name, cur_node, managers,
+  //            //     false, true);
+  //            //
+  //            // });
+  //            end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true,
+  //                false);
+  //            cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+  //        }
+  //    }
+  //}
+  //pool.waitAllTasksDone();
   // for (auto& [sp, g] : species_graphs) {
   //     auto it = species_graphs.find(sp);
   //     if (it != species_graphs.end()) {
@@ -3605,5 +3605,71 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
       }
     }
   }
+}
+
+void reportUnalignedRegions(const GenomeEnd& end,
+    const SeqPro::SharedManagerVariant& mgr,
+    const ChrName& chr_name) {
+    std::vector<std::pair<uint_t, uint_t>> covered;
+
+    // 1) 收集所有 segment 的区间
+    SegPtr cur = end.head->primary_path.next.load(std::memory_order_acquire);
+    while (cur && !cur->isTail()) {
+        covered.emplace_back(cur->start, cur->start + cur->length);
+        cur = cur->primary_path.next.load(std::memory_order_acquire);
+    }
+
+    // 2) 排序 & 合并
+    std::sort(covered.begin(), covered.end());
+    std::vector<std::pair<uint_t, uint_t>> merged;
+    for (auto& iv : covered) {
+        if (merged.empty() || iv.first > merged.back().second) {
+            merged.push_back(iv);
+        }
+        else {
+            merged.back().second = std::max(merged.back().second, iv.second);
+        }
+    }
+
+    // 3) 求补集（未覆盖区间）
+    uint_t chr_len = std::visit([&](auto& p) { return p->getSequenceLength(chr_name); }, *mgr);
+    uint_t prev = 0;
+    std::vector<double> lens;
+    for (auto& iv : merged) {
+        if (iv.first > prev) {
+            uint_t len = iv.first - prev;
+            if (len > 1000) {
+                std::cout << "Unaligned region: [" << prev << ", " << iv.first
+                    << ") length=" << len << "\n";
+            }
+
+            lens.push_back(static_cast<double>(len));
+        }
+        prev = iv.second;
+    }
+    if (prev < chr_len) {
+        uint_t len = chr_len - prev;
+        if (len > 1000) {
+            std::cout << "Unaligned region: [" << prev << ", " << chr_len
+            << ") length=" << len << "\n";
+        }
+
+        lens.push_back(static_cast<double>(len));
+    }
+
+    // 4) 计算均值和方差
+    if (!lens.empty()) {
+        double sum = std::accumulate(lens.begin(), lens.end(), 0.0);
+        double mean = sum / lens.size();
+        double sq_sum = 0.0;
+        for (double x : lens) sq_sum += (x - mean) * (x - mean);
+        double variance = sq_sum / lens.size();
+
+        std::cout << "Average gap length = " << mean
+            << ", Variance = " << variance << "\n";
+    }
+    else {
+        std::cout << "No unaligned regions found.\n";
+    }
 }
 } // namespace RaMesh

@@ -507,6 +507,7 @@ starAlignment(
     uint_t min_span)
 {
     std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
+
 	uint_t leaf_num = leaf_vec.size();
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
@@ -566,7 +567,9 @@ starAlignment(
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
+
         multi_graph->verifyGraphCorrectness(true);
+
         multi_graph->optimizeGraphStructure();
 		multi_graph->markAllExtended();
 
@@ -696,6 +699,69 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
             next_progress = progress_stage + 1;
         }
     }
+
+    {
+        SpeciesName target_species = "simOrang";
+        int query_chr_index = 4;
+        int_t region_start = 7802635;
+        int_t region_end = 7808980;
+
+        std::vector<Match> matched_vec; // 先收集
+
+        auto it = result_map->find(target_species);
+        if (it != result_map->end()) {
+            auto match3d_ptr = it->second;
+            if (match3d_ptr) {
+                for (const auto& by_ref : *match3d_ptr) {
+                    for (const auto& by_qry : by_ref) {
+                        for (const auto& m : by_qry) {
+                            if (m.qry_chr_index == query_chr_index) {
+                                Coord_t m_start = m.qry_start;
+                                Coord_t m_end = m.qry_start + m.match_len();
+                                if (m_end > region_start && m_start < region_end) {
+                                    matched_vec.push_back(m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else {
+            spdlog::warn("Species {} not found in result_map", target_species);
+        }
+
+        if (!matched_vec.empty()) {
+            std::sort(matched_vec.begin(), matched_vec.end(),
+                [](const Match& a, const Match& b) {
+                    return a.qry_start < b.qry_start;
+                });
+
+            for (const auto& m : matched_vec) {
+                spdlog::info(
+                    "[{}] chr={} 区间 [{}, {}) match: "
+                    "ref_chr={} ref_start={} len={} strand={}",
+                    target_species,
+                    m.qry_chr_index,
+                    m.qry_start,
+                    m.qry_start + m.match_len(),
+                    m.ref_chr_index,
+                    m.ref_start,
+                    m.match_len(),
+                    (m.strand() == Strand::FORWARD ? "FORWARD" : "REVERSE")
+                );
+            }
+        }
+        else {
+            spdlog::info("[{}] chr={} 区间 [{}, {}) 没有任何 match",
+                target_species, query_chr_index, region_start, region_end);
+        }
+    }
+
+
+
+
+
 
     /* ---------- 7. 保存到文件 ---------- */
     // saveSpeciesMatchMap(anchor_file, result_map);
@@ -1050,7 +1116,7 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
 
     spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
         species_cluster_map.size());
-
+       
 
     ThreadPool pool(thread_num);
     std::map<SpeciesName, ClusterVecPtrByRefPtr> result_map;
