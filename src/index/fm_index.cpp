@@ -585,7 +585,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::strin
             MatchVec anchor_ptr_list;
             anchor_ptr_list.reserve(region_vec.size());
             for (uint_t i = 0; i < region_vec.size(); i++) {
-                if (last_pos == region_vec[i].start + match_length) {
+                if (last_pos == region_vec[i].start) {
                     continue;
                 }
                 Match match(region_vec[i].chr_index, region_vec[i].start, query_chr_index, qry_start, match_length, strand);
@@ -594,7 +594,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::strin
                 match_length));*/
                 // Anchor p = Anchor(match, match_length, cigar, score);
                 anchor_ptr_list.push_back(match);
-				last_pos = region_vec[i].start + match_length;
+				last_pos = region_vec[i].start;
             }
             if (anchor_ptr_list.size() > 0) {
                 anchor_ptr_list_vec->push_back(anchor_ptr_list);
