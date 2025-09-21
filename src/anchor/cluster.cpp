@@ -339,7 +339,7 @@ inline bool isOverlap(const Match& a, const Match& b) {
 MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 {
     if (cluster.empty()) return {};
-    if (cluster.size() == 1) return std::move(cluster);
+    return MatchVec{ cluster.front() };
 
     Strand strand = cluster.front().strand();
 
@@ -407,7 +407,11 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         MatchVec best_chain = bestChainDP(cluster, diagfactor);
         if (best_chain.empty()) { releaseCluster(cluster); continue; }
 
-        int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());
+        /*int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());*/
+        int_t span = 0;
+        for (auto& m : best_chain) {
+            span += len1(m);
+        }
         if (span >= min_cluster_length) {
             best_chain_clusters->emplace_back(std::move(best_chain));
         }

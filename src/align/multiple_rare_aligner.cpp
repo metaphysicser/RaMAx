@@ -559,6 +559,29 @@ starAlignment(
 
         multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
         multi_graph->optimizeGraphStructure();
+
+        // ---------- 打印 simHuman 的所有染色体未比对区间 ----------
+        SpeciesName target_species = "simOrang";
+        auto it = multi_graph->species_graphs.find(target_species);
+        if (it != multi_graph->species_graphs.end()) {
+            const auto& genome_graph = it->second;
+            spdlog::info("Checking unaligned regions for species {}", target_species);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                spdlog::info("Chromosome {}", chr_name);
+
+                // 直接调用前面定义的函数
+                RaMesh::reportUnalignedRegions(
+                    genome_end,
+                    seqpro_managers.at(target_species),
+                    chr_name
+                );
+            }
+        }
+        else {
+            spdlog::warn("Species {} not found in multi_graph", target_species);
+        }
+
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(ref_name, true);
 #endif // _DEBUG_
