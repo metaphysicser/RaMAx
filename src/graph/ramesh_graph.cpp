@@ -3665,8 +3665,10 @@ void reportUnalignedRegions(const GenomeEnd& end,
         for (double x : lens) sq_sum += (x - mean) * (x - mean);
         double variance = sq_sum / lens.size();
 
-        std::cout << "Average gap length = " << mean
-            << ", Variance = " << variance << "\n";
+		std::cout << "Unaligned regions - count: " << lens.size()
+            << ", sum length" << sum 
+			<< ", mean length: " << mean
+			<< ", variance: " << variance << "\n";
     }
     else {
         std::cout << "No unaligned regions found.\n";

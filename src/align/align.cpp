@@ -124,7 +124,7 @@ Cigar_t extendAlignWFA2(const std::string& ref,
     attributes.affine_penalties.gap_extension = 1; // E > 0
     attributes.memory_mode = wavefront_memory_high;
     attributes.heuristic.strategy = wf_heuristic_zdrop;
-    attributes.heuristic.zdrop = 50;
+    attributes.heuristic.zdrop = 200;
     attributes.heuristic.steps_between_cutoffs = 1;
     //// Create a WFAligner
     //
