@@ -580,7 +580,7 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::strin
 
             MatchVec anchor_ptr_list;
             anchor_ptr_list.reserve(region_vec.size());
-            uint_t ref_end_pos = region_vec[0].start + match_length;
+            uint_t ref_end_pos = region_vec[0].start;
 
             // 仅当与上一段区域不重复时才添加
             if (ref_end_pos != last_pos) {
