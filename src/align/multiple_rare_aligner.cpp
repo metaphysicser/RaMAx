@@ -563,6 +563,27 @@ starAlignment(
 #endif // _DEBUG_
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
+        SpeciesName target_species = "simOrang";
+        auto it = multi_graph->species_graphs.find(target_species);
+        if (it != multi_graph->species_graphs.end()) {
+            const auto& genome_graph = it->second;
+            spdlog::info("Checking unaligned regions for species {}", target_species);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                spdlog::info("Chromosome {}", chr_name);
+
+                // 直接调用前面定义的函数
+                RaMesh::reportUnalignedRegions(
+                    genome_end,
+                    seqpro_managers.at(target_species),
+                    chr_name
+                );
+            }
+        }
+        else {
+            spdlog::warn("Species {} not found in multi_graph", target_species);
+        }
+
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);

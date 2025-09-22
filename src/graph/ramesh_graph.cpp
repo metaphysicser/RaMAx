@@ -3638,7 +3638,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     for (auto& iv : merged) {
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
-            if (len > 1000) {
+            if (len > 5000) {
                 std::cout << "Unaligned region: [" << prev << ", " << iv.first
                     << ") length=" << len << "\n";
             }
@@ -3649,7 +3649,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     }
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
-        if (len > 1000) {
+        if (len > 5000) {
             std::cout << "Unaligned region: [" << prev << ", " << chr_len
                 << ") length=" << len << "\n";
         }
