@@ -486,6 +486,10 @@ namespace RaMesh {
         void verifyWithUnifiedTraversal(VerificationResult& result, const VerificationOptions& options) const;
     };
 
+    void reportUnalignedRegions(const GenomeEnd& end,
+        const SeqPro::SharedManagerVariant& mgr,
+		const ChrName& chr_name);
+
 } // namespace RaMesh
 
 #endif /* RAMESH_H */

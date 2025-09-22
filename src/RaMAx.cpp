@@ -283,7 +283,7 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
 
     auto* min_span_opt = cmd->add_option("--min-span", args.min_span,
         "Minimum span threshold for graph construction (default: 50).")
-        ->default_val(100)
+        ->default_val(65)
         ->capture_default_str()
         ->group("Software Parameters")
         ->check(CLI::Range(1, std::numeric_limits<int>::max()))

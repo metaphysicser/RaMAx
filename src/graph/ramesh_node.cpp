@@ -690,9 +690,7 @@ namespace RaMesh {
             SegPtr next = cur;
             uint_t prev_end = prev->start + prev->length;
             uint_t cur_start = cur->start;
-            if (cur_start == 1286480 || cur_start == 1429536) {
-                std::cout << "";
-            }
+ 
             /* -------- 检测交叠 -------- */
             while (prev_end > cur_start && cur && cur != tail && next && next != tail)
             {

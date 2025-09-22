@@ -205,7 +205,7 @@ MatchVec3DPtr PairRareAligner::findQueryFileAnchor(
 						}, query_fasta_manager);
 						if (seq.length() <ck.length) continue;
 						MatchVec2DPtr reverse_matches = ref_index->findAnchors(
-							ck.chr_index, seq, FAST_SEARCH,
+							ck.chr_index, seq, ACCURATE_SEARCH,
 							Strand::REVERSE,
 							allow_MEM,
 							ck.start,
