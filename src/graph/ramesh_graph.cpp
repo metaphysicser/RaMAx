@@ -3609,7 +3609,8 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
 
 void reportUnalignedRegions(const GenomeEnd& end,
     const SeqPro::SharedManagerVariant& mgr,
-    const ChrName& chr_name) {
+    const ChrName& chr_name)
+{
     std::vector<std::pair<uint_t, uint_t>> covered;
 
     // 1) 收集所有 segment 的区间
@@ -3631,33 +3632,33 @@ void reportUnalignedRegions(const GenomeEnd& end,
         }
     }
 
+    // 打开文件（以追加模式，避免覆盖前面写的结果）
+    std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt", std::ios::app);
+    if (!ofs) {
+        std::cerr << "Error: cannot open output file." << std::endl;
+        return;
+    }
+
     // 3) 求补集（未覆盖区间）
     uint_t chr_len = std::visit([&](auto& p) { return p->getSequenceLength(chr_name); }, *mgr);
     uint_t prev = 0;
     std::vector<double> lens;
+
     for (auto& iv : merged) {
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
-            if (len > 5000) {
-                std::cout << "Unaligned region: [" << prev << ", " << iv.first
-                    << ") length=" << len << "\n";
-            }
-
+            ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // 写入所有区间
             lens.push_back(static_cast<double>(len));
         }
         prev = iv.second;
     }
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
-        if (len > 5000) {
-            std::cout << "Unaligned region: [" << prev << ", " << chr_len
-                << ") length=" << len << "\n";
-        }
-
+        ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // 写入最后一个区间
         lens.push_back(static_cast<double>(len));
     }
 
-    // 4) 计算均值和方差
+    // 4) 统计信息
     if (!lens.empty()) {
         double sum = std::accumulate(lens.begin(), lens.end(), 0.0);
         double mean = sum / lens.size();
@@ -3665,13 +3666,14 @@ void reportUnalignedRegions(const GenomeEnd& end,
         for (double x : lens) sq_sum += (x - mean) * (x - mean);
         double variance = sq_sum / lens.size();
 
-		std::cout << "Unaligned regions - count: " << lens.size()
-            << ", sum length" << sum 
-			<< ", mean length: " << mean
-			<< ", variance: " << variance << "\n";
+        std::cout << "Unaligned regions in " << chr_name
+            << " - count: " << lens.size()
+            << ", sum length: " << sum
+            << ", mean length: " << mean
+            << ", variance: " << variance << "\n";
     }
     else {
-        std::cout << "No unaligned regions found.\n";
+        std::cout << "No unaligned regions found in " << chr_name << ".\n";
     }
 }
 } // namespace RaMesh

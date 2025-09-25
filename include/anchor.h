@@ -246,6 +246,9 @@ struct Anchor {
     uint_t aligned_base{};
     Cigar_t cigar{};                 // 对齐的 CIGAR 字符串
 
+    bool ref_selected = false;
+    bool qry_selected = false;
+
     Anchor() = default;
 
     Anchor(ChrIndex ref_chr, Coord_t ref_start, Length_t ref_len,
@@ -266,8 +269,11 @@ struct Anchor {
 
 };
 
-
+using AnchorPtr = std::shared_ptr<Anchor>;
+using AnchorPtrVec = std::vector<AnchorPtr>;
 using AnchorVec = std::vector<Anchor>;
+using AnchorPtrVecByStrandByQueryByRef = std::vector<std::vector<std::vector<AnchorPtrVec>>>;
+using AnchorPtrVecByStrandByQueryByRefPtr = std::shared_ptr<AnchorPtrVecByStrandByQueryByRef>;
 
 AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,

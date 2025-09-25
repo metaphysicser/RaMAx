@@ -411,3 +411,5 @@ bin/hal2fasta
 bin/hal2maf
 bin/maf2hal
 bin/output.maf
+/interval.py
+/unaligned.txt

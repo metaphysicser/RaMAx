@@ -80,7 +80,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     // 预排序：按ref起始位置排序，提升局部性
     std::sort(unique_match.begin(), unique_match.end(),
         [](const Match& a, const Match& b) { 
-            return start1(a) < start1(b); 
+            return start2(a) < start2(b); 
         });
 
     UnionFind uf(N);
@@ -88,7 +88,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
  
     // 优化的聚类算法：利用排序后的局部性
     for (uint_t i = 0; i < N; ++i) {
-        uint_t i_end = start1(unique_match[i]) + len1(unique_match[i]);
+        uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
         int_t  i_diag = 0;
         if (is_forward) {
             i_diag = diag(unique_match[i]);
@@ -100,10 +100,10 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 
         // 只检查后续可能的匹配，利用排序优化
         for (uint_t j = i + 1; j < N; ++j) {
-            int_t sep = start1(unique_match[j]) - i_end;
+            int_t sep = start2(unique_match[j]) - i_end;
 
             // 早期退出：如果gap太大，后续的j也不可能匹配
-            if (sep > static_cast<int_t>(max_gap)) break;
+            if (sep < 0 || sep > static_cast<int_t>(max_gap)) break;
             int_t diag_diff = 0;
             if (is_forward) {
 				diag_diff = std::abs(diag(unique_match[j]) - i_diag);
@@ -133,7 +133,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
         if (it == root_to_cluster_id.end()) {
             cid = static_cast<int_t>(clusters.size());
             clusters.emplace_back();
-            clusters.back().reserve(8);  // 预分配空间
+            clusters.back().reserve(1);  // 预分配空间
             root_to_cluster_id[root] = cid;
         } else {
             cid = it->second;
@@ -416,7 +416,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         }
         releaseCluster(cluster);     // 回收 cluster 剩余元素
     }
-
+    best_chain_clusters->shrink_to_fit();
     return best_chain_clusters;
 }
 
