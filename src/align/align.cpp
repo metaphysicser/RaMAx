@@ -87,8 +87,8 @@ Cigar_t globalAlignWFA2(const std::string& ref,
     attributes.affine_penalties.gap_extension = 1; // E > 0
     attributes.memory_mode = wavefront_memory_high;
     attributes.heuristic.strategy = wf_heuristic_banded_adaptive;
-    attributes.heuristic.min_k = -10;
-    attributes.heuristic.max_k = +10;
+    attributes.heuristic.min_k = -50;
+    attributes.heuristic.max_k = +50;
     attributes.heuristic.steps_between_cutoffs = 1;
     //// Create a WFAligner
     //
@@ -115,7 +115,7 @@ Cigar_t globalAlignWFA2(const std::string& ref,
 }
 
 Cigar_t extendAlignWFA2(const std::string& ref,
-    const std::string& query)
+    const std::string& query, int zdrop)
 {
     wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
     attributes.distance_metric = gap_affine;
@@ -124,7 +124,7 @@ Cigar_t extendAlignWFA2(const std::string& ref,
     attributes.affine_penalties.gap_extension = 1; // E > 0
     attributes.memory_mode = wavefront_memory_high;
     attributes.heuristic.strategy = wf_heuristic_zdrop;
-    attributes.heuristic.zdrop = 200;
+    attributes.heuristic.zdrop = zdrop;
     attributes.heuristic.steps_between_cutoffs = 1;
     //// Create a WFAligner
     //
@@ -149,6 +149,56 @@ Cigar_t extendAlignWFA2(const std::string& ref,
     wavefront_aligner_delete(wf_aligner);
 
     return cigar;
+}
+
+/**********************************************************************
+*  extendAlignKSW2  ——  ends-free（seed-and-extend）比对
+*    @param ref        参考片段（目标方向）
+*    @param query      查询片段（同方向；若反链请先反向互补）
+*    @param zdrop      Z-drop 剪枝阈值（默认 200）
+*    @param band       带宽限制；<0 表示不限制
+*    @return           Cigar_t（BAM 编码）
+**********************************************************************/
+Cigar_t extendAlignKSW2(const std::string& ref,
+    const std::string& query,
+    int zdrop)
+{
+    /* ---------- 1. 序列编码 ---------- */
+    std::vector<uint8_t> ref_enc(ref.size());
+    std::vector<uint8_t> qry_enc(query.size());
+    for (size_t i = 0; i < ref.size(); ++i) ref_enc[i] = ScoreChar2Idx[(uint8_t)ref[i]];
+    for (size_t i = 0; i < query.size(); ++i) qry_enc[i] = ScoreChar2Idx[(uint8_t)query[i]];
+
+    /* ---------- 2. 配置 ---------- */
+    KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
+    cfg.zdrop = zdrop;       // 用于提前终止
+    cfg.flag = KSW_EZ_EXTZ_ONLY     // ends-free extension
+        | KSW_EZ_APPROX_MAX    // 跟踪 ez.max_q/max_t
+        | KSW_EZ_APPROX_DROP   // 在 approximate 模式下触发 z-drop 就中断
+        | KSW_EZ_RIGHT;        // （可选）gap 右对齐     // **关键**：启用 extension/ends-free
+    // 若需要右对齐 gaps 建议保留 KSW_EZ_RIGHT
+    cfg.end_bonus = 100;
+    cfg.band_width = -1;
+
+    /* ---------- 3. 调用 KSW2 ---------- */
+    ksw_extz_t ez{};
+    ksw_extz2_sse(nullptr,
+        static_cast<int>(qry_enc.size()), qry_enc.data(),
+        static_cast<int>(ref_enc.size()), ref_enc.data(),
+        cfg.alphabet_size, cfg.mat,
+        cfg.gap_open, cfg.gap_extend,
+        cfg.band_width, cfg.zdrop, cfg.end_bonus,
+        cfg.flag, &ez);
+
+    // 赋值bool& if_zdrop,int& ref_end,int& qry_end
+    /* ---------- 4. 拷贝 & 释放 ---------- */
+    Cigar_t cigar;
+    cigar.reserve(ez.n_cigar);
+    for (int i = 0; i < ez.n_cigar; ++i)
+        cigar.push_back(ez.cigar[i]);
+
+    free(ez.cigar);                    // ksw2 使用 malloc
+    return cigar;                      // 返回的 CIGAR 即延伸片段
 }
 
 /* ──────────── 合并成 MSA (就地修改 seqs) ──────────── */

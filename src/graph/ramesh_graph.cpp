@@ -3632,8 +3632,8 @@ void reportUnalignedRegions(const GenomeEnd& end,
         }
     }
 
-    // 打开文件（以追加模式，避免覆盖前面写的结果）
-    std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt", std::ios::app);
+    // 打开文件（覆盖写）
+    std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt");
     if (!ofs) {
         std::cerr << "Error: cannot open output file." << std::endl;
         return;
@@ -3642,23 +3642,29 @@ void reportUnalignedRegions(const GenomeEnd& end,
     // 3) 求补集（未覆盖区间）
     uint_t chr_len = std::visit([&](auto& p) { return p->getSequenceLength(chr_name); }, *mgr);
     uint_t prev = 0;
-    std::vector<double> lens;
+    std::vector<double> lens;  // 只存 >1000 的区间长度
 
     for (auto& iv : merged) {
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
-            ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // 写入所有区间
-            lens.push_back(static_cast<double>(len));
+            ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
+            if (len > 1000) {
+				std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
+            }
+            lens.push_back(static_cast<double>(len));            // ✅ 统计只收集 >1000
         }
         prev = iv.second;
     }
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
-        ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // 写入最后一个区间
-        lens.push_back(static_cast<double>(len));
+        ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
+        if (len > 1000) {
+            std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
+        }
+        lens.push_back(static_cast<double>(len));                // ✅ 统计只收集 >1000
     }
 
-    // 4) 统计信息
+    // 4) 打印统计信息（只针对 >1000 的区间）
     if (!lens.empty()) {
         double sum = std::accumulate(lens.begin(), lens.end(), 0.0);
         double mean = sum / lens.size();
@@ -3666,14 +3672,15 @@ void reportUnalignedRegions(const GenomeEnd& end,
         for (double x : lens) sq_sum += (x - mean) * (x - mean);
         double variance = sq_sum / lens.size();
 
-        std::cout << "Unaligned regions in " << chr_name
+        std::cout << "Unaligned regions (>1000 bp) in " << chr_name
             << " - count: " << lens.size()
             << ", sum length: " << sum
             << ", mean length: " << mean
             << ", variance: " << variance << "\n";
     }
     else {
-        std::cout << "No unaligned regions found in " << chr_name << ".\n";
+        std::cout << "No unaligned regions (>1000 bp) found in " << chr_name << ".\n";
     }
 }
+
 } // namespace RaMesh

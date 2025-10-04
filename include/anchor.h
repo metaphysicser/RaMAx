@@ -248,6 +248,7 @@ struct Anchor {
 
     bool ref_selected = false;
     bool qry_selected = false;
+    bool is_linked = false;
 
     Anchor() = default;
 
@@ -275,6 +276,8 @@ using AnchorVec = std::vector<Anchor>;
 using AnchorPtrVecByStrandByQueryByRef = std::vector<std::vector<std::vector<AnchorPtrVec>>>;
 using AnchorPtrVecByStrandByQueryByRefPtr = std::shared_ptr<AnchorPtrVecByStrandByQueryByRef>;
 
+using AnchorPtrVecByQueryByRef = std::vector<std::vector<AnchorPtrVec>>;
+using AnchorPtrVecByQueryByRefPtr = std::shared_ptr<AnchorPtrVecByQueryByRef>;
 AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
@@ -482,4 +485,8 @@ ValidationResult validateAnchorsCorrectness(
     const SeqPro::SharedManagerVariant& query_manager
 );
 
+
+void linkClusters(AnchorPtrVec& anchors,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& qry_mgr);
 #endif // ANCHOR_H

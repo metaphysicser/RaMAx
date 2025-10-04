@@ -57,6 +57,105 @@ bool UnionFind::unite(int_t a, int_t b)
     return true;
 }
 
+void filterAndMergeMatches(MatchVec& matches) {
+    if (matches.empty()) return;
+
+    // 假设 matches 已经按 qry_start 排好序
+    const size_t N = matches.size();
+    std::vector<bool> good(N, true);
+    std::vector<bool> tentative(N, false);
+
+    for (size_t i = 0; i < N; ++i) {
+        if (!good[i]) continue;
+
+        const Match& mi = matches[i];
+        int_t i_diag = mi.qry_start - mi.ref_start;
+        Coord_t i_end = mi.qry_start + mi.match_len();
+
+        for (size_t j = i + 1; j < N && matches[j].qry_start <= i_end; ++j) {
+            if (!good[j]) continue;
+
+            const Match& mj = matches[j];
+            int_t j_diag = mj.qry_start - mj.ref_start;
+
+            // --- Case 1: 同一 diagonal ---
+            if (i_diag == j_diag &&
+                mi.strand() == mj.strand() &&
+                mi.ref_chr_index == mj.ref_chr_index &&
+                mi.qry_chr_index == mj.qry_chr_index)
+            {
+                // 合并为更长的
+                Coord_t j_extent = mj.match_len() + mj.qry_start - mi.qry_start;
+                if (j_extent > matches[i].match_len()) {
+                    matches[i].set_match_len(j_extent);
+                    i_end = mi.qry_start + j_extent;
+                }
+                good[j] = false;
+            }
+
+            // --- Case 2: 同一 ref 起点 ---
+            else if (mi.ref_start == mj.ref_start &&
+                mi.ref_chr_index == mj.ref_chr_index)
+            {
+                int_t overlap = mi.qry_start + mi.match_len() - mj.qry_start;
+                if (mi.match_len() < mj.match_len()) {
+                    if (overlap >= mi.match_len() / 2) {
+                        good[i] = false;
+                        break;
+                    }
+                }
+                else if (mj.match_len() < mi.match_len()) {
+                    if (overlap >= mj.match_len() / 2)
+                        good[j] = false;
+                }
+                else { // 长度相等
+                    if (overlap >= mi.match_len() / 2) {
+                        tentative[j] = true;
+                        if (tentative[i]) {
+                            good[i] = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // --- Case 3: 同一 qry 起点 ---
+            else if (mi.qry_start == mj.qry_start &&
+                mi.qry_chr_index == mj.qry_chr_index)
+            {
+                int overlap = mi.ref_start + mi.match_len() - mj.ref_start;
+                if (mi.match_len() < mj.match_len()) {
+                    if (overlap >= mi.match_len() / 2) {
+                        good[i] = false;
+                        break;
+                    }
+                }
+                else if (mj.match_len() < mi.match_len()) {
+                    if (overlap >= mj.match_len() / 2)
+                        good[j] = false;
+                }
+                else { // 长度相等
+                    if (overlap >= mi.match_len() / 2) {
+                        tentative[j] = true;
+                        if (tentative[i]) {
+                            good[i] = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 最后收集 Good 的 matches
+    MatchVec filtered;
+    filtered.reserve(matches.size());
+    for (size_t i = 0; i < N; ++i) {
+        if (good[i]) filtered.push_back(matches[i]);
+    }
+    matches.swap(filtered);
+}
+
 
 // 1. 根据 max_gap / diagdiff / diagfactor 把 unique_match 聚成若干簇 - 优化版本
 MatchClusterVec buildClusters(MatchVec& unique_match,
@@ -80,8 +179,10 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     // 预排序：按ref起始位置排序，提升局部性
     std::sort(unique_match.begin(), unique_match.end(),
         [](const Match& a, const Match& b) { 
-            return start2(a) < start2(b); 
+            return (start2(a) < start2(b) || ((start2(a) == start2(b) && start1(a) < start2(b))));
         });
+
+	filterAndMergeMatches(unique_match);
 
     UnionFind uf(N);
 
@@ -90,12 +191,13 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     for (uint_t i = 0; i < N; ++i) {
         uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
         int_t  i_diag = 0;
-        if (is_forward) {
-            i_diag = diag(unique_match[i]);
-        }
-        else {
-			i_diag = diag_reverse(unique_match[i]);
-        }
+   //     if (is_forward) {
+   //         i_diag = diag(unique_match[i]);
+   //     }
+   //     else {
+			//i_diag = diag_reverse(unique_match[i]);
+   //     }
+        i_diag = diag(unique_match[i]);
         
 
         // 只检查后续可能的匹配，利用排序优化
@@ -103,14 +205,15 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
             int_t sep = start2(unique_match[j]) - i_end;
 
             // 早期退出：如果gap太大，后续的j也不可能匹配
-            if (sep < 0 || sep > static_cast<int_t>(max_gap)) break;
+            if (sep > static_cast<int_t>(max_gap)) break;
             int_t diag_diff = 0;
-            if (is_forward) {
+            diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+           /* if (is_forward) {
 				diag_diff = std::abs(diag(unique_match[j]) - i_diag);
 			}
             else {
                 diag_diff = std::abs(diag_reverse(unique_match[j]) - i_diag);
-            }
+            }*/
 
             // int_t diag_diff = std::abs((is_forward ? diag(unique_match[j]):diag_reverse(unique_match[j])) - i_diag);
             int_t th = std::max(diagdiff, static_cast<int_t>(diagfactor * sep));
@@ -343,8 +446,8 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 
     Strand strand = cluster.front().strand();
 
-    std::sort(cluster.begin(), cluster.end(),
-        [](const Match& a, const Match& b) { return start1(a) < start1(b); });
+   /* std::sort(cluster.begin(), cluster.end(),
+        [](const Match& a, const Match& b) { return start2(a) < start2(b); });*/
 
     const uint_t N = static_cast<uint_t>(cluster.size());
     std::vector<int_t> score(N), pred(N, -1);
@@ -353,21 +456,21 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
     for (uint_t i = 0; i < N; ++i) {
         score[i] = len2(cluster[i]);
         for (uint_t j = 0; j < i; ++j) {
-            if (start1(cluster[i]) <= start1(cluster[j]) + len1(cluster[j])) continue;
+            if (start2(cluster[i]) <= start2(cluster[j]) + len2(cluster[j])) continue;
 
             int_t sep = 0;
             if (strand == FORWARD) {
-                int_t prev_endj = start2(cluster[j]) + len2(cluster[j]);
-                if (start2(cluster[i]) <= prev_endj) continue;
-                sep = start2(cluster[i]) - prev_endj;
+                int_t prev_endj = start1(cluster[j]) + len1(cluster[j]);
+                if (start1(cluster[i]) <= prev_endj) continue;
+                sep = start1(cluster[i]) - prev_endj;
             } else {
-                int_t prev_endi = start2(cluster[i]) + len2(cluster[i]);
-                if(prev_endi >= start2(cluster[j])) continue;
-				sep = start2(cluster[j]) - prev_endi;
+                int_t prev_endi = start1(cluster[i]) + len1(cluster[i]);
+                if(prev_endi >= start1(cluster[j])) continue;
+				sep = start1(cluster[j]) - prev_endi;
             }
 
             int_t d = std::abs(diag(cluster[i]) - diag(cluster[j]));
-            int_t cand = score[j] + len2(cluster[i]) - (sep + static_cast<int_t>(diagfactor * d));
+            int_t cand = score[j] + len2(cluster[i]) - d;
             if (cand > score[i]) { score[i] = cand; pred[i] = static_cast<int_t>(j); }
         }
         if (score[i] > score[best_idx]) best_idx = i;
@@ -397,6 +500,88 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
 	unique_match.clear();
 	unique_match.shrink_to_fit();  // 释放内存
 
+  //  for (size_t c_idx = 0; c_idx < clusters.size(); ++c_idx) {
+  //      MatchVec& cluster = clusters[c_idx];
+
+  //      if (cluster.empty()) continue;
+
+		//// 按 qry_start 排序
+		//std::sort(cluster.begin(), cluster.end(),
+		//	[](const Match& a, const Match& b) { return a.qry_start < b.qry_start; });
+
+  //      // --- 对 cluster 内部做 DP 链接（类似 Process_Cluster） ---
+  //      int N = static_cast<int>(cluster.size());
+
+  //      // 标记结果容器
+  //      std::vector<Match> good_matches;
+  //      good_matches.reserve(N);
+
+  //      // DP 数组
+  //      std::vector<long> dp(N);
+  //      std::vector<int> from(N, -1);
+
+        //// 动态规划
+        //for (int i = 0; i < N; i++) {
+        //    dp[i] = cluster[i].match_len();
+        //    for (int j = 0; j < i; j++) {
+        //        long olap1 = cluster[j].ref_start + cluster[j].match_len() - cluster[i].ref_start;
+        //        long olap2 = cluster[j].qry_start + cluster[j].match_len() - cluster[i].qry_start;
+        //        long olap = std::max<long>(0, std::max(olap1, olap2));
+
+        //        long diagdiff = std::abs((cluster[i].qry_start - cluster[i].ref_start) -
+        //            (cluster[j].qry_start - cluster[j].ref_start));
+
+        //        long pen = olap + diagdiff;
+
+        //        if (dp[j] + cluster[i].match_len() - pen > dp[i]) {
+        //            dp[i] = dp[j] + cluster[i].match_len() - pen;
+        //            from[i] = j;
+        //        }
+        //    }
+        //}
+
+ //       for (int i = 0; i < N; i++) {
+ //           dp[i] = cluster[i].match_len();
+ //           from[i] = -1;
+
+ //           for (int j = 0; j < i; j++) {
+ //               // 要求不重叠：ref_end <= ref_start && qry_end <= qry_start
+ //               long ref_end_j = cluster[j].ref_start + cluster[j].match_len();
+ //               long qry_end_j = cluster[j].qry_start + cluster[j].match_len();
+
+ //               if (ref_end_j > cluster[i].ref_start ||
+ //                   qry_end_j > cluster[i].qry_start) {
+ //                   continue; // 有重叠，直接跳过
+ //               }
+
+ //               // 没有重叠，可以尝试转移
+ //               long diagdiff = std::abs((cluster[i].qry_start - cluster[i].ref_start) -
+ //                   (cluster[j].qry_start - cluster[j].ref_start));
+
+ //               long cand = dp[j] + cluster[i].match_len() - diagdiff;
+ //               if (cand > dp[i]) {
+ //                   dp[i] = cand;
+ //                   from[i] = j;
+ //               }
+ //           }
+ //       }
+
+
+ //       // 找到得分最高的链
+ //       int best = std::max_element(dp.begin(), dp.end()) - dp.begin();
+
+ //       // 回溯链
+ //       std::vector<Match> chain;
+ //       for (int i = best; i >= 0; i = from[i]) {
+ //           chain.push_back(cluster[i]);
+ //           if (from[i] == -1) break;
+ //       }
+ //       std::reverse(chain.begin(), chain.end());
+ //       cluster.swap(chain);
+ //   }
+
+	//return std::make_shared<MatchClusterVec>(std::move(clusters));
+
     // 2. 每簇提链 + 长度过滤
     
     best_chain_clusters->reserve(clusters.size());
@@ -406,14 +591,18 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
 
         MatchVec best_chain = bestChainDP(cluster, diagfactor);
         if (best_chain.empty()) { releaseCluster(cluster); continue; }
-
-        int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());
+        int_t span = 0;
+		// 遍历 best_chain 计算 span
+        for (auto& m : best_chain) {
+			span += m.match_len();
+        }
+        //int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());
         if (span >= min_cluster_length) {
             best_chain_clusters->emplace_back(std::move(best_chain));
         }
-        else {
+        /*else {
             std::move(best_chain.begin(), best_chain.end(), std::back_inserter(repeat_match));
-        }
+        }*/
         releaseCluster(cluster);     // 回收 cluster 剩余元素
     }
     best_chain_clusters->shrink_to_fit();

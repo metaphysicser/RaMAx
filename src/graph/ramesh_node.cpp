@@ -541,10 +541,10 @@ namespace RaMesh {
                 SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
                 query_start = cur_node->start + cur_node->length;
                 if (!query_right_node->isTail()) {
-                    query_len = query_right_node->start - query_start;
+                    query_len = (int_t)query_right_node->start - (int_t)query_start;
                 }
                 else {
-                    query_len = getChrLen(*managers[query_name], query_chr_name) - query_start;
+                    query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
                 }
             }
             else {
@@ -582,7 +582,7 @@ namespace RaMesh {
             }          
 
             int_t ref_start = ref_cur_node->start + ref_cur_node->length;
-            int_t ref_len = (!ref_right_node->isTail()) ? ref_right_node->start - ref_start : getChrLen(*managers[ref_name], cur_block->ref_chr) - ref_start;
+            int_t ref_len = (!ref_right_node->isTail()) ? (int_t)ref_right_node->start - (int_t)ref_start : (int_t)getChrLen(*managers[ref_name], cur_block->ref_chr) - (int_t)ref_start;
 
             cur_node->right_extend = true;
             ref_cur_node->right_extend = true;
@@ -623,6 +623,151 @@ namespace RaMesh {
                 ref_cur_node->length += cnt.ref_bases;
                 appendCigar(cur_node->cigar, result);
             }
+            //else {
+            //     === 有重叠：回退对齐直到两侧长度都恢复到非负 ===
+            //     query_len <= 0 / ref_len <= 0 表示需要回退的“重叠量”（取相反数）
+            //    int_t need_q = (query_len < 0) ? -query_len : 0;  // 需要从 qry 侧回退的碱基数
+            //    int_t need_r = (ref_len < 0) ? -ref_len : 0;  // 需要从 ref 侧回退的碱基数
+
+            //     几何更新：按“回退方向”对 query/ref 的 start/length 做同步调整
+            //    auto apply_trim = [&](int_t take_q, int_t take_r) {
+            //         更新 query 侧
+            //        if (take_q > 0) {
+            //            if (strand == FORWARD) {
+            //                 右端回退
+            //                cur_node->length = (cur_node->length >= (uint_t)take_q)
+            //                    ? (cur_node->length - (uint_t)take_q) : 0;
+            //            }
+            //            else { // REVERSE：右扩展对应 query 左端
+            //                cur_node->start += (uint_t)take_q;  // 左端右移
+            //                cur_node->length = (cur_node->length >= (uint_t)take_q)
+            //                    ? (cur_node->length - (uint_t)take_q) : 0;
+            //            }
+            //        }
+            //         更新 ref 侧（右端回退）
+            //        if (take_r > 0) {
+            //            ref_cur_node->length = (ref_cur_node->length >= (uint_t)take_r)
+            //                ? (ref_cur_node->length - (uint_t)take_r) : 0;
+            //        }
+            //        };
+
+            //     取一个 CIGAR 单元（从尾或从头）
+            //    auto get_cigar_unit = [&](char& op, uint32_t& len) {
+            //        if (strand == FORWARD) {
+            //            intToCigar(cur_node->cigar.back(), op, len);
+            //        }
+            //        else {
+            //            intToCigar(cur_node->cigar.front(), op, len);
+            //        }
+            //        };
+
+            //     写回一个 CIGAR 单元（缩短或删除）
+            //    auto shrink_or_pop = [&](char op, uint32_t old_len, uint32_t take_len) {
+            //        uint32_t left_len = old_len - take_len;
+            //        if (strand == FORWARD) {
+            //            if (left_len == 0) cur_node->cigar.pop_back();
+            //            else               cur_node->cigar.back() = cigarToInt(op, left_len);
+            //        }
+            //        else {
+            //            if (left_len == 0) cur_node->cigar.erase(cur_node->cigar.begin());
+            //            else               cur_node->cigar.front() = cigarToInt(op, left_len);
+            //        }
+            //        };
+
+            //    while ((need_q > 0 || need_r > 0) && !cur_node->cigar.empty()) {
+            //        char op; uint32_t len;
+            //        get_cigar_unit(op, len);
+
+            //         计算当前单元可回退量
+            //        int_t take_q = 0, take_r = 0;
+            //        switch (op) {
+            //        case 'M': case '=': case 'X': {
+            //             同时消耗两侧：尽量满足两侧中较大的需求
+            //            int_t want = std::max(need_q, need_r);
+            //            int_t take = std::min<int_t>(len, want);
+            //            take_q = take_r = take;
+            //            break;
+            //        }
+            //        case 'I': case 'S': case 'H': case 'P': { // 只影响 query（末端剪切/硬剪切/padding 视作不影响 ref）
+            //             若 need_q>0，优先使用以满足 query 回退；否则穿过这些操作以到达能消耗 ref 的单元
+            //            take_q = std::min<int_t>(len, (need_q > 0 ? need_q : (int_t)len));
+            //            break;
+            //        }
+            //        case 'D': { // 只影响 ref
+            //             若 need_r>0，优先使用以满足 ref 回退；否则穿过以到达能消耗 query 的单元
+            //            take_r = std::min<int_t>(len, (need_r > 0 ? need_r : (int_t)len));
+            //            break;
+            //        }
+
+            //        }
+
+            //         应用几何更新
+            //        apply_trim(take_q, take_r);
+
+            //         更新需求
+            //        need_q = std::max<int_t>(0, need_q - take_q);
+            //        need_r = std::max<int_t>(0, need_r - take_r);
+
+            //         更新 CIGAR（从尾/头缩短或弹出）
+            //        uint32_t take_len = (uint32_t)std::max(take_q, take_r);
+            //        shrink_or_pop(op, len, take_len);
+            //    }
+
+            //}
+
+            //query_len = 0;
+            //strand = cur_node->strand;
+            //query_start = 0;
+
+            //if (strand == FORWARD) {
+            //    SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+            //    query_start = cur_node->start + cur_node->length;
+            //    if (!query_right_node->isTail()) {
+            //        query_len = (int_t)query_right_node->start - (int_t)query_start;
+            //    }
+            //    else {
+            //        query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
+            //    }
+            //}
+            //else {
+            //    SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+            //    if (!query_left_node->isHead()) {
+            //        query_start = query_left_node->start + query_left_node->length;
+            //        query_len = cur_node->start - query_start;
+            //    }
+            //    else {
+            //        query_start = 0;
+            //        query_len = cur_node->start;
+            //    }
+            //}
+
+            //cur_block = cur_node->parent_block;
+            //ref_chr_name = cur_block->ref_chr;
+            //ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+
+            //ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
+            //while (true) {
+            //    if (ref_right_node->isTail()) break;
+            //    if (ref_right_node->left_extend && ref_right_node->right_extend) break;
+            //    bool find = false;
+            //    for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
+            //        if (key.first == query_name) {
+            //            find = true;
+            //            break;
+            //        }
+            //    }
+            //    if (find) {
+            //        break;
+            //    }
+            //    ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
+            //}
+
+            //ref_start = ref_cur_node->start + ref_cur_node->length;
+            //ref_len = (!ref_right_node->isTail()) ? (int_t)ref_right_node->start - (int_t)ref_start : (int_t)getChrLen(*managers[ref_name], cur_block->ref_chr) - (int_t)ref_start;
+            //if (ref_len < 0 || query_len < 0) {
+            //    std::cout << "111";
+            //}
         }
     }
 

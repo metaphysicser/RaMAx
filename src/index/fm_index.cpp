@@ -694,7 +694,12 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
         return 1;
     }
 
-    if (match_length < min_anchor_length && allow_short_mum == false) {
+    //if (match_length < min_anchor_length && allow_short_mum == false) {
+    //    return 1;
+    //}
+
+
+    if (match_length < min_anchor_length) {
         return 1;
     }
     //if (frequency > max_anchor_frequency) {

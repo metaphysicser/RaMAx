@@ -193,12 +193,21 @@ uint32_t countMatchOperations(const Cigar_t& cigar);
 // ------------------------------------------------------------------
 uint32_t countNonDeletionOperations(const Cigar_t& cigar);
 
+uint32_t countAlignmentLength(const Cigar_t& cigar);
+
+bool checkGapCigarQuality(const Cigar_t& cigar,
+    size_t ref_len,
+    size_t qry_len);
+
 struct AlignCount {
     size_t ref_bases = 0;
     size_t query_bases = 0;
 };
 
 AlignCount countAlignedBases(const Cigar_t& cigar);
+uint32_t countQryLength(const Cigar_t& cigar);
+uint32_t countRefLength(const Cigar_t& cigar);
+
 
 
 
@@ -279,8 +288,11 @@ Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
 
 Cigar_t extendAlignWFA2(const std::string& ref,
-    const std::string& query);
+    const std::string& query, int zdrop = 200);
 
+Cigar_t extendAlignKSW2(const std::string& ref,
+    const std::string& query,
+    int zdrop = 200);
 
 /* ────────────────────────────────────────────────────────────
  * 主函数：就地合并

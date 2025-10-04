@@ -375,3 +375,91 @@ uint32_t countNonDeletionOperations(const Cigar_t& cigar)
     
     return total_length;
 }
+
+uint32_t countRefLength(const Cigar_t& cigar)
+{
+    uint32_t total_length = 0;
+
+    for (CigarUnit unit : cigar) {
+        char op;
+        uint32_t len;
+        intToCigar(unit, op, len);
+
+        if (op != 'I') {
+            total_length += len;
+        }
+    }
+
+    return total_length;
+}
+uint32_t countQryLength(const Cigar_t& cigar)
+{
+    uint32_t total_length = 0;
+
+    for (CigarUnit unit : cigar) {
+        char op;
+        uint32_t len;
+        intToCigar(unit, op, len);
+
+        if (op != 'D') {
+            total_length += len;
+        }
+    }
+
+    return total_length;
+}
+
+
+uint32_t countAlignmentLength(const Cigar_t& cigar) {
+    uint32_t total = 0;
+    for (auto unit : cigar) {
+        uint32_t len = unit >> 4;   // 高 28 位是长度
+        total += len;
+    }
+    return total;
+}
+
+
+/// \brief 检查 gap_cigar 的质量
+/// \param cigar   WFA/KSW2 生成的 Cigar_t
+/// \param ref_len gap 区间 ref 的长度
+/// \param qry_len gap 区间 query 的长度
+/// \return 是否达标（true=通过，false=不通过）
+bool checkGapCigarQuality(const Cigar_t& cigar,
+    size_t ref_len,
+    size_t qry_len) {
+    if (cigar.empty()) return false;
+
+    size_t max_gap_run = 0;    // 当前连续 gap 的长度
+    size_t matches = 0;    // 匹配长度
+    size_t aln_len = 0;    // 对齐长度（不计 clipping）
+
+    for (auto unit : cigar) {
+        uint32_t len;
+        char op;
+        intToCigar(unit, op, len);
+
+        if (op == 'M' || op == '=' || op == 'X') {
+            // 匹配/错配
+            aln_len += len;
+            if (op == 'M' || op == '=') matches += len;
+            max_gap_run = 0; // 断开 gap run
+        }
+        else if (op == 'I' || op == 'D') {
+            aln_len += len;
+            max_gap_run += len;
+
+        }
+        else {
+            // 其他操作（S, H, N等），这里直接跳过
+            continue;
+        }
+    }
+
+    if (aln_len <= 10) return true;
+	uint_t min_len = std::min(ref_len, qry_len);
+    double identity = static_cast<double>(matches) / min_len;
+
+    return (identity >= 0.75);
+}
+
