@@ -553,8 +553,8 @@ starAlignment(
         spdlog::info("construct multiple genome graphs for {}", ref_name);
         //constructMultipleGraphsByGreedy(
         //   seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
-        {
-            auto species_cluster_map = *cluster_map;
+       /* {
+            auto species_cluster_map = *cluster_map;*/
             //SpeciesName target_species = "simOrang";
             //int qry_chr_index = 1;
             //int_t region_start = 54320705;
@@ -660,26 +660,26 @@ starAlignment(
 #endif // _DEBUG_
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
-        //SpeciesName target_species = "simOrang";
-        //auto it = multi_graph->species_graphs.find(target_species);
-        //if (it != multi_graph->species_graphs.end()) {
-        //    const auto& genome_graph = it->second;
-        //    spdlog::info("Checking unaligned regions for species {}", target_species);
+        SpeciesName target_species = "simOrang";
+        auto it = multi_graph->species_graphs.find(target_species);
+        if (it != multi_graph->species_graphs.end()) {
+            const auto& genome_graph = it->second;
+            spdlog::info("Checking unaligned regions for species {}", target_species);
 
-        //    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-        //        spdlog::info("Chromosome {}", chr_name);
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                spdlog::info("Chromosome {}", chr_name);
 
-        //        // 直接调用前面定义的函数
-        //        RaMesh::reportUnalignedRegions(
-        //            genome_end,
-        //            seqpro_managers.at(target_species),
-        //            chr_name
-        //        );
-        //    }
-        //}
-        //else {
-        //    spdlog::warn("Species {} not found in multi_graph", target_species);
-        //}
+                // 直接调用前面定义的函数
+                RaMesh::reportUnalignedRegions(
+                    genome_end,
+                    seqpro_managers.at(target_species),
+                    chr_name
+                );
+            }
+        }
+        else {
+            spdlog::warn("Species {} not found in multi_graph", target_species);
+        }
 
         //target_species = "simGorilla";
         //it = multi_graph->species_graphs.find(target_species);
