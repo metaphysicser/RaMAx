@@ -3632,12 +3632,12 @@ void reportUnalignedRegions(const GenomeEnd& end,
         }
     }
 
-    // 打开文件（覆盖写）
-    std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt");
-    if (!ofs) {
-        std::cerr << "Error: cannot open output file." << std::endl;
-        return;
-    }
+    //// 打开文件（覆盖写）
+    //std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt");
+    //if (!ofs) {
+    //    std::cerr << "Error: cannot open output file." << std::endl;
+    //    return;
+    //}
 
     // 3) 求补集（未覆盖区间）
     uint_t chr_len = std::visit([&](auto& p) { return p->getSequenceLength(chr_name); }, *mgr);
@@ -3647,7 +3647,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     for (auto& iv : merged) {
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
-            ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
+            //ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
             if (len > 1000) {
 				std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
             }
@@ -3657,7 +3657,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     }
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
-        ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
+        //ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
         if (len > 1000) {
             std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
         }
