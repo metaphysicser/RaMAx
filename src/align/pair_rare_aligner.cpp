@@ -704,10 +704,10 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	// 输出结构
 	auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
-	ThreadPool pool(1);
+	ThreadPool pool(thread_num);
 	std::vector<std::future<void>> futures;
 
-	for (size_t strand = 0; strand < cluster->size(); ++strand) {
+	for (size_t strand = 0; strand < 2; ++strand) {
 		const auto& byQueryRef = (*cluster)[strand];
 		result->emplace_back(); // 对应 strand
 
@@ -720,6 +720,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 				(*result)[strand][q].emplace_back(); // 对应 ref_chr
 
 				if (!cluster_vec_ptr) continue;
+				//if (strand == 1) continue;
 
 				// 提交任务：处理一个 ClusterVec
 				futures.emplace_back(pool.enqueue(
@@ -770,14 +771,14 @@ static void filterChrByDP(
 				const auto& refs = queries.at(qry_idx);
 				if (id < refs.size()) {
 					const auto& anchors = refs[id];
-					//AnchorPtrVec temp;
-					//for (const auto& a : anchors) {
-					//	if (a->qry_selected) {
-					//		temp.push_back(a);
-					//	}
-					//}
-					//result.insert(result.end(), temp.begin(), temp.end());
-					result.insert(result.end(), anchors.begin(), anchors.end());
+					AnchorPtrVec temp;
+					for (const auto& a : anchors) {
+						if (a->qry_selected) {
+							temp.push_back(a);
+						}
+					}
+					result.insert(result.end(), temp.begin(), temp.end());
+					//result.insert(result.end(), anchors.begin(), anchors.end());
 				}
 			}
 		}
@@ -849,21 +850,20 @@ static void filterChrByDP(
 		});
 
 	size_t n = result.size();
-	std::vector<uint_t> dp(n);
+	std::vector<double> dp(n);
 	std::vector<int_t> pre(n, -1);
 
-	size_t K = 500; // 可调参数
+	size_t K = 5000; // 可调参数
 	///
 	for (size_t i = 0; i < n; ++i) {
-		dp[i] = result[i]->alignment_length;
+		double idy = static_cast<float>(result[i]->aligned_base) / result[i]->alignment_length;
+		double score_i = result[i]->alignment_length * pow(idy, 2);
+		dp[i] = score_i;
 
-		if (result[i]->ref_chr_index == 2 && result[i]->ref_start + result[i]->ref_len < 21609481 + 9196 && result[i]->ref_start > 21609481)
-		{
-			std::cout << "1";
-		}
 
 		// 只回看最近 K 个 j
 		size_t j_start = (i > K ? i - K : 0);
+		//size_t j_start = 0;
 		for (size_t j = j_start; j < i; ++j) {
 			bool non_overlap;
 			if (filter_ref) {
@@ -872,120 +872,85 @@ static void filterChrByDP(
 			else {
 				non_overlap = (result[j]->qry_start + result[j]->qry_len <= result[i]->qry_start);
 			}
-
-			if (non_overlap && dp[j] + result[i]->alignment_length > dp[i]) {
-				dp[i] = dp[j] + result[i]->alignment_length;
+			
+			if (non_overlap && dp[j] + score_i > dp[i]) {
+				dp[i] = dp[j] + score_i;
 				pre[i] = j;
 			}
 		}
-		//	size_t j_start = (i > K ? i - K : 0);
-		//	for (size_t j = j_start; j < i; ++j) {
-		//		size_t overlap = 0;
-
-		//		if (filter_ref) {
-		//			size_t start = std::max(result[j]->ref_start, result[i]->ref_start);
-		//			size_t end = std::min(result[j]->ref_start + result[j]->ref_len,
-		//				result[i]->ref_start + result[i]->ref_len);
-		//			if (end > start) {
-		//				overlap = end - start;  // ref 上的重叠长度
-		//			}
-		//		}
-		//		else {
-		//			size_t start = std::max(result[j]->qry_start, result[i]->qry_start);
-		//			size_t end = std::min(result[j]->qry_start + result[j]->qry_len,
-		//				result[i]->qry_start + result[i]->qry_len);
-		//			if (end > start) {
-		//				overlap = end - start;  // qry 上的重叠长度
-		//			}
-		//		}
-
-		//		// 允许重叠，扣除 overlap
-		//		int candidate = dp[j] + (int)result[i]->alignment_length - (int)overlap;
-		//		if (candidate > dp[i]) {
-		//			dp[i] = candidate;
-		//			pre[i] = j;
-		//		}
-		//	}
-
-		//}
-		///
-		//for (size_t i = 0; i < n; ++i) {
-		//	dp[i] = result[i]->alignment_length;
-
-		//	size_t j_start = (i > K ? i - K : 0);
-		//	for (size_t j = j_start; j < i; ++j) {
-		//		bool non_overlap;
-		//		if (filter_ref) {
-		//			non_overlap = (result[j]->ref_start + result[j]->ref_len <= result[i]->ref_start);
-		//		}
-		//		else {
-		//			non_overlap = (result[j]->qry_start + result[j]->qry_len <= result[i]->qry_start);
-		//		}
-
-		//		if (non_overlap && dp[j] + result[i]->alignment_length > dp[i]) {
-		//			dp[i] = dp[j] + result[i]->alignment_length;
-		//			pre[i] = j;
-		//		}
-		//	}
-
-		//	// ====== 调试输出：打印物理冲突 ======
-		//	if (result[i]->ref_chr_index == 2 &&
-		//		result[i]->ref_start < 21609481 + 9196 &&
-		//		result[i]->ref_start + result[i]->ref_len > 21609481)
-		//	{
-		//		std::cout << "Anchor i=" << i
-		//			<< " (ref_start=" << result[i]->ref_start
-		//			<< ", ref_len=" << result[i]->ref_len
-		//			<< ", ref_end=" << result[i]->ref_start + result[i]->ref_len
-		//			<< ")" << std::endl;
-
-		//		for (size_t j = 0; j < i; ++j) {
-		//			bool overlap;
-		//			if (filter_ref) {
-		//				overlap = !(result[j]->ref_start + result[j]->ref_len <= result[i]->ref_start ||
-		//					result[i]->ref_start + result[i]->ref_len <= result[j]->ref_start);
-		//			}
-		//			else {
-		//				overlap = !(result[j]->qry_start + result[j]->qry_len <= result[i]->qry_start ||
-		//					result[i]->qry_start + result[i]->qry_len <= result[j]->qry_start);
-		//			}
-
-		//			if (overlap) {
-		//				std::cout << "  -> Conflicts with j=" << j
-		//					<< " (ref_start=" << result[j]->ref_start
-		//					<< ", ref_len=" << result[j]->ref_len
-		//					<< ", ref_end=" << result[j]->ref_start + result[j]->ref_len
-		//					<< "; qry_start=" << result[j]->qry_start
-		//					<< ", qry_len=" << result[j]->qry_len
-		//					<< ", qry_end=" << result[j]->qry_start + result[j]->qry_len
-		//					<< ")" << std::endl;
-		//			}
-
-		//		}
-		//	}
-		//}
-
-
-
-		// 3. 找最大值
-		uint_t best = 0;
-		size_t best_idx = 0;
-		for (size_t i = 0; i < n; ++i) {
-			if (dp[i] > best) {
-				best = dp[i];
-				best_idx = i;
-			}
-		}
-
-		// 4. 回溯并标记
-		for (int i = static_cast<int>(best_idx); i >= 0; i = pre[i]) {
-			if (filter_ref)
-				result[i]->ref_selected = true;
-			else
-				result[i]->qry_selected = true;
-			if (pre[i] == -1) break;
+		
+	}
+	// 3. 找最大值
+	uint_t best = 0;
+	size_t best_idx = 0;
+	for (size_t i = 0; i < n; ++i) {
+		if (dp[i] > best) {
+			best = dp[i];
+			best_idx = i;
 		}
 	}
+
+	// 4. 回溯并标记
+	for (int i = static_cast<int>(best_idx); i >= 0; i = pre[i]) {
+		if (filter_ref)
+			result[i]->ref_selected = true;
+		else
+			result[i]->qry_selected = true;
+		if (pre[i] == -1) break;
+	}
+
+	// ----------------------------------------------------
+// 检查选中的比对是否存在重叠
+// ----------------------------------------------------
+	bool hasOverlap = false;
+
+	// 收集所有选中的 index
+	std::vector<int> selected;
+	for (int i = 0; i < (int)result.size(); ++i) {
+		if ((filter_ref && result[i]->ref_selected) ||
+			(!filter_ref && result[i]->qry_selected))
+			selected.push_back(i);
+	}
+
+	// 按 ref_start 或 qry_start 排序
+	std::sort(selected.begin(), selected.end(),
+		[&](int a, int b) {
+			return filter_ref
+				? (result[a]->ref_start < result[b]->ref_start)
+				: (result[a]->qry_start < result[b]->qry_start);
+		});
+
+	// 检查相邻区间是否重叠
+	for (size_t i = 1; i < selected.size(); ++i) {
+		auto& prev = result[selected[i - 1]];
+		auto& curr = result[selected[i]];
+
+		if (filter_ref) {
+			if (curr->ref_start < prev->ref_start + prev->ref_len) {
+				hasOverlap = true;
+				std::cerr << "[Overlap] Ref overlap between "
+					<< selected[i - 1] << " and " << selected[i]
+					<< " (" << prev->ref_start << "-" << prev->ref_start + prev->ref_len
+						<< " vs " << curr->ref_start << "-" << curr->ref_start + curr->ref_len
+						<< ")\n";
+			}
+		}
+		else {
+			if (curr->qry_start < prev->qry_start + prev->qry_len) {
+				hasOverlap = true;
+				std::cerr << "[Overlap] Qry overlap between "
+					<< selected[i - 1] << " and " << selected[i]
+					<< " (" << prev->qry_start << "-" << prev->qry_start + prev->qry_len
+						<< " vs " << curr->qry_start << "-" << curr->qry_start + curr->qry_len
+						<< ")\n";
+			}
+		}
+	}
+
+	if (!hasOverlap)
+		std::cout << "✅ No overlaps detected in final selection.\n";
+	else
+		std::cerr << "❌ Overlaps found in final selection!\n";
 }
 
 void PairRareAligner::filterAnchorByDP(AnchorPtrVecByStrandByQueryByRefPtr anchor_map) {
@@ -1024,7 +989,7 @@ void PairRareAligner::constructGraphByDP(SpeciesName query_name, SeqPro::Manager
 				for (size_t a_idx = 0; a_idx < anchors.size(); ++a_idx) {
 					AnchorPtr anchor = anchors.at(a_idx);
 					// if (anchor->ref_selected && anchor->qry_selected)
-					if (anchor->qry_selected){
+					if(anchor->ref_selected && anchor->qry_selected) {
 						
 						graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, *anchor, false);
 					}

@@ -197,7 +197,8 @@ uint32_t countAlignmentLength(const Cigar_t& cigar);
 
 bool checkGapCigarQuality(const Cigar_t& cigar,
     size_t ref_len,
-    size_t qry_len);
+    size_t qry_len,
+    double min_identity);
 
 struct AlignCount {
     size_t ref_bases = 0;
@@ -263,6 +264,9 @@ inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
 {
     init_simd_mat();                          // 确保 scoring matrix 已准备好
 
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
     int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
         KSW_EZ_APPROX_DROP |          // 近似最大 drop
         KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
@@ -281,10 +285,37 @@ inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
     };
 }
 
+inline KSW2AlignConfig makeTurboKSW2Config2(int qlen, int tlen,
+    bool rev_cigar = false,
+    double indel_rate = 0.05,
+    bool eqx_cigar = false)      // ← 新增
+{
+    init_simd_mat();                          // 确保 scoring matrix 已准备好
+
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
+    int flags = KSW_EZ_APPROX_MAX;
+        
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
+    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+
+    return {
+        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
+        .alphabet_size = 5,
+        .gap_open = 5,                                     // -8 -1 model
+        .gap_extend = 2,
+        .end_bonus = 0,
+        .zdrop = -1,
+        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
+        .flag = flags
+    };
+}
 
 KSW2AlignConfig makeDefaultKSW2Config();
 
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
+Cigar_t globalAlignKSW2_2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
 
 Cigar_t extendAlignWFA2(const std::string& ref,

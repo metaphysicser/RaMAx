@@ -40,8 +40,6 @@ KSW2AlignConfig makeDefaultKSW2Config() {
 Cigar_t globalAlignKSW2(const std::string& ref,
     const std::string& query)
 {
-
-        
     /* ---------- 1. 编码序列 ---------- */
     std::vector<uint8_t> ref_enc(ref.size());
     std::vector<uint8_t> qry_enc(query.size());
@@ -54,6 +52,44 @@ Cigar_t globalAlignKSW2(const std::string& ref,
     /* ---------- 2. 复制 cfg 并修正常见坑 ---------- */
     // KSW2AlignConfig cfg = cfg_in;                   // 本地副本可调整
     KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
+
+    /* ---------- 3. 调用 KSW2 ---------- */
+    ksw_extz_t ez{};
+
+    ksw_extz2_sse(0,
+        static_cast<int>(qry_enc.size()), qry_enc.data(),
+        static_cast<int>(ref_enc.size()), ref_enc.data(),
+        cfg.alphabet_size, cfg.mat,
+        cfg.gap_open, cfg.gap_extend,
+        cfg.band_width, cfg.zdrop, cfg.end_bonus,
+        cfg.flag, &ez);
+
+
+    /* ---------- 4. 拷贝 / 释放 CIGAR ---------- */
+    Cigar_t cigar;
+    cigar.reserve(ez.n_cigar);
+    for (int i = 0; i < ez.n_cigar; ++i)
+        cigar.push_back(ez.cigar[i]);
+
+    free(ez.cigar);           // KSW2 用 malloc()
+    return cigar;
+}
+
+Cigar_t globalAlignKSW2_2(const std::string& ref,
+    const std::string& query)
+{
+    /* ---------- 1. 编码序列 ---------- */
+    std::vector<uint8_t> ref_enc(ref.size());
+    std::vector<uint8_t> qry_enc(query.size());
+
+    for (size_t i = 0; i < ref.size(); ++i)
+        ref_enc[i] = ScoreChar2Idx[static_cast<uint8_t>(ref[i])];
+    for (size_t i = 0; i < query.size(); ++i)
+        qry_enc[i] = ScoreChar2Idx[static_cast<uint8_t>(query[i])];
+
+    /* ---------- 2. 复制 cfg 并修正常见坑 ---------- */
+    // KSW2AlignConfig cfg = cfg_in;                   // 本地副本可调整
+    KSW2AlignConfig cfg = makeTurboKSW2Config2(query.size(), ref.size());
 
     /* ---------- 3. 调用 KSW2 ---------- */
     ksw_extz_t ez{};

@@ -589,6 +589,10 @@ namespace RaMesh {
 
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
+				if (query_len > 20000 || ref_len > 20000) {
+                    return;
+					//std::cout << "Right extend too long: " << query_len << ", " << ref_len << "\n";
+				}
                 std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
                 std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
 
@@ -596,32 +600,41 @@ namespace RaMesh {
                 if (strand == FORWARD) {
                 }
                 else {
-					reverseSeq(ref_seq);
+					reverseComplement(ref_seq);
                 }
 
-                Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
-                while (!result.empty()) {
-                    char op; uint32_t len;
-                    intToCigar(result.back(), op, len);
-                    if (op == 'I' || op == 'D') {
-                        // 如果是 indel，则直接丢弃该操作
-                        result.erase(result.end());
+                // Cigar_t result = globalAlignWFA2(ref_seq, query_seq);
+                //Cigar_t result = extendAlignKSW2(ref_seq, query_seq,2000);
+                Cigar_t result = globalAlignKSW2_2(ref_seq, query_seq);
+				if (checkGapCigarQuality(result, ref_len, query_len, 0.6)){
+                //if (true) {
+                    AlignCount cnt = countAlignedBases(result);
+                    if (strand == REVERSE) {
+                        cur_node->start -= cnt.query_bases;
                     }
-                    else {
-                        // 第一个合法操作符是 M/=/X 等时，停止
-                        break;
-                    }
+
+                    cur_node->length += cnt.query_bases;
+
+                    ref_cur_node->length += cnt.ref_bases;
+                    appendCigar(cur_node->cigar, result);
                 }
-
-                AlignCount cnt = countAlignedBases(result);
-                if (strand == REVERSE) {
-                    cur_node->start -= cnt.query_bases;
+                else {
+					std::cout << "Bad right extend cigar: " << ref_len << ", " << query_len << "\n";
                 }
+                //while (!result.empty()) {
+                //    char op; uint32_t len;
+                //    intToCigar(result.back(), op, len);
+                //    if (op == 'I' || op == 'D') {
+                //        // 如果是 indel，则直接丢弃该操作
+                //        result.erase(result.end());
+                //    }
+                //    else {
+                //        // 第一个合法操作符是 M/=/X 等时，停止
+                //        break;
+                //    }
+                //}
 
-                cur_node->length += cnt.query_bases;
-
-                ref_cur_node->length += cnt.ref_bases;
-                appendCigar(cur_node->cigar, result);
+                
             }
             //else {
             //     === 有重叠：回退对齐直到两侧长度都恢复到非负 ===

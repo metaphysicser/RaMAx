@@ -560,66 +560,66 @@ starAlignment(
             //int_t region_start = 54320705;
             //int_t region_end = 54336058;
 
-            SpeciesName target_species = "simOrang";
-            int qry_chr_index = 0;
-            int_t region_start = 340692;
-            int_t region_end = 340692 + 10000;
+        //    SpeciesName target_species = "simOrang";
+        //    int qry_chr_index = 0;
+        //    int_t region_start = 340692;
+        //    int_t region_end = 340692 + 10000;
 
 
 
-            auto it = species_cluster_map.find(target_species);
-            if (it != species_cluster_map.end()) {
-                auto cluster_strand_qry_ptr = it->second; // ClusterVecPtrByStrandByQueryRefPtr
-                if (cluster_strand_qry_ptr) {
-                    // 遍历 Strand 维度
-                    for (size_t strand_idx = 0; strand_idx < cluster_strand_qry_ptr->size(); ++strand_idx) {
-                        const auto& by_query_ref = (*cluster_strand_qry_ptr)[strand_idx];
-                        if (qry_chr_index >= (int)by_query_ref.size()) continue;
+        //    auto it = species_cluster_map.find(target_species);
+        //    if (it != species_cluster_map.end()) {
+        //        auto cluster_strand_qry_ptr = it->second; // ClusterVecPtrByStrandByQueryRefPtr
+        //        if (cluster_strand_qry_ptr) {
+        //            // 遍历 Strand 维度
+        //            for (size_t strand_idx = 0; strand_idx < cluster_strand_qry_ptr->size(); ++strand_idx) {
+        //                const auto& by_query_ref = (*cluster_strand_qry_ptr)[strand_idx];
+        //                if (qry_chr_index >= (int)by_query_ref.size()) continue;
 
-                        const auto& by_ref = by_query_ref[qry_chr_index];
-                        for (size_t ref_idx = 0; ref_idx < by_ref.size(); ++ref_idx) {
-                            auto cluster_vec_ptr = by_ref[ref_idx];
-                            if (!cluster_vec_ptr) continue;
+        //                const auto& by_ref = by_query_ref[qry_chr_index];
+        //                for (size_t ref_idx = 0; ref_idx < by_ref.size(); ++ref_idx) {
+        //                    auto cluster_vec_ptr = by_ref[ref_idx];
+        //                    if (!cluster_vec_ptr) continue;
 
-                            for (const auto& cluster : *cluster_vec_ptr) {
-                                bool overlap = false;
-                                for (const auto& m : cluster) {
-                                    Coord_t m_start = m.qry_start;
-                                    Coord_t m_end = m.qry_start + m.match_len();
-                                    if (m.qry_chr_index == qry_chr_index &&
-                                        m_end > region_start && m_start < region_end) {
-                                        overlap = true;
-                                        break;
-                                    }
-                                }
+        //                    for (const auto& cluster : *cluster_vec_ptr) {
+        //                        bool overlap = false;
+        //                        for (const auto& m : cluster) {
+        //                            Coord_t m_start = m.qry_start;
+        //                            Coord_t m_end = m.qry_start + m.match_len();
+        //                            if (m.qry_chr_index == qry_chr_index &&
+        //                                m_end > region_start && m_start < region_end) {
+        //                                overlap = true;
+        //                                break;
+        //                            }
+        //                        }
 
-                                if (overlap) {
-                                    spdlog::info("=== Cluster in {} strand={} ref_idx={} ===",
-                                        target_species,
-                                        (strand_idx == 0 ? "FORWARD" : "REVERSE"),
-                                        ref_idx);
+        //                        if (overlap) {
+        //                            spdlog::info("=== Cluster in {} strand={} ref_idx={} ===",
+        //                                target_species,
+        //                                (strand_idx == 0 ? "FORWARD" : "REVERSE"),
+        //                                ref_idx);
 
-                                    for (const auto& m : cluster) {
-                                        spdlog::info(
-                                            "ref_chr={} ref_start={} qry_chr={} qry_start={} len={} strand={}",
-                                            m.ref_chr_index,
-                                            m.ref_start,
-                                            m.qry_chr_index,
-                                            m.qry_start,
-                                            m.match_len(),
-                                            (m.strand() == Strand::FORWARD ? "FORWARD" : "REVERSE")
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            else {
-                spdlog::warn("Species {} not found in cluster map", target_species);
-            }
-        }
+        //                            for (const auto& m : cluster) {
+        //                                spdlog::info(
+        //                                    "ref_chr={} ref_start={} qry_chr={} qry_start={} len={} strand={}",
+        //                                    m.ref_chr_index,
+        //                                    m.ref_start,
+        //                                    m.qry_chr_index,
+        //                                    m.qry_start,
+        //                                    m.match_len(),
+        //                                    (m.strand() == Strand::FORWARD ? "FORWARD" : "REVERSE")
+        //                                );
+        //                            }
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        }
+        //    }
+        //    else {
+        //        spdlog::warn("Species {} not found in cluster map", target_species);
+        //    }
+        //}
 
 
         //constructMultipleGraphsByGreedyByRef(
@@ -660,26 +660,47 @@ starAlignment(
 #endif // _DEBUG_
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
-        SpeciesName target_species = "simOrang";
-        auto it = multi_graph->species_graphs.find(target_species);
-        if (it != multi_graph->species_graphs.end()) {
-            const auto& genome_graph = it->second;
-            spdlog::info("Checking unaligned regions for species {}", target_species);
+        //SpeciesName target_species = "simOrang";
+        //auto it = multi_graph->species_graphs.find(target_species);
+        //if (it != multi_graph->species_graphs.end()) {
+        //    const auto& genome_graph = it->second;
+        //    spdlog::info("Checking unaligned regions for species {}", target_species);
 
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                spdlog::info("Chromosome {}", chr_name);
+        //    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //        spdlog::info("Chromosome {}", chr_name);
 
-                // 直接调用前面定义的函数
-                RaMesh::reportUnalignedRegions(
-                    genome_end,
-                    seqpro_managers.at(target_species),
-                    chr_name
-                );
-            }
-        }
-        else {
-            spdlog::warn("Species {} not found in multi_graph", target_species);
-        }
+        //        // 直接调用前面定义的函数
+        //        RaMesh::reportUnalignedRegions(
+        //            genome_end,
+        //            seqpro_managers.at(target_species),
+        //            chr_name
+        //        );
+        //    }
+        //}
+        //else {
+        //    spdlog::warn("Species {} not found in multi_graph", target_species);
+        //}
+
+        //target_species = "simGorilla";
+        //it = multi_graph->species_graphs.find(target_species);
+        //if (it != multi_graph->species_graphs.end()) {
+        //    const auto& genome_graph = it->second;
+        //    spdlog::info("Checking unaligned regions for species {}", target_species);
+
+        //    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //        spdlog::info("Chromosome {}", chr_name);
+
+        //        // 直接调用前面定义的函数
+        //        RaMesh::reportUnalignedRegions(
+        //            genome_end,
+        //            seqpro_managers.at(target_species),
+        //            chr_name
+        //        );
+        //    }
+        //}
+        //else {
+        //    spdlog::warn("Species {} not found in multi_graph", target_species);
+        //}
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);

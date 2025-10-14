@@ -427,7 +427,8 @@ uint32_t countAlignmentLength(const Cigar_t& cigar) {
 /// \return 是否达标（true=通过，false=不通过）
 bool checkGapCigarQuality(const Cigar_t& cigar,
     size_t ref_len,
-    size_t qry_len) {
+    size_t qry_len,
+    double min_identity) {
     if (cigar.empty()) return false;
 
     size_t max_gap_run = 0;    // 当前连续 gap 的长度
@@ -460,6 +461,6 @@ bool checkGapCigarQuality(const Cigar_t& cigar,
 	uint_t min_len = std::min(ref_len, qry_len);
     double identity = static_cast<double>(matches) / min_len;
 
-    return (identity >= 0.75);
+    return (identity >= min_identity);
 }
 
