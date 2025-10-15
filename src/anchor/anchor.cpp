@@ -933,7 +933,27 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     return anchors;
 }
 
-Anchor extendClusterToAnchor(const MatchCluster& cluster,
+//Anchor extendClusterToAnchor(const MatchCluster& cluster,
+//    const SeqPro::ManagerVariant& ref_mgr,
+//    const SeqPro::ManagerVariant& query_mgr) {
+//    if (cluster.empty()) return Anchor();
+//    AnchorVec anchors;
+//    auto subSeq = [&](const SeqPro::ManagerVariant& mv,
+//        const ChrIndex& chr, Coord_t b, Coord_t l) -> std::string {
+//            return std::visit([&](auto& p) {
+//                using T = std::decay_t<decltype(p)>;
+//                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+//                    return p->getSubSequence(chr, b, l);
+//                }
+//                else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+//                    return p->getOriginalManager().getSubSequence(chr, b, l);
+//                }
+//                }, mv);
+//        };
+//
+//}
+
+Anchor extendClusterToAnchor(MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr)
 {
@@ -958,6 +978,11 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
     const Match& first = cluster.front();
     Strand strand = first.strand();
     bool   fwd = (strand == FORWARD);
+
+    if (!fwd) {
+        std::sort(cluster.begin(), cluster.end(),
+            [](auto& a, auto& b) { return a.ref_start < b.ref_start; });
+    }
     ChrIndex ref_chr = first.ref_chr_index;
     ChrIndex qry_chr = first.qry_chr_index;
 
@@ -1006,18 +1031,18 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
         };
 
 
-    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
-    attributes.distance_metric = gap_affine;
-    attributes.affine_penalties.mismatch = 2;      // X > 0
-    attributes.affine_penalties.gap_opening = 3;   // O >= 0
-    attributes.affine_penalties.gap_extension = 1; // E > 0
-    attributes.memory_mode = wavefront_memory_ultralow;
-    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
-    attributes.heuristic.min_wavefront_length = 10;
-    attributes.heuristic.max_distance_threshold = 50;
-    attributes.heuristic.steps_between_cutoffs = 1;
+    //wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+    //attributes.distance_metric = gap_affine;
+    //attributes.affine_penalties.mismatch = 2;      // X > 0
+    //attributes.affine_penalties.gap_opening = 3;   // O >= 0
+    //attributes.affine_penalties.gap_extension = 1; // E > 0
+    //attributes.memory_mode = wavefront_memory_ultralow;
+    //attributes.heuristic.strategy = wf_heuristic_wfadaptive;
+    //attributes.heuristic.min_wavefront_length = 10;
+    //attributes.heuristic.max_distance_threshold = 50;
+    //attributes.heuristic.steps_between_cutoffs = 1;
 
-    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
+    //wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
 
     /* ==================== 遍历 cluster ==================== */
     for (size_t i = 0;i < cluster.size();++i) {
@@ -1066,19 +1091,21 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
             double rho = double(d) / std::min(Lt, Lq);
 
 
-            if (rho <= 0.3 && Lt > 10 && Lq > 10) {
-                int cigar_len;
-                uint32_t* cigar_tmp;
-                wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
-                cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
-                for (uint_t j = 0; j < cigar_len; ++j) {
-                    gap.push_back(cigar_tmp[j]);
-                }
+            //if (rho <= 0.3 && Lt > 10 && Lq > 10) {
+            //    int cigar_len;
+            //    uint32_t* cigar_tmp;
+            //    wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
+            //    cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
+            //    for (uint_t j = 0; j < cigar_len; ++j) {
+            //        gap.push_back(cigar_tmp[j]);
+            //    }
 
-            }
-            else {
-                gap = globalAlignKSW2(ref_gap, qry_gap);
-            }
+            //}
+            //else {
+            //    gap = globalAlignKSW2_2(ref_gap, qry_gap);
+            //}
+
+            gap = globalAlignKSW2_2(ref_gap, qry_gap);
 
             /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
             buf.reserve(gap.size());
@@ -1135,7 +1162,7 @@ Anchor extendClusterToAnchor(const MatchCluster& cluster,
         if (!buf.empty()) appendCigar(cigar, buf);
     }
     flush();
-    wavefront_aligner_delete(wf_aligner);// 收尾
+    //wavefront_aligner_delete(wf_aligner);// 收尾
     return anchors[0];
 }
 
@@ -1287,9 +1314,7 @@ void linkClusters(AnchorPtrVec& anchors,
             /*it = curr + 1;*/
             continue;
         }
-        if ((*curr)->qry_start > 9000) {
-            std::cout << "";
-        }
+
 
         //if ((*curr)->qry_chr_index == 4 && (*curr)->qry_start < 357618 + 24610 && (*curr)->qry_start + (*curr)->qry_len > 357618) {
         //    std::cout << "";
@@ -1398,12 +1423,12 @@ void linkClusters(AnchorPtrVec& anchors,
         uint_t ref_len = 0;
         uint_t qry_len = 0;
         Cigar_t gap_cigar;
-        if (qry_gap_len > 20000 || ref_gap_len > 20000) {
+        if (qry_gap_len > 10000 || ref_gap_len > 10000) {
             reach = false;
         }
         else {
             //gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
-            gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 3 * break_len);
+            gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 1 * break_len);
             //gap_cigar = extendAlignWFA2(ref_gap_seq, qry_gap_seq, break_len);
             ref_len = countRefLength(gap_cigar);
             qry_len = countQryLength(gap_cigar);
@@ -1423,12 +1448,16 @@ void linkClusters(AnchorPtrVec& anchors,
             }
             else {
                 (*curr)->qry_len = (*curr)->qry_start + (*curr)->qry_len - (*best)->qry_start;
+				(*curr)->qry_start = (*best)->qry_start; // 反向链，更新起点
                 Cigar_t c1 = gap_cigar;
-                std::reverse(c1.begin(), c1.end());
+                //std::reverse(c1.begin(), c1.end());
                 Cigar_t c2 = (*best)->cigar;
-                std::reverse(c2.begin(), c2.end());
-                prependCigar((*curr)->cigar, c1);
-                prependCigar((*curr)->cigar, c2);
+                Cigar_t c3 = (*curr)->cigar;
+                //std::reverse(c2.begin(), c2.end());
+                (*curr)->cigar = c3;
+
+                appendCigar((*curr)->cigar, c1);
+                appendCigar((*curr)->cigar, c2);
             }
 
             (*curr)->alignment_length += (*best)->alignment_length + countAlignmentLength(gap_cigar);
@@ -1531,12 +1560,14 @@ void linkClusters(AnchorPtrVec& anchors,
                         reverseComplement(qry_gap_seq);
 
                     // ---- gap 比对 ----
-                    Cigar_t gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
+                    Cigar_t gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 1 * break_len);
+                    //Cigar_t gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
                     uint_t ref_len = countRefLength(gap_cigar);
                     uint_t qry_len = countQryLength(gap_cigar);
 
                     // ✅ gap 完全比对上：把 gap_cigar 融入 curr
-                    if (checkGapCigarQuality(gap_cigar, ref_gap_len, qry_gap_len,0.6)) {
+                    //if (checkGapCigarQuality(gap_cigar, ref_gap_len, qry_gap_len, 0.6))
+                    if (ref_len == ref_gap_len && qry_len == qry_gap_len) {
                         (*curr)->ref_len += ref_len;
                         (*curr)->qry_len += qry_len;
                         (*curr)->alignment_length += countAlignmentLength(gap_cigar);
@@ -1549,8 +1580,8 @@ void linkClusters(AnchorPtrVec& anchors,
                         }
                         else {
                             (*curr)->ref_start -= ref_len;
-                            std::reverse(gap_cigar.begin(), gap_cigar.end());
-                            appendCigar((*curr)->cigar, gap_cigar);
+                            //std::reverse(gap_cigar.begin(), gap_cigar.end());
+                            prependCigar((*curr)->cigar, gap_cigar);
                         }
                     }
        //             if (!linked.empty()) {

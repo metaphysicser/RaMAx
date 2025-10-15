@@ -207,6 +207,7 @@ Cigar_t extendAlignKSW2(const std::string& ref,
 
     /* ---------- 2. 配置 ---------- */
     KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
+    //KSW2AlignConfig cfg;
     cfg.zdrop = zdrop;       // 用于提前终止
     cfg.flag = KSW_EZ_EXTZ_ONLY     // ends-free extension
         | KSW_EZ_APPROX_MAX    // 跟踪 ez.max_q/max_t

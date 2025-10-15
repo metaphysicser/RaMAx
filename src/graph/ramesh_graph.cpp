@@ -295,6 +295,23 @@ void RaMeshMultiGenomeGraph::extendRefNodes(
         cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
       }
     }
+
+    for (auto& [chr_name, end] : g.chr2end) {
+        SegPtr cur_node = end.head;
+
+        while (cur_node != NULL) {
+            // pool.enqueue([this, &ref_name, &sp, &chr_name, &end, &cur_node,
+            // &managers]() {
+            //
+            //     end.alignInterval(ref_name, sp, chr_name, cur_node, managers,
+            //     false, true);
+            //
+            // });
+            end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true,
+                false);
+            cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+        }
+    }
   }
   pool.waitAllTasksDone();
 
@@ -3648,7 +3665,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
             //ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
-            if (len > 1000) {
+            if (len > 100) {
 				std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
             }
             lens.push_back(static_cast<double>(len));            // ✅ 统计只收集 >1000
@@ -3658,7 +3675,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
         //ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
-        if (len > 1000) {
+        if (len > 100) {
             std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
         }
         lens.push_back(static_cast<double>(len));                // ✅ 统计只收集 >1000

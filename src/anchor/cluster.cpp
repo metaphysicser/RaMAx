@@ -191,13 +191,13 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     for (uint_t i = 0; i < N; ++i) {
         uint_t i_end = start2(unique_match[i]) + len2(unique_match[i]);
         int_t  i_diag = 0;
-   //     if (is_forward) {
-   //         i_diag = diag(unique_match[i]);
-   //     }
-   //     else {
-			//i_diag = diag_reverse(unique_match[i]);
-   //     }
-        i_diag = diag(unique_match[i]);
+        if (is_forward) {
+            i_diag = diag(unique_match[i]);
+        }
+        else {
+			i_diag = diag_reverse(unique_match[i]);
+        }
+        //i_diag = diag(unique_match[i]);
         
 
         // 只检查后续可能的匹配，利用排序优化
@@ -207,13 +207,13 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
             // 早期退出：如果gap太大，后续的j也不可能匹配
             if (sep > static_cast<int_t>(max_gap)) break;
             int_t diag_diff = 0;
-            diag_diff = std::abs(diag(unique_match[j]) - i_diag);
-           /* if (is_forward) {
+            //diag_diff = std::abs(diag(unique_match[j]) - i_diag);
+            if (is_forward) {
 				diag_diff = std::abs(diag(unique_match[j]) - i_diag);
 			}
             else {
                 diag_diff = std::abs(diag_reverse(unique_match[j]) - i_diag);
-            }*/
+            }
 
             // int_t diag_diff = std::abs((is_forward ? diag(unique_match[j]):diag_reverse(unique_match[j])) - i_diag);
             int_t th = std::max(diagdiff, static_cast<int_t>(diagfactor * sep));
@@ -585,11 +585,14 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
     // 2. 每簇提链 + 长度过滤
     
     best_chain_clusters->reserve(clusters.size());
-
+    uint_t count = 0;
     for (auto& cluster : clusters) {
         if (cluster.empty()) continue;
 
         MatchVec best_chain = bestChainDP(cluster, diagfactor);
+        if (best_chain.front().strand() == REVERSE && best_chain.size() > 1) {
+            count++;
+        }
         if (best_chain.empty()) { releaseCluster(cluster); continue; }
         int_t span = 0;
 		// 遍历 best_chain 计算 span
@@ -606,6 +609,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         releaseCluster(cluster);     // 回收 cluster 剩余元素
     }
     best_chain_clusters->shrink_to_fit();
+    std::cout << count << std::endl;
     return best_chain_clusters;
 }
 

@@ -704,7 +704,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	// 输出结构
 	auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
-	ThreadPool pool(thread_num);
+	ThreadPool pool(1);
 	std::vector<std::future<void>> futures;
 
 	for (size_t strand = 0; strand < 2; ++strand) {
@@ -989,9 +989,13 @@ void PairRareAligner::constructGraphByDP(SpeciesName query_name, SeqPro::Manager
 				for (size_t a_idx = 0; a_idx < anchors.size(); ++a_idx) {
 					AnchorPtr anchor = anchors.at(a_idx);
 					// if (anchor->ref_selected && anchor->qry_selected)
-					if(anchor->ref_selected && anchor->qry_selected) {
-						
-						graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, *anchor, false);
+					if (anchor->ref_selected && anchor->qry_selected) {
+						try {
+							graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, *anchor, false);
+						}
+						catch (const std::exception& e) {
+							spdlog::error("Error inserting anchor into graph: {}", e.what());
+						}
 					}
 				}
 			}

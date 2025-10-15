@@ -419,116 +419,115 @@ namespace RaMesh {
             };
 
         // ---------------- 左扩展 ----------------
-        // ---------------- 左扩展 ----------------
         if (left_extend && cur_node->left_extend == false) {
 
             int_t  query_len = 0;
             Strand strand = cur_node->strand;
             int_t  query_start = 0;
 
-            // 计算 query 侧左侧可扩区间
+            // 计算 query 侧左侧可扩区间（与右扩对称）
             if (strand == FORWARD) {
-                // 正向：以 prev 的 end 作为左界
                 SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
                 query_start = (!query_left_node->isHead()) ? (query_left_node->start + query_left_node->length) : 0;
-                query_len = cur_node->start - query_start;
+                query_len = (int_t)cur_node->start - (int_t)query_start;
             }
-            else {
-                // 反向：以 next 的 start 作为左界
+            else { // REVERSE
                 SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
                 query_start = cur_node->start + cur_node->length;
                 if (!query_right_node->isTail())
-                    query_len = query_right_node->start - query_start;
+                    query_len = (int_t)query_right_node->start - (int_t)query_start;
                 else
-                    query_len = getChrLen(*managers[query_name], query_chr_name) - query_start;
+                    query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
             }
 
             BlockPtr cur_block = cur_node->parent_block;
             ChrName  ref_chr_name = cur_block->ref_chr;
             SegPtr   ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
 
-            // 与右扩展对称：向左寻找“合适的”参考节点
+            // 向左寻找“合适的”参考节点（与右扩扫右侧对称）
             SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
             while (true) {
                 if (ref_left_node->isHead()) break;
                 if (ref_left_node->left_extend && ref_left_node->right_extend) break;
                 bool find = false;
                 for (const auto& [key, seg] : ref_left_node->parent_block->anchors) {
-                    if (key.first == query_name) {
-                        find = true;  // 找到包含该 query 物种的 block，则作为边界
-                        break;
-                    }
+                    if (key.first == query_name) { find = true; break; }
                 }
                 if (find) break;
                 ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
             }
 
             int_t ref_start = (!ref_left_node->isHead()) ? (ref_left_node->start + ref_left_node->length) : 0;
-            int_t ref_len = ref_cur_node->start - ref_start;
+            int_t ref_len = (int_t)ref_cur_node->start - (int_t)ref_start;
 
-            // 只有真正发生扩展时再置标记（避免无扩展就“封死”）
+            // 与右扩一致：先标记，再进行比对（避免重复进入）
             cur_node->left_extend = true;
             ref_cur_node->left_extend = true;
 
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
+                // 与右扩一致的长度上限保护
+                if (query_len > 10000 || ref_len > 10000) {
+                    return;
+                    // std::cout << "Left extend too long: " << query_len << ", " << ref_len << "\n";
+                }
+
                 std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
                 std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
 
-                // 关键修复1：把“左扩展”转换为“向右比对”
-                // 参考序列反转
+                // 把“左扩”转换成“向右比对”
+                // 1) 反转 query（统一向右延伸）
                 std::reverse(ref_seq.begin(), ref_seq.end());
+                // 2) 参考端与右扩保持相同的链向处理习惯：
+                //    - FORWARD：反转 ref 左段
+                //    - REVERSE：仅做互补（等价于 reverse(RC(left_ref))）
                 if (strand == FORWARD) {
-                    // 正向链：query 只需反转
-                    reverseSeq(query_seq);
+                    std::reverse(query_seq.begin(), query_seq.end());
                 }
-                else {
-                    // 反向链：必须做反向互补（之前代码只做 complement 少了 reverse）
+                else { // REVERSE
                     baseComplement(query_seq);
+                    // 如无 baseComplement，可用：reverseComplement(ref_seq); std::reverse(ref_seq.begin(), ref_seq.end());
                 }
 
-                Cigar_t result = extendAlignWFA2(ref_seq, query_seq);
+                // 与右扩统一：使用 KSW2 延伸
+                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, 200);
 
-                // 关键修复2：左扩展得到的 CIGAR 需要反转操作顺序再拼到左侧
+                // 将 CIGAR 恢复到原坐标方向，再拼到左侧
                 std::reverse(result.begin(), result.end());
 
-                // 确保cigar的最前端不是I或D
-                // 确保 cigar 的最前端不是 I 或 D
-                while (!result.empty()) {
-                    char op; uint32_t len;
-                    intToCigar(result.front(), op, len);
-                    if (op == 'I' || op == 'D') {
-                        // 如果是 indel，则直接丢弃该操作
-                        result.erase(result.begin());
-                    }
-                    else {
-                        // 第一个合法操作符是 M/=/X 等时，停止
-                        break;
-                    }
-                }
+                // 与右扩一致：此处质量判定留“true”或接入同一套检查
+                if (true /* checkGapCigarQuality(result, ref_len, query_len, 0.6) */) {
+                    AlignCount cnt = countAlignedBases(result);
 
-
-                AlignCount cnt = countAlignedBases(result);
-
-                bool extended = (cnt.query_bases > 0) || (cnt.ref_bases > 0);
-                if (extended) {
-                    // 更新 query 段坐标
+                    // 更新 query 段坐标（左扩：FORWARD 才需要移动 start）
                     if (strand == FORWARD) {
                         cur_node->start -= cnt.query_bases;
                     }
                     cur_node->length += cnt.query_bases;
 
-                    // 更新 ref 段坐标
+                    // 更新 ref 段坐标（左扩需要移动 ref_start）
                     ref_cur_node->start -= cnt.ref_bases;
                     ref_cur_node->length += cnt.ref_bases;
 
-                    // 拼接到左侧
+                    // 拼到“左侧”
                     prependCigar(cur_node->cigar, result);
-
-
                 }
+                else {
+                    // std::cout << "Bad left extend cigar: " << ref_len << ", " << query_len << "\n";
+                }
+
+                // 如需去掉左端首个 I/D，可用下面这段（与右扩中注释块一致，默认不启用）
+                /*
+                while (!result.empty()) {
+                    char op; uint32_t len;
+                    intToCigar(result.front(), op, len);
+                    if (op == 'I' || op == 'D') result.erase(result.begin());
+                    else break;
+                }
+                */
             }
         }
+
 
 
         // ---------------- 右扩展 ----------------
@@ -589,7 +588,7 @@ namespace RaMesh {
 
             // === 实际比对逻辑 ===
             if (query_len > 0 && ref_len > 0) {
-				if (query_len > 20000 || ref_len > 20000) {
+				if (query_len > 10000 || ref_len > 10000) {
                     return;
 					//std::cout << "Right extend too long: " << query_len << ", " << ref_len << "\n";
 				}
@@ -604,10 +603,10 @@ namespace RaMesh {
                 }
 
                 // Cigar_t result = globalAlignWFA2(ref_seq, query_seq);
-                //Cigar_t result = extendAlignKSW2(ref_seq, query_seq,2000);
-                Cigar_t result = globalAlignKSW2_2(ref_seq, query_seq);
-				if (checkGapCigarQuality(result, ref_len, query_len, 0.6)){
-                //if (true) {
+                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, 200);
+                //Cigar_t result = globalAlignKSW2_2(ref_seq, query_seq);
+				//if (checkGapCigarQuality(result, ref_len, query_len, 0.6)){
+                if (true) {
                     AlignCount cnt = countAlignedBases(result);
                     if (strand == REVERSE) {
                         cur_node->start -= cnt.query_bases;

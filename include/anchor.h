@@ -282,7 +282,7 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
-Anchor extendClusterToAnchor(const MatchCluster& cluster,
+Anchor extendClusterToAnchor(MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
