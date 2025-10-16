@@ -653,7 +653,7 @@ starAlignment(
 
         //
         // 
-        //multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
+        multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
 
 
         multi_graph->optimizeGraphStructure();

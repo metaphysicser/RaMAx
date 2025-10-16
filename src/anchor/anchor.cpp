@@ -1063,19 +1063,19 @@ Anchor extendClusterToAnchor(MatchCluster& cluster,
         anchor = Anchor(ref_chr, first.ref_start, last.ref_start + last.match_len() - first.ref_start, qry_chr, last.qry_start, first.qry_start + first.match_len() - last.qry_start, strand, aln_len, match_len, std::move(cigar));
     }
 
-    if (first.qry_start == 212285) {
-        // 提取 anchor 对应的序列
-        std::string ref_seq = subSeq(ref_mgr, ref_chr, anchor.ref_start, anchor.ref_len);
-        std::string qry_seq = subSeq(query_mgr, qry_chr, anchor.qry_start, anchor.qry_len);
+    //if (first.qry_start == 212285) {
+    //    // 提取 anchor 对应的序列
+    //    std::string ref_seq = subSeq(ref_mgr, ref_chr, anchor.ref_start, anchor.ref_len);
+    //    std::string qry_seq = subSeq(query_mgr, qry_chr, anchor.qry_start, anchor.qry_len);
 
-        // 渲染对齐结果
-        auto [ref_aln,  qry_aln] = renderAlignment(ref_seq, qry_seq, anchor.cigar);
+    //    // 渲染对齐结果
+    //    auto [ref_aln,  qry_aln] = renderAlignment(ref_seq, qry_seq, anchor.cigar);
 
-        spdlog::info("Ref: {}", ref_aln);
-        spdlog::info("Qry: {}", qry_aln);
-        spdlog::info("CIGAR: {}", cigarToString(anchor.cigar));
-        std::cout << "";
-    }
+    //    spdlog::info("Ref: {}", ref_aln);
+    //    spdlog::info("Qry: {}", qry_aln);
+    //    spdlog::info("CIGAR: {}", cigarToString(anchor.cigar));
+    //    std::cout << "";
+    //}
 
     
 
