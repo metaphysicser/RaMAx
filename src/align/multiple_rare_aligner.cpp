@@ -651,6 +651,8 @@ starAlignment(
 
 
 
+        //
+        // 
         //multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
 
 

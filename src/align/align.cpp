@@ -205,17 +205,28 @@ Cigar_t extendAlignKSW2(const std::string& ref,
     for (size_t i = 0; i < ref.size(); ++i) ref_enc[i] = ScoreChar2Idx[(uint8_t)ref[i]];
     for (size_t i = 0; i < query.size(); ++i) qry_enc[i] = ScoreChar2Idx[(uint8_t)query[i]];
 
-    /* ---------- 2. 配置 ---------- */
-    KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
-    //KSW2AlignConfig cfg;
-    cfg.zdrop = zdrop;       // 用于提前终止
-    cfg.flag = KSW_EZ_EXTZ_ONLY     // ends-free extension
-        | KSW_EZ_APPROX_MAX    // 跟踪 ez.max_q/max_t
-        | KSW_EZ_APPROX_DROP   // 在 approximate 模式下触发 z-drop 就中断
-        | KSW_EZ_RIGHT;        // （可选）gap 右对齐     // **关键**：启用 extension/ends-free
-    // 若需要右对齐 gaps 建议保留 KSW_EZ_RIGHT
-    cfg.end_bonus = 100;
+    ///* ---------- 2. 配置 ---------- */
+    //KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
+    ////KSW2AlignConfig cfg;
+    //cfg.zdrop = zdrop;       // 用于提前终止
+    //cfg.flag = KSW_EZ_EXTZ_ONLY     // ends-free extension
+    //    | KSW_EZ_APPROX_MAX    // 跟踪 ez.max_q/max_t
+    //    | KSW_EZ_APPROX_DROP   // 在 approximate 模式下触发 z-drop 就中断
+    //    | KSW_EZ_RIGHT;        // （可选）gap 右对齐     // **关键**：启用 extension/ends-free
+    //// 若需要右对齐 gaps 建议保留 KSW_EZ_RIGHT
+    //cfg.end_bonus = 100;
+    //cfg.band_width = -1;
+    init_simd_mat();
+    KSW2AlignConfig cfg;
+	cfg.mat = dna5_simd_mat;
+    cfg.zdrop = zdrop;
+    cfg.flag = KSW_EZ_EXTZ_ONLY | KSW_EZ_RIGHT;
+    cfg.end_bonus = 50;
     cfg.band_width = -1;
+    cfg.alphabet_size = 5;
+    cfg.gap_open = 5;
+    cfg.gap_extend = 2;
+
 
     /* ---------- 3. 调用 KSW2 ---------- */
     ksw_extz_t ez{};

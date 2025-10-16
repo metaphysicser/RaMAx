@@ -1428,7 +1428,7 @@ void linkClusters(AnchorPtrVec& anchors,
         }
         else {
             //gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
-            gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 1 * break_len);
+            gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 2 * break_len);
             //gap_cigar = extendAlignWFA2(ref_gap_seq, qry_gap_seq, break_len);
             ref_len = countRefLength(gap_cigar);
             qry_len = countQryLength(gap_cigar);
@@ -1560,7 +1560,7 @@ void linkClusters(AnchorPtrVec& anchors,
                         reverseComplement(qry_gap_seq);
 
                     // ---- gap 比对 ----
-                    Cigar_t gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 1 * break_len);
+                    Cigar_t gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 2 * break_len);
                     //Cigar_t gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
                     uint_t ref_len = countRefLength(gap_cigar);
                     uint_t qry_len = countQryLength(gap_cigar);

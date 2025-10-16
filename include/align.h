@@ -221,7 +221,7 @@ struct KSW2AlignConfig {
     int end_bonus;                     // 末端奖励分
     int zdrop = 100;                   // Z-drop 剪枝参数
     int band_width = -1;               // -1 表示全矩阵
-    int flag = KSW_EZ_GENERIC_SC;      // 默认使用全替换矩阵
+    int flag = 0;      // 默认使用全替换矩阵
 };
 
 static int8_t dna5_simd_mat[25];
@@ -297,6 +297,33 @@ inline KSW2AlignConfig makeTurboKSW2Config2(int qlen, int tlen,
     //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
     int flags = KSW_EZ_APPROX_MAX;
         
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
+    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+
+    return {
+        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
+        .alphabet_size = 5,
+        .gap_open = 5,                                     // -8 -1 model
+        .gap_extend = 2,
+        .end_bonus = 0,
+        .zdrop = -1,
+        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
+        .flag = flags
+    };
+}
+
+inline KSW2AlignConfig makeTurboKSW2Config3(int qlen, int tlen,
+    bool rev_cigar = false,
+    double indel_rate = 0.05,
+    bool eqx_cigar = false)      // ← 新增
+{
+    init_simd_mat();                          // 确保 scoring matrix 已准备好
+
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
+    int flags = 0;
+
     if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
     if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
 
