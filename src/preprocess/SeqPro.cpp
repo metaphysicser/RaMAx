@@ -709,7 +709,12 @@ std::vector<std::string> SequenceManager::getSequenceNames() const {
 std::string SequenceManager::getSequenceName(const uint32_t& seq_id) const {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     const auto* info = sequence_index_.getSequenceInfo(seq_id);
-    return info->name;
+    if (info) {
+        return info->name;
+    }
+    else {
+		throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+    }
 }
 
 Length SequenceManager::getSequenceLength(const std::string &seq_name) const {

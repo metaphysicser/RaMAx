@@ -90,7 +90,7 @@ void appendCigar(Cigar_t& dst, const Cigar_t& src)
 	if (src.empty()) return;                  // nothing to do
 	size_t idx = 0;
 
-	// 1) 检查“拼接点”——dst 的最后一个元素 vs. src 的首元素
+	//// 1) 检查“拼接点”——dst 的最后一个元素 vs. src 的首元素
 	if (!dst.empty()) {
 		char op_dst; uint32_t len_dst;
 		intToCigar(dst.back(), op_dst, len_dst);

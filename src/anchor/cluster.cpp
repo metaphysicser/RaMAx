@@ -228,7 +228,7 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     std::unordered_map<int_t, int_t> root_to_cluster_id;
     root_to_cluster_id.reserve(N / 4);  // 预估簇数量
     
-    for (uint_t idx = 0; idx < N; ++idx) {
+    for (uint_t idx = 0; idx < unique_match.size(); idx++) {
         int_t root = uf.find(idx);
         auto it = root_to_cluster_id.find(root);
         
@@ -241,7 +241,9 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
         } else {
             cid = it->second;
         }
-        
+        if (unique_match[idx].ref_chr_index > 0) {
+            std::cout << "";
+        }
         clusters[cid].push_back(std::move(unique_match[idx]));
     }
     
@@ -442,12 +444,12 @@ inline bool isOverlap(const Match& a, const Match& b) {
 MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 {
     if (cluster.empty()) return {};
-    if (cluster.size() == 1) return std::move(cluster);
+    if (cluster.size() == 1) return cluster;
 
     Strand strand = cluster.front().strand();
 
-   /* std::sort(cluster.begin(), cluster.end(),
-        [](const Match& a, const Match& b) { return start2(a) < start2(b); });*/
+    std::sort(cluster.begin(), cluster.end(),
+        [](const Match& a, const Match& b) { return start2(a) < start2(b); });
 
     const uint_t N = static_cast<uint_t>(cluster.size());
     std::vector<int_t> score(N), pred(N, -1);
@@ -459,17 +461,20 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
             if (start2(cluster[i]) <= start2(cluster[j]) + len2(cluster[j])) continue;
 
             int_t sep = 0;
+			int_t d = 0;
             if (strand == FORWARD) {
                 int_t prev_endj = start1(cluster[j]) + len1(cluster[j]);
                 if (start1(cluster[i]) <= prev_endj) continue;
                 sep = start1(cluster[i]) - prev_endj;
+                d = std::abs(diag(cluster[i]) - diag(cluster[j]));
             } else {
                 int_t prev_endi = start1(cluster[i]) + len1(cluster[i]);
                 if(prev_endi >= start1(cluster[j])) continue;
 				sep = start1(cluster[j]) - prev_endi;
+                d = std::abs(diag_reverse(cluster[i]) - diag_reverse(cluster[j]));
             }
 
-            int_t d = std::abs(diag(cluster[i]) - diag(cluster[j]));
+             
             int_t cand = score[j] + len2(cluster[i]) - d;
             if (cand > score[i]) { score[i] = cand; pred[i] = static_cast<int_t>(j); }
         }
@@ -478,8 +483,9 @@ MatchVec bestChainDP(MatchVec& cluster, double diagfactor)
 
     MatchVec chain;
     for (int_t k = static_cast<int_t>(best_idx); k != -1; k = pred[k])
-        chain.emplace_back(std::move(cluster[k]));
+        chain.emplace_back(cluster[k]);
     std::reverse(chain.begin(), chain.end());
+
     return chain;
 }
 
@@ -590,6 +596,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         if (cluster.empty()) continue;
 
         MatchVec best_chain = bestChainDP(cluster, diagfactor);
+
         if (best_chain.front().strand() == REVERSE && best_chain.size() > 1) {
             count++;
         }
@@ -601,6 +608,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         }
         //int_t span = start1(best_chain.back()) + len1(best_chain.back()) - start1(best_chain.front());
         if (span >= min_cluster_length) {
+
             best_chain_clusters->emplace_back(std::move(best_chain));
         }
         /*else {

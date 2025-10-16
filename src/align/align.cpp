@@ -51,7 +51,17 @@ Cigar_t globalAlignKSW2(const std::string& ref,
 
     /* ---------- 2. 复制 cfg 并修正常见坑 ---------- */
     // KSW2AlignConfig cfg = cfg_in;                   // 本地副本可调整
-    KSW2AlignConfig cfg = makeTurboKSW2Config(query.size(), ref.size());
+    init_simd_mat();
+
+    KSW2AlignConfig cfg;
+    cfg.mat = dna5_simd_mat;
+    cfg.alphabet_size = 5;
+    cfg.gap_open = 5;          // gap open penalty
+    cfg.gap_extend = 2;        // gap extension penalty
+    cfg.end_bonus = 0;         // ❌ 不需要 ends-free 奖励
+    cfg.zdrop = -1;            // ❌ 禁用 z-drop（全局比对必须完整比完）
+    cfg.band_width = -1;       // 启用全矩阵（也可设 auto_band）
+    cfg.flag = KSW_EZ_RIGHT; // ✅ 通用矩阵 + gap右对齐
 
     /* ---------- 3. 调用 KSW2 ---------- */
     ksw_extz_t ez{};

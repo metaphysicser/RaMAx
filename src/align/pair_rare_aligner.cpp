@@ -733,7 +733,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 							anchors.push_back(p);
 						}
 						if (is_first) {
-							linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
+							//linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
 						}
 						
 						if (anchors.empty()) return;
@@ -850,7 +850,7 @@ static void filterChrByDP(
 		});
 
 	size_t n = result.size();
-	std::vector<double> dp(n);
+	std::vector<double> dp(n, 0);
 	std::vector<int_t> pre(n, -1);
 
 	size_t K = 5000; // 可调参数
@@ -858,6 +858,9 @@ static void filterChrByDP(
 	for (size_t i = 0; i < n; ++i) {
 		double idy = static_cast<float>(result[i]->aligned_base) / result[i]->alignment_length;
 		double score_i = result[i]->alignment_length * pow(idy, 2);
+		if (score_i > 100000000) {
+			continue;
+		}
 		dp[i] = score_i;
 
 
