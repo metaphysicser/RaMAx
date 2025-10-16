@@ -93,10 +93,15 @@ static bool emitMafBlock(std::ostream& os,
         auto mit = seq_mgrs.find(r.sp);
         if (mit == seq_mgrs.end()) { seqs.clear(); break; }
         std::string raw = fetchSeq(*mit->second, r.chr, r.seg->start, r.seg->length);
+
         if (r.seg->strand == Strand::REVERSE) reverseComplement(raw);
         ChrName key = pairwise_mode ? r.chr : r.sp + "." + r.chr;
         seqs.emplace(key, std::move(raw));
         cigars.emplace(key, r.seg->cigar);
+        if (r.seg->start == 212285) {
+            std::cout << cigarToString(cigars["simOrang.chrE"]);
+            std::cout << "";
+        }
     }
     if (seqs.empty()) return false;
 

@@ -3624,6 +3624,57 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
   }
 }
 
+// ------------------------------------------------------------------
+// 获取子序列工具函数
+// 统一接口，无需 lambda。
+// ------------------------------------------------------------------
+inline std::string getSubSeq(const SeqPro::ManagerVariant& mv,
+    const ChrName& chr,
+    Coord_t b,
+    Coord_t l)
+{
+    return std::visit([&](auto& p) -> std::string {
+        using T = std::decay_t<decltype(p)>;
+        if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+            return p->getSubSequence(chr, b, l);
+        }
+        else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+            return p->getOriginalManager().getSubSequence(chr, b, l);
+        }
+        else {
+            throw std::runtime_error("Unsupported ManagerVariant type in getSubSeq()");
+        }
+        }, mv);
+}
+
+inline std::string applyCigarToQuery(const std::string& qry, const Cigar_t& cigar)
+{
+    std::string aligned;
+    aligned.reserve(qry.size() * 2); // 预留空间
+
+    size_t qpos = 0;
+    for (auto c : cigar) {
+        char op; uint32_t len;
+        intToCigar(c, op, len);
+
+        switch (op) {
+        case 'M': case '=': case 'X':
+            for (uint32_t i = 0; i < len && qpos < qry.size(); ++i)
+                aligned.push_back(qry[qpos++]);
+            break;
+        case 'I': // 插入：直接保留
+            for (uint32_t i = 0; i < len && qpos < qry.size(); ++i)
+                aligned.push_back(qry[qpos++]);
+            break;
+        case 'D': // 缺口：在 query 里表现为 '-'
+            aligned.append(len, '-');
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 void reportUnalignedRegions(const GenomeEnd& end,
     const SeqPro::SharedManagerVariant& mgr,
     const ChrName& chr_name)
@@ -3632,7 +3683,23 @@ void reportUnalignedRegions(const GenomeEnd& end,
 
     // 1) 收集所有 segment 的区间
     SegPtr cur = end.head->primary_path.next.load(std::memory_order_acquire);
+
     while (cur && !cur->isTail()) {
+   //     if (cur->start == 212285) {
+   //         // 打印出比对的序列，可以不用管参考序列
+
+			//std::string seq = getSubSeq((*mgr), chr_name, cur->start, cur->length);
+   //         Cigar_t c = cur->cigar;
+
+   //         //std::string aligned_query = applyCigarToQuery(seq, c);
+
+   //         //spdlog::info("=== Alignment at pos {} ===", cur->start);
+   //         //spdlog::info("Raw query  (len={}): {}", seq.size(), seq);
+   //         //spdlog::info("Aligned qry (len={}): {}", aligned_query.size(), aligned_query);
+   //         spdlog::info("CIGAR: {}", cigarToString(c));
+   //         std::cout << "";
+
+   //     }
         covered.emplace_back(cur->start, cur->start + cur->length);
         cur = cur->primary_path.next.load(std::memory_order_acquire);
     }

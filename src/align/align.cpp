@@ -292,6 +292,7 @@ uint_t mergeAlignmentByRef(
             if (op == 'D') {
 				qry_raw.insert(qry_pos, len, '-');
                 ref_pos += len;
+                qry_pos += len;
             }
             else if (op == 'I') {
                 std::string ins = qry_raw.substr(qry_pos, len);
@@ -324,13 +325,14 @@ uint_t mergeAlignmentByRef(
 		for (auto& [sp_name, seq] : seqs) {
 			auto it = info.seqs.find(sp_name);
             if (it != info.seqs.end()) {
-				seq.insert(ref_pos, it->second); // 在 ref_pos 位置插入
+				seq.insert(ref_pos + offset, it->second); // 在 ref_pos 位置插入
             }
             else {
-                seq.insert(ref_pos, info.total_length, '-');   // 直接用 string::insert 重载
+                seq.insert(ref_pos + offset, info.total_length, '-');   // 直接用 string::insert 重载
             }
 		}
-        total_aligned_length += info.total_length; // 更新总长度
+        offset += info.total_length; // 更新总长度
+        total_aligned_length += info.total_length;
 	}
 
     for (auto& [chr, seq] : seqs) {
