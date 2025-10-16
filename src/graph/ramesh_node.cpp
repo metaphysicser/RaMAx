@@ -599,17 +599,22 @@ namespace RaMesh {
                 if (strand == FORWARD) {
                 }
                 else {
-					reverseComplement(ref_seq);
+					reverseComplement(query_seq);
                 }
 
                 // Cigar_t result = globalAlignWFA2(ref_seq, query_seq);
                 Cigar_t result = extendAlignKSW2(ref_seq, query_seq, 200);
+                
                 //Cigar_t result = globalAlignKSW2_2(ref_seq, query_seq);
 				//if (checkGapCigarQuality(result, ref_len, query_len, 0.6)){
                 if (true) {
                     AlignCount cnt = countAlignedBases(result);
                     if (strand == REVERSE) {
+                        //std::reverse(result.begin(), result.end());
                         cur_node->start -= cnt.query_bases;
+                    }
+                    else {
+                        
                     }
 
                     cur_node->length += cnt.query_bases;
