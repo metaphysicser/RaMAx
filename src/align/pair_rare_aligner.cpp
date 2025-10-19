@@ -704,7 +704,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	// 输出结构
 	auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
-	ThreadPool pool(1);
+	ThreadPool pool(thread_num);
 	std::vector<std::future<void>> futures;
 
 	for (size_t strand = 0; strand < 2; ++strand) {

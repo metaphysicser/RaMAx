@@ -506,100 +506,13 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
 	unique_match.clear();
 	unique_match.shrink_to_fit();  // 释放内存
 
-  //  for (size_t c_idx = 0; c_idx < clusters.size(); ++c_idx) {
-  //      MatchVec& cluster = clusters[c_idx];
-
-  //      if (cluster.empty()) continue;
-
-		//// 按 qry_start 排序
-		//std::sort(cluster.begin(), cluster.end(),
-		//	[](const Match& a, const Match& b) { return a.qry_start < b.qry_start; });
-
-  //      // --- 对 cluster 内部做 DP 链接（类似 Process_Cluster） ---
-  //      int N = static_cast<int>(cluster.size());
-
-  //      // 标记结果容器
-  //      std::vector<Match> good_matches;
-  //      good_matches.reserve(N);
-
-  //      // DP 数组
-  //      std::vector<long> dp(N);
-  //      std::vector<int> from(N, -1);
-
-        //// 动态规划
-        //for (int i = 0; i < N; i++) {
-        //    dp[i] = cluster[i].match_len();
-        //    for (int j = 0; j < i; j++) {
-        //        long olap1 = cluster[j].ref_start + cluster[j].match_len() - cluster[i].ref_start;
-        //        long olap2 = cluster[j].qry_start + cluster[j].match_len() - cluster[i].qry_start;
-        //        long olap = std::max<long>(0, std::max(olap1, olap2));
-
-        //        long diagdiff = std::abs((cluster[i].qry_start - cluster[i].ref_start) -
-        //            (cluster[j].qry_start - cluster[j].ref_start));
-
-        //        long pen = olap + diagdiff;
-
-        //        if (dp[j] + cluster[i].match_len() - pen > dp[i]) {
-        //            dp[i] = dp[j] + cluster[i].match_len() - pen;
-        //            from[i] = j;
-        //        }
-        //    }
-        //}
-
- //       for (int i = 0; i < N; i++) {
- //           dp[i] = cluster[i].match_len();
- //           from[i] = -1;
-
- //           for (int j = 0; j < i; j++) {
- //               // 要求不重叠：ref_end <= ref_start && qry_end <= qry_start
- //               long ref_end_j = cluster[j].ref_start + cluster[j].match_len();
- //               long qry_end_j = cluster[j].qry_start + cluster[j].match_len();
-
- //               if (ref_end_j > cluster[i].ref_start ||
- //                   qry_end_j > cluster[i].qry_start) {
- //                   continue; // 有重叠，直接跳过
- //               }
-
- //               // 没有重叠，可以尝试转移
- //               long diagdiff = std::abs((cluster[i].qry_start - cluster[i].ref_start) -
- //                   (cluster[j].qry_start - cluster[j].ref_start));
-
- //               long cand = dp[j] + cluster[i].match_len() - diagdiff;
- //               if (cand > dp[i]) {
- //                   dp[i] = cand;
- //                   from[i] = j;
- //               }
- //           }
- //       }
-
-
- //       // 找到得分最高的链
- //       int best = std::max_element(dp.begin(), dp.end()) - dp.begin();
-
- //       // 回溯链
- //       std::vector<Match> chain;
- //       for (int i = best; i >= 0; i = from[i]) {
- //           chain.push_back(cluster[i]);
- //           if (from[i] == -1) break;
- //       }
- //       std::reverse(chain.begin(), chain.end());
- //       cluster.swap(chain);
- //   }
-
-	//return std::make_shared<MatchClusterVec>(std::move(clusters));
-
-    // 2. 每簇提链 + 长度过滤
     
     best_chain_clusters->reserve(clusters.size());
-    uint_t count = 0;
     for (auto& cluster : clusters) {
         if (cluster.empty()) continue;
 
         MatchVec best_chain = bestChainDP(cluster, diagfactor);
 
-        if (best_chain.front().strand() == REVERSE && best_chain.size() > 1) {
-            count++;
-        }
         if (best_chain.empty()) { releaseCluster(cluster); continue; }
         int_t span = 0;
 		// 遍历 best_chain 计算 span
@@ -617,7 +530,6 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         releaseCluster(cluster);     // 回收 cluster 剩余元素
     }
     best_chain_clusters->shrink_to_fit();
-    std::cout << count << std::endl;
     return best_chain_clusters;
 }
 
