@@ -3732,7 +3732,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
             //ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
-            if (len > 100) {
+            if (len > 1000) {
 				std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
             }
             lens.push_back(static_cast<double>(len));            // ✅ 统计只收集 >1000
@@ -3742,7 +3742,7 @@ void reportUnalignedRegions(const GenomeEnd& end,
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
         //ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
-        if (len > 100) {
+        if (len > 1000) {
             std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
         }
         lens.push_back(static_cast<double>(len));                // ✅ 统计只收集 >1000

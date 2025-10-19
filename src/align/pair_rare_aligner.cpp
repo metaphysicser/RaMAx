@@ -733,7 +733,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 							anchors.push_back(p);
 						}
 						if (is_first) {
-							//linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
+							linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
 						}
 						
 						if (anchors.empty()) return;
