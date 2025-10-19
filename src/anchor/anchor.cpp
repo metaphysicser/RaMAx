@@ -802,18 +802,18 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
         };
 
 
-    wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
-    attributes.distance_metric = gap_affine;
-    attributes.affine_penalties.mismatch = 2;      // X > 0
-    attributes.affine_penalties.gap_opening = 3;   // O >= 0
-    attributes.affine_penalties.gap_extension = 1; // E > 0
-    attributes.memory_mode = wavefront_memory_ultralow;
-    attributes.heuristic.strategy = wf_heuristic_wfadaptive;
-    attributes.heuristic.min_wavefront_length = 10;
-    attributes.heuristic.max_distance_threshold = 50;
-    attributes.heuristic.steps_between_cutoffs = 1;
+    //wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+    //attributes.distance_metric = gap_affine;
+    //attributes.affine_penalties.mismatch = 2;      // X > 0
+    //attributes.affine_penalties.gap_opening = 3;   // O >= 0
+    //attributes.affine_penalties.gap_extension = 1; // E > 0
+    //attributes.memory_mode = wavefront_memory_ultralow;
+    //attributes.heuristic.strategy = wf_heuristic_wfadaptive;
+    //attributes.heuristic.min_wavefront_length = 10;
+    //attributes.heuristic.max_distance_threshold = 50;
+    //attributes.heuristic.steps_between_cutoffs = 1;
 
-    wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
+    //wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
 
     /* ==================== 遍历 cluster ==================== */
     for (size_t i = 0;i < cluster.size();++i) {
@@ -858,22 +858,23 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
             uint_t Lq = qry_gap.size();
             int64_t d = std::abs(static_cast<int64_t>(Lt) - static_cast<int64_t>(Lq));
 
-            double rho = double(d) / std::min(Lt, Lq);
+            //double rho = double(d) / std::min(Lt, Lq);
 
-            
-            if (rho <= 0.3 && Lt > 10 && Lq > 10) {
-                int cigar_len;
-                uint32_t* cigar_tmp;
-                wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
-                cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
-                for (uint_t j = 0; j < cigar_len; ++j) {
-                    gap.push_back(cigar_tmp[j]);
-                }
+            //
+            //if (rho <= 0.3 && Lt > 10 && Lq > 10) {
+            //    int cigar_len;
+            //    uint32_t* cigar_tmp;
+            //    wavefront_align(wf_aligner, ref_gap.c_str(), ref_gap.length(), qry_gap.c_str(), qry_gap.length());
+            //    cigar_get_CIGAR(wf_aligner->cigar, false, &cigar_tmp, &cigar_len);
+            //    for (uint_t j = 0; j < cigar_len; ++j) {
+            //        gap.push_back(cigar_tmp[j]);
+            //    }
 
-            }
-            else {
-                gap = globalAlignKSW2(ref_gap, qry_gap);
-            }
+            //}
+            //else {
+            //    gap = globalAlignKSW2(ref_gap, qry_gap);
+            //}
+            gap = globalAlignKSW2(ref_gap, qry_gap);
 
             /* ---- 扫描 gap-cigar，遇 >50bp I/D 即分段 ---- */
             buf.reserve(gap.size());
@@ -929,7 +930,7 @@ AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
         if (!buf.empty()) appendCigar(cigar, buf);
     }
     flush();   
-    wavefront_aligner_delete(wf_aligner);// 收尾
+    //wavefront_aligner_delete(wf_aligner);// 收尾
     return anchors;
 }
 

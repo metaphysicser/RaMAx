@@ -530,6 +530,7 @@ MatchClusterVecPtr clusterChrMatch(MatchVec& unique_match, MatchVec& repeat_matc
         releaseCluster(cluster);     // 回收 cluster 剩余元素
     }
     best_chain_clusters->shrink_to_fit();
+
     return best_chain_clusters;
 }
 

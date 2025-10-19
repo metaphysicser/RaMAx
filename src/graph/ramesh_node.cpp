@@ -490,7 +490,7 @@ namespace RaMesh {
                 }
 
                 // 与右扩统一：使用 KSW2 延伸
-                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, 200);
+                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, 300);
 
                 // 将 CIGAR 恢复到原坐标方向，再拼到左侧
                 std::reverse(result.begin(), result.end());

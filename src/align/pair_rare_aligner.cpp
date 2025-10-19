@@ -849,16 +849,24 @@ static void filterChrByDP(
 				: (a->qry_start < b->qry_start);
 		});
 
-	size_t n = result.size();
-	std::vector<double> dp(n, 0);
-	std::vector<int_t> pre(n, -1);
+	//size_t n = result.size();
+	std::vector<double> dp(result.size(), 0);
+	std::vector<int_t> pre(result.size(), -1);
 
 	size_t K = 5000; // 可调参数
 	///
-	for (size_t i = 0; i < n; ++i) {
+	for (size_t i = 0; i < result.size(); ++i) {
 		double idy = static_cast<float>(result[i]->aligned_base) / result[i]->alignment_length;
 		double score_i = result[i]->alignment_length * pow(idy, 2);
-		if (score_i > 100000000) {
+		if (score_i > 1000000 || result[i]->cigar.size() == 0) {
+			continue;
+		}
+		if (filter_ref == true && id != result[i]->ref_chr_index)
+		{
+			continue;
+		}
+		if (filter_ref == false && id != result[i]->qry_chr_index)
+		{
 			continue;
 		}
 		dp[i] = score_i;
@@ -886,7 +894,7 @@ static void filterChrByDP(
 	// 3. 找最大值
 	uint_t best = 0;
 	size_t best_idx = 0;
-	for (size_t i = 0; i < n; ++i) {
+	for (size_t i = 0; i < result.size(); ++i) {
 		if (dp[i] > best) {
 			best = dp[i];
 			best_idx = i;
@@ -922,6 +930,7 @@ static void filterChrByDP(
 				? (result[a]->ref_start < result[b]->ref_start)
 				: (result[a]->qry_start < result[b]->qry_start);
 		});
+
 
 	// 检查相邻区间是否重叠
 	for (size_t i = 1; i < selected.size(); ++i) {
@@ -963,14 +972,14 @@ void PairRareAligner::filterAnchorByDP(AnchorPtrVecByStrandByQueryByRefPtr ancho
 	uint_t qry_num = anchor_map->at(0).size();
 	uint_t ref_num = anchor_map->at(0)[0].size();
 
-	for (uint_t i = 0; i < ref_num; i++) {
+	for (uint_t i = 0; i < qry_num; i++) {
 		pool.enqueue([&anchor_map, i]() {
 				filterChrByDP(anchor_map, i, false);
 				}
 		);
 	}
 	pool.waitAllTasksDone();
-	for (uint_t i = 0; i < qry_num; i++) {
+	for (uint_t i = 0; i < ref_num; i++) {
 		pool.enqueue([&anchor_map, i]() {
 			filterChrByDP(anchor_map, i, true);
 			}

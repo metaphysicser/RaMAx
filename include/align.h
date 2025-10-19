@@ -3,11 +3,11 @@
 
 #include "ksw2.h"
 #include "config.hpp"              // 包含基本类型定义，如 int_t、uint_t 等
-#include "bindings/cpp/WFAligner.hpp"
-extern "C" {
-#include "alignment/cigar.h" 
-#include "wavefront/wavefront_align.h"
-}
+// #include "bindings/cpp/WFAligner.hpp"
+// extern "C" {
+// #include "alignment/cigar.h"
+// #include "wavefront/wavefront_align.h"
+// }
 // ------------------------------------------------------------------
 // 类型定义
 // ------------------------------------------------------------------
@@ -343,10 +343,10 @@ KSW2AlignConfig makeDefaultKSW2Config();
 
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
 Cigar_t globalAlignKSW2_2(const std::string& ref, const std::string& query);
-Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
-
-Cigar_t extendAlignWFA2(const std::string& ref,
-    const std::string& query, int zdrop = 200);
+// Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
+//
+// Cigar_t extendAlignWFA2(const std::string& ref,
+//     const std::string& query, int zdrop = 200);
 
 Cigar_t extendAlignKSW2(const std::string& ref,
     const std::string& query,

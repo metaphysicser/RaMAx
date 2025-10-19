@@ -613,6 +613,7 @@ starAlignment(
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
+        spdlog::info("merge multiple genome graphs for {} done", ref_name);
         //multi_graph->verifyGraphCorrectness(true);
         multi_graph->optimizeGraphStructure();
 		multi_graph->markAllExtended();
@@ -620,7 +621,7 @@ starAlignment(
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(ref_name, true, false, false, true, false);
 #endif // _DEBUG_
-		spdlog::info("merge multiple genome graphs for {} done", ref_name);
+
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
         // 这样后续轮次就不会重复比对已经成功比对的区间
