@@ -700,11 +700,11 @@ ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(Spe
 
 }
 
-AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster, bool is_first) {
+AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster, ThreadPool& pool, bool is_first) {
 	// 输出结构
 	auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
-	ThreadPool pool(thread_num);
+	//ThreadPool pool(thread_num);
 	std::vector<std::future<void>> futures;
 
 	for (size_t strand = 0; strand < 2; ++strand) {
@@ -748,9 +748,9 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	// 等待所有任务完成
 	for (auto& f : futures) f.get();
 
-	
 
 
+    spdlog::info("extend cluster to anchor successfully for {}", query_name);
 	return result;
 }
 

@@ -535,7 +535,7 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
+            ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
         );
 //#ifdef _DEBUG_
 //        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);
@@ -564,31 +564,32 @@ starAlignment(
 
 
         multi_graph->optimizeGraphStructure();
-#ifdef _DEBUG_
+// #ifdef _DEBUG_
+//         multi_graph->verifyGraphCorrectness(ref_name, true);
+// #endif // _DEBUG_
         multi_graph->verifyGraphCorrectness(ref_name, true);
-#endif // _DEBUG_
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
-        SpeciesName target_species = "simOrang";
-        auto it = multi_graph->species_graphs.find(target_species);
-        if (it != multi_graph->species_graphs.end()) {
-            const auto& genome_graph = it->second;
-            spdlog::info("Checking unaligned regions for species {}", target_species);
-
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                spdlog::info("Chromosome {}", chr_name);
-
-                // 直接调用前面定义的函数
-                RaMesh::reportUnalignedRegions(
-                    genome_end,
-                    seqpro_managers.at(target_species),
-                    chr_name
-                );
-            }
-        }
-        else {
-            spdlog::warn("Species {} not found in multi_graph", target_species);
-        }
+        // SpeciesName target_species = "simOrang";
+        // auto it = multi_graph->species_graphs.find(target_species);
+        // if (it != multi_graph->species_graphs.end()) {
+        //     const auto& genome_graph = it->second;
+        //     spdlog::info("Checking unaligned regions for species {}", target_species);
+        //
+        //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //         spdlog::info("Chromosome {}", chr_name);
+        //
+        //         // 直接调用前面定义的函数
+        //         RaMesh::reportUnalignedRegions(
+        //             genome_end,
+        //             seqpro_managers.at(target_species),
+        //             chr_name
+        //         );
+        //     }
+        // }
+        // else {
+        //     spdlog::warn("Species {} not found in multi_graph", target_species);
+        // }
 
         //target_species = "simGorilla";
         //it = multi_graph->species_graphs.find(target_species);
@@ -614,7 +615,7 @@ starAlignment(
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
         spdlog::info("merge multiple genome graphs for {} done", ref_name);
-        //multi_graph->verifyGraphCorrectness(true);
+        multi_graph->verifyGraphCorrectness(true);
         multi_graph->optimizeGraphStructure();
         spdlog::info("optimize graph genome graphs for {} done", ref_name);
 		//multi_graph->markAllExtended();
@@ -1253,12 +1254,15 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
     pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
 
     std::map<SpeciesName, AnchorPtrVecByStrandByQueryByRefPtr> anchor_map;
+
+    ThreadPool shared_pool(thread_num);
     
     for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
         // 为空跳过
         if (!cluster_ptr_3d) continue;
-        anchor_map[species_name] = pra.extendClusterToAnchorByChr(species_name, *seqpro_managers[species_name], cluster_ptr_3d, is_first);
+        anchor_map[species_name] = pra.extendClusterToAnchorByChr(species_name, *seqpro_managers[species_name], cluster_ptr_3d, shared_pool, is_first);
     }
+    shared_pool.waitAllTasksDone();
     std::cout << "extend successfully with " << is_first << std::endl;
     
     for (auto& [species_name, anchor_ptr] : anchor_map) {
