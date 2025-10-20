@@ -246,6 +246,10 @@ struct Anchor {
     uint_t aligned_base{};
     Cigar_t cigar{};                 // 对齐的 CIGAR 字符串
 
+    bool ref_selected = false;
+    bool qry_selected = false;
+    bool is_linked = false;
+
     Anchor() = default;
 
     Anchor(ChrIndex ref_chr, Coord_t ref_start, Length_t ref_len,
@@ -266,14 +270,19 @@ struct Anchor {
 
 };
 
-
+using AnchorPtr = std::shared_ptr<Anchor>;
+using AnchorPtrVec = std::vector<AnchorPtr>;
 using AnchorVec = std::vector<Anchor>;
+using AnchorPtrVecByStrandByQueryByRef = std::vector<std::vector<std::vector<AnchorPtrVec>>>;
+using AnchorPtrVecByStrandByQueryByRefPtr = std::shared_ptr<AnchorPtrVecByStrandByQueryByRef>;
 
+using AnchorPtrVecByQueryByRef = std::vector<std::vector<AnchorPtrVec>>;
+using AnchorPtrVecByQueryByRefPtr = std::shared_ptr<AnchorPtrVecByQueryByRef>;
 AnchorVec extendClusterToAnchorVec(const MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
-Anchor extendClusterToAnchor(const MatchCluster& cluster,
+Anchor extendClusterToAnchor(MatchCluster& cluster,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& query_mgr);
 
@@ -476,4 +485,8 @@ ValidationResult validateAnchorsCorrectness(
     const SeqPro::SharedManagerVariant& query_manager
 );
 
+
+void linkClusters(AnchorPtrVec& anchors,
+    const SeqPro::ManagerVariant& ref_mgr,
+    const SeqPro::ManagerVariant& qry_mgr);
 #endif // ANCHOR_H

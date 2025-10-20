@@ -295,6 +295,23 @@ void RaMeshMultiGenomeGraph::extendRefNodes(
         cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
       }
     }
+
+    for (auto& [chr_name, end] : g.chr2end) {
+        SegPtr cur_node = end.head;
+
+        while (cur_node != NULL) {
+            // pool.enqueue([this, &ref_name, &sp, &chr_name, &end, &cur_node,
+            // &managers]() {
+            //
+            //     end.alignInterval(ref_name, sp, chr_name, cur_node, managers,
+            //     false, true);
+            //
+            // });
+            end.alignInterval(ref_name, sp, chr_name, cur_node, managers, true,
+                false);
+            cur_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+        }
+    }
   }
   pool.waitAllTasksDone();
 
@@ -3179,7 +3196,7 @@ void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
 
   // 优化每个物种图的采样表
   for (auto &[species, genome_graph] : species_graphs) {
-    std::shared_lock species_lock(genome_graph.rw);
+   // std::shared_lock species_lock(genome_graph.rw);
 
     for (auto &[chr, genome_end] : genome_graph.chr2end) {
       // 重建采样表以提高查询效率
@@ -3607,14 +3624,82 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
   }
 }
 
+// ------------------------------------------------------------------
+// 获取子序列工具函数
+// 统一接口，无需 lambda。
+// ------------------------------------------------------------------
+inline std::string getSubSeq(const SeqPro::ManagerVariant& mv,
+    const ChrName& chr,
+    Coord_t b,
+    Coord_t l)
+{
+    return std::visit([&](auto& p) -> std::string {
+        using T = std::decay_t<decltype(p)>;
+        if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+            return p->getSubSequence(chr, b, l);
+        }
+        else if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+            return p->getOriginalManager().getSubSequence(chr, b, l);
+        }
+        else {
+            throw std::runtime_error("Unsupported ManagerVariant type in getSubSeq()");
+        }
+        }, mv);
+}
+
+inline std::string applyCigarToQuery(const std::string& qry, const Cigar_t& cigar)
+{
+    std::string aligned;
+    aligned.reserve(qry.size() * 2); // 预留空间
+
+    size_t qpos = 0;
+    for (auto c : cigar) {
+        char op; uint32_t len;
+        intToCigar(c, op, len);
+
+        switch (op) {
+        case 'M': case '=': case 'X':
+            for (uint32_t i = 0; i < len && qpos < qry.size(); ++i)
+                aligned.push_back(qry[qpos++]);
+            break;
+        case 'I': // 插入：直接保留
+            for (uint32_t i = 0; i < len && qpos < qry.size(); ++i)
+                aligned.push_back(qry[qpos++]);
+            break;
+        case 'D': // 缺口：在 query 里表现为 '-'
+            aligned.append(len, '-');
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 void reportUnalignedRegions(const GenomeEnd& end,
     const SeqPro::SharedManagerVariant& mgr,
-    const ChrName& chr_name) {
+    const ChrName& chr_name)
+{
     std::vector<std::pair<uint_t, uint_t>> covered;
 
     // 1) 收集所有 segment 的区间
     SegPtr cur = end.head->primary_path.next.load(std::memory_order_acquire);
+
     while (cur && !cur->isTail()) {
+   //     if (cur->start == 212285) {
+   //         // 打印出比对的序列，可以不用管参考序列
+
+			//std::string seq = getSubSeq((*mgr), chr_name, cur->start, cur->length);
+   //         Cigar_t c = cur->cigar;
+
+   //         //std::string aligned_query = applyCigarToQuery(seq, c);
+
+   //         //spdlog::info("=== Alignment at pos {} ===", cur->start);
+   //         //spdlog::info("Raw query  (len={}): {}", seq.size(), seq);
+   //         //spdlog::info("Aligned qry (len={}): {}", aligned_query.size(), aligned_query);
+   //         spdlog::info("CIGAR: {}", cigarToString(c));
+   //         std::cout << "";
+
+   //     }
         covered.emplace_back(cur->start, cur->start + cur->length);
         cur = cur->primary_path.next.load(std::memory_order_acquire);
     }
@@ -3631,33 +3716,39 @@ void reportUnalignedRegions(const GenomeEnd& end,
         }
     }
 
+    //// 打开文件（覆盖写）
+    //std::ofstream ofs("/mnt/d/code/RaMAx/unaligned.txt");
+    //if (!ofs) {
+    //    std::cerr << "Error: cannot open output file." << std::endl;
+    //    return;
+    //}
+
     // 3) 求补集（未覆盖区间）
     uint_t chr_len = std::visit([&](auto& p) { return p->getSequenceLength(chr_name); }, *mgr);
     uint_t prev = 0;
-    std::vector<double> lens;
+    std::vector<double> lens;  // 只存 >1000 的区间长度
+
     for (auto& iv : merged) {
         if (iv.first > prev) {
             uint_t len = iv.first - prev;
-            if (len > 5000) {
-                std::cout << "Unaligned region: [" << prev << ", " << iv.first
-                    << ") length=" << len << "\n";
+            //ofs << chr_name << "\t" << prev << "\t" << len << "\n";  // ✅ 文件写所有区间
+            if (len > 1000) {
+				std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
             }
-
-            lens.push_back(static_cast<double>(len));
+            lens.push_back(static_cast<double>(len));            // ✅ 统计只收集 >1000
         }
         prev = iv.second;
     }
     if (prev < chr_len) {
         uint_t len = chr_len - prev;
-        if (len > 5000) {
-            std::cout << "Unaligned region: [" << prev << ", " << chr_len
-                << ") length=" << len << "\n";
+        //ofs << chr_name << "\t" << prev << "\t" << len << "\n";      // ✅ 文件写所有区间
+        if (len > 1000) {
+            std::cout << chr_name << "\t" << prev << "\t" << len << "\n"; // ✅ 控制台打印 >1000
         }
-
-        lens.push_back(static_cast<double>(len));
+        lens.push_back(static_cast<double>(len));                // ✅ 统计只收集 >1000
     }
 
-    // 4) 计算均值和方差
+    // 4) 打印统计信息（只针对 >1000 的区间）
     if (!lens.empty()) {
         double sum = std::accumulate(lens.begin(), lens.end(), 0.0);
         double mean = sum / lens.size();
@@ -3665,13 +3756,15 @@ void reportUnalignedRegions(const GenomeEnd& end,
         for (double x : lens) sq_sum += (x - mean) * (x - mean);
         double variance = sq_sum / lens.size();
 
-		std::cout << "Unaligned regions - count: " << lens.size()
-            << ", sum length" << sum 
-			<< ", mean length: " << mean
-			<< ", variance: " << variance << "\n";
+        std::cout << "Unaligned regions (>1000 bp) in " << chr_name
+            << " - count: " << lens.size()
+            << ", sum length: " << sum
+            << ", mean length: " << mean
+            << ", variance: " << variance << "\n";
     }
     else {
-        std::cout << "No unaligned regions found.\n";
+        std::cout << "No unaligned regions (>1000 bp) found in " << chr_name << ".\n";
     }
 }
+
 } // namespace RaMesh

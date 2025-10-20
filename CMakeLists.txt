@@ -1,6 +1,9 @@
 ﻿cmake_minimum_required(VERSION 3.10)
 
 project("RaMAx")
+if(POLICY CMP0048)
+    cmake_policy(SET CMP0048 NEW)
+endif()
 
 # MSVC 热重载支持
 if(POLICY CMP0141)
@@ -79,7 +82,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 add_subdirectory("${SUBMODULE_DIR}/spdlog")
 # add_subdirectory("${SUBMODULE_DIR}/CLI11")
 # add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
-add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
+#set(WFA_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+#set(WFA_BUILD_STATIC ON CACHE BOOL "" FORCE)
+# add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
 # 已经 add_subdirectory(...) 产生了目标 "divsufsort"
 set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort")
@@ -136,7 +141,7 @@ set(RAMA_INCLUDE_DIRS
     # "${SUBMODULE_DIR}/sdsl-lite/include"
     # "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
     "${CMAKE_BINARY_DIR}/submodule/libdivsufsort/include"
-    "${SUBMODULE_DIR}/WFA2-lib"
+    # "${SUBMODULE_DIR}/WFA2-lib"
     "${SUBMODULE_DIR}/parlaylib/include"
     "${HAL_DIR}/api/inc"
     "${SONLIB_DIR}/C/inc"
@@ -156,7 +161,7 @@ function(configure_rama_target target)
         divsufsort
         divsufsort64
         Threads::Threads
-        wfa2cpp_static
+        #wfa2cpp_static
         TBB::tbb
         OpenMP::OpenMP_CXX
         ${HAL_DIR}/lib/libHal.a

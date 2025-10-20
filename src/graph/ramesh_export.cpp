@@ -93,10 +93,12 @@ static bool emitMafBlock(std::ostream& os,
         auto mit = seq_mgrs.find(r.sp);
         if (mit == seq_mgrs.end()) { seqs.clear(); break; }
         std::string raw = fetchSeq(*mit->second, r.chr, r.seg->start, r.seg->length);
+
         if (r.seg->strand == Strand::REVERSE) reverseComplement(raw);
         ChrName key = pairwise_mode ? r.chr : r.sp + "." + r.chr;
         seqs.emplace(key, std::move(raw));
         cigars.emplace(key, r.seg->cigar);
+
     }
     if (seqs.empty()) return false;
 
@@ -137,7 +139,7 @@ static bool emitMafBlock(std::ostream& os,
         uint64_t chr_len = fetchLen(mgr, r.chr);
         bool orig_rev = (r.seg->strand == Strand::REVERSE);
         bool final_rev = need_flip ? !orig_rev : orig_rev;
-        uint64_t start = need_flip ? (chr_len - r.seg->start - r.seg->length) : r.seg->start;
+        uint64_t start = final_rev ? (chr_len - r.seg->start - r.seg->length) : r.seg->start;
         ChrName key = pairwise_mode ? r.chr : r.sp + "." + r.chr;
         os << "s " << std::left << std::setw(20) << key << std::right << std::setw(12) << start << std::setw(12) << r.seg->length
             << ' ' << (final_rev ? '-' : '+') << std::setw(12) << chr_len << ' ' << view->at(key) << "\n";

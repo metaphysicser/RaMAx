@@ -592,6 +592,9 @@ MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::strin
                      match_length)); Anchor p = Anchor(match, match_length, cigar,
                      score);*/
                     anchor_ptr_list.push_back(match);
+                    //if(match.qry_chr_index ==1 && match.ref_chr_index == 1 && match.ref_start > 54614009 && match.ref_start + match_length < 54636058){
+                    //    std::cout << "";
+                    //}
                 }
                 if (!anchor_ptr_list.empty())
                     anchor_ptr_list_vec->push_back(anchor_ptr_list);
@@ -691,7 +694,12 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
         return 1;
     }
 
-    if (match_length < min_anchor_length && allow_short_mum == false) {
+    //if (match_length < min_anchor_length && allow_short_mum == false) {
+    //    return 1;
+    //}
+
+
+    if (match_length < min_anchor_length) {
         return 1;
     }
     //if (frequency > max_anchor_frequency) {

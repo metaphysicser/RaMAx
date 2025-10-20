@@ -700,7 +700,320 @@ ClusterVecPtrByStrandByQueryRefPtr PairRareAligner::filterPairSpeciesAnchors(Spe
 
 }
 
+AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster, ThreadPool& pool, bool is_first) {
+	// 输出结构
+	auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
+	//ThreadPool pool(thread_num);
+	std::vector<std::future<void>> futures;
+
+	for (size_t strand = 0; strand < 2; ++strand) {
+		const auto& byQueryRef = (*cluster)[strand];
+		result->emplace_back(); // 对应 strand
+
+		for (size_t q = 0; q < byQueryRef.size(); ++q) {
+			const auto& byRef = byQueryRef[q];
+			(*result)[strand].emplace_back(); // 对应 query_chr
+
+			for (size_t r = 0; r < byRef.size(); ++r) {
+				MatchClusterVecPtr cluster_vec_ptr = byRef[r];
+				(*result)[strand][q].emplace_back(); // 对应 ref_chr
+
+				if (!cluster_vec_ptr) continue;
+				//if (strand == 1) continue;
+
+				// 提交任务：处理一个 ClusterVec
+				futures.emplace_back(pool.enqueue(
+					[&, strand, q, r, cluster_vec_ptr]() {
+						AnchorPtrVec anchors;
+						anchors.reserve(1);
+						for (auto & c : (*cluster_vec_ptr)) {
+							Anchor anchor = extendClusterToAnchor(c, *ref_seqpro_manager, query_seqpro_manager);
+							AnchorPtr p = std::make_shared<Anchor>(std::move(anchor));
+							anchors.push_back(p);
+						}
+						if (is_first) {
+							linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
+						}
+						
+						if (anchors.empty()) return;
+						(*result)[strand][q][r] = anchors;
+
+					}
+				));
+			}
+		}
+	}
+
+	// 等待所有任务完成
+	for (auto& f : futures) f.get();
+
+
+
+    spdlog::info("extend cluster to anchor successfully for {}", query_name);
+	return result;
+}
+
+static void filterChrByDP(
+	AnchorPtrVecByStrandByQueryByRefPtr anchor_map,
+	uint_t id,
+	bool filter_ref)
+{
+	AnchorPtrVec result;
+
+	if (!anchor_map) return;
+
+	if (filter_ref) {
+		// 按 ref 来过滤：只看 ref == id
+		for (size_t strand_idx = 0; strand_idx < anchor_map->size(); ++strand_idx) {
+			const auto& queries = anchor_map->at(strand_idx);
+			for (size_t qry_idx = 0; qry_idx < queries.size(); ++qry_idx) {
+				const auto& refs = queries.at(qry_idx);
+				if (id < refs.size()) {
+					const auto& anchors = refs[id];
+					// AnchorPtrVec temp;
+					// for (const auto& a : anchors) {
+					// 	if (a->qry_selected) {
+					// 		temp.push_back(a);
+					// 	}
+					// }
+					// result.insert(result.end(), temp.begin(), temp.end());
+					result.insert(result.end(), anchors.begin(), anchors.end());
+				}
+			}
+		}
+	}
+	else {
+		// 按 qry 来过滤：只看 qry == id
+		for (size_t strand_idx = 0; strand_idx < anchor_map->size(); ++strand_idx) {
+			const auto& queries = anchor_map->at(strand_idx);
+			if (id < queries.size()) {
+				const auto& refs = queries.at(id);
+				for (const auto& anchors : refs) {
+					/*AnchorPtrVec temp;
+					for (const auto& a : anchors) {
+						if (a->ref_selected) {
+							temp.push_back(a);
+						}
+					}
+					result.insert(result.end(), temp.begin(), temp.end());*/
+
+					result.insert(result.end(), anchors.begin(), anchors.end());
+				}
+			}
+		}
+	}
+	//if (filter_ref) {
+	//	// 按 ref 来过滤：只看 ref == id
+	//	for (size_t strand_idx = 0; strand_idx < anchor_map->size(); ++strand_idx) {
+	//		const auto& queries = anchor_map->at(strand_idx);
+	//		for (size_t qry_idx = 0; qry_idx < queries.size(); ++qry_idx) {
+	//			const auto& refs = queries.at(qry_idx);
+	//			if (id < refs.size()) {
+	//				const auto& anchors = refs[id];
+	//				for (const auto& a : anchors) {
+	//					if (!a->is_linked) {              // ✅ 只保留 is_linked == false
+	//						result.push_back(a);
+	//					}
+	//				}
+	//			}
+	//		}
+	//	}
+	//}
+	//else {
+	//	// 按 qry 来过滤：只看 qry == id
+	//	for (size_t strand_idx = 0; strand_idx < anchor_map->size(); ++strand_idx) {
+	//		const auto& queries = anchor_map->at(strand_idx);
+	//		if (id < queries.size()) {
+	//			const auto& refs = queries.at(id);
+	//			for (const auto& anchors : refs) {
+	//				for (const auto& a : anchors) {
+	//					if (!a->is_linked) {              // ✅ 只保留 is_linked == false
+	//						result.push_back(a);
+	//					}
+	//				}
+	//			}
+	//		}
+	//	}
+	//}
+
+
+	if (result.empty()) return;
+
+	// ====== DP 部分 ======
+
+	// 1. 排序
+	std::sort(result.begin(), result.end(),
+		[filter_ref](const AnchorPtr& a, const AnchorPtr& b) {
+			return filter_ref ? (a->ref_start < b->ref_start)
+				: (a->qry_start < b->qry_start);
+		});
+
+	//size_t n = result.size();
+	std::vector<double> dp(result.size(), 0);
+	std::vector<int_t> pre(result.size(), -1);
+
+	size_t K = 5000; // 可调参数
+	///
+	for (size_t i = 0; i < result.size(); ++i) {
+		double idy = static_cast<float>(result[i]->aligned_base) / result[i]->alignment_length;
+		double score_i = result[i]->alignment_length * pow(idy, 2);
+		if (score_i > 1000000 || result[i]->cigar.size() == 0) {
+			continue;
+		}
+		if (filter_ref == true && id != result[i]->ref_chr_index)
+		{
+			continue;
+		}
+		if (filter_ref == false && id != result[i]->qry_chr_index)
+		{
+			continue;
+		}
+		dp[i] = score_i;
+
+
+		// 只回看最近 K 个 j
+		size_t j_start = (i > K ? i - K : 0);
+		//size_t j_start = 0;
+		for (size_t j = j_start; j < i; ++j) {
+			bool non_overlap;
+			if (filter_ref) {
+				non_overlap = (result[j]->ref_start + result[j]->ref_len <= result[i]->ref_start);
+			}
+			else {
+				non_overlap = (result[j]->qry_start + result[j]->qry_len <= result[i]->qry_start);
+			}
+			
+			if (non_overlap && dp[j] + score_i > dp[i]) {
+				dp[i] = dp[j] + score_i;
+				pre[i] = j;
+			}
+		}
+		
+	}
+	// 3. 找最大值
+	uint_t best = 0;
+	size_t best_idx = 0;
+	for (size_t i = 0; i < result.size(); ++i) {
+		if (dp[i] > best) {
+			best = dp[i];
+			best_idx = i;
+		}
+	}
+
+	// 4. 回溯并标记
+	for (int i = static_cast<int>(best_idx); i >= 0; i = pre[i]) {
+		if (filter_ref)
+			result[i]->ref_selected = true;
+		else
+			result[i]->qry_selected = true;
+		if (pre[i] == -1) break;
+	}
+
+	// ----------------------------------------------------
+// 检查选中的比对是否存在重叠
+// ----------------------------------------------------
+	bool hasOverlap = false;
+
+	// 收集所有选中的 index
+	std::vector<int> selected;
+	for (int i = 0; i < (int)result.size(); ++i) {
+		if ((filter_ref && result[i]->ref_selected) ||
+			(!filter_ref && result[i]->qry_selected))
+			selected.push_back(i);
+	}
+
+	// 按 ref_start 或 qry_start 排序
+	std::sort(selected.begin(), selected.end(),
+		[&](int a, int b) {
+			return filter_ref
+				? (result[a]->ref_start < result[b]->ref_start)
+				: (result[a]->qry_start < result[b]->qry_start);
+		});
+
+
+	// 检查相邻区间是否重叠
+	for (size_t i = 1; i < selected.size(); ++i) {
+		auto& prev = result[selected[i - 1]];
+		auto& curr = result[selected[i]];
+
+		if (filter_ref) {
+			if (curr->ref_start < prev->ref_start + prev->ref_len) {
+				hasOverlap = true;
+				std::cerr << "[Overlap] Ref overlap between "
+					<< selected[i - 1] << " and " << selected[i]
+					<< " (" << prev->ref_start << "-" << prev->ref_start + prev->ref_len
+						<< " vs " << curr->ref_start << "-" << curr->ref_start + curr->ref_len
+						<< ")\n";
+			}
+		}
+		else {
+			if (curr->qry_start < prev->qry_start + prev->qry_len) {
+				hasOverlap = true;
+				std::cerr << "[Overlap] Qry overlap between "
+					<< selected[i - 1] << " and " << selected[i]
+					<< " (" << prev->qry_start << "-" << prev->qry_start + prev->qry_len
+						<< " vs " << curr->qry_start << "-" << curr->qry_start + curr->qry_len
+						<< ")\n";
+			}
+		}
+	}
+
+	if (!hasOverlap)
+		std::cout << "✅ No overlaps detected in final selection.\n";
+	else
+		std::cerr << "❌ Overlaps found in final selection!\n";
+}
+
+void PairRareAligner::filterAnchorByDP(AnchorPtrVecByStrandByQueryByRefPtr anchor_map) {
+
+	ThreadPool pool(thread_num);
+	// 获得ref和query的染色体个数，根据AnchorVecByStrandByQueryByRefPtr的维度
+	uint_t qry_num = anchor_map->at(0).size();
+	uint_t ref_num = anchor_map->at(0)[0].size();
+
+	for (uint_t i = 0; i < qry_num; i++) {
+		pool.enqueue([&anchor_map, i]() {
+				filterChrByDP(anchor_map, i, false);
+				}
+		);
+	}
+	pool.waitAllTasksDone();
+	for (uint_t i = 0; i < ref_num; i++) {
+		pool.enqueue([&anchor_map, i]() {
+			filterChrByDP(anchor_map, i, true);
+			}
+		);
+	}
+
+	pool.waitAllTasksDone();
+	return;
+
+}
+
+void PairRareAligner::constructGraphByDP(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, AnchorPtrVecByStrandByQueryByRefPtr anchor_ptr, RaMesh::RaMeshMultiGenomeGraph& graph) {
+	for (size_t strand_idx = 0; strand_idx < anchor_ptr->size(); ++strand_idx) {
+		const auto& queries = anchor_ptr->at(strand_idx);
+		for (size_t qry_idx = 0; qry_idx < queries.size(); ++qry_idx) {
+			const auto& refs = queries.at(qry_idx);
+			for (size_t ref_idx = 0; ref_idx < refs.size(); ++ref_idx) {
+				const auto& anchors = refs.at(ref_idx);
+				for (size_t a_idx = 0; a_idx < anchors.size(); ++a_idx) {
+					AnchorPtr anchor = anchors.at(a_idx);
+					// if (anchor->ref_selected && anchor->qry_selected)
+					if (anchor->ref_selected && anchor->qry_selected) {
+						try {
+							graph.insertAnchorIntoGraph(*ref_seqpro_manager, query_seqpro_manager, ref_name, query_name, *anchor, false);
+						}
+						catch (const std::exception& e) {
+							spdlog::error("Error inserting anchor into graph: {}", e.what());
+						}
+					}
+				}
+			}
+		}
+	}
+}
 
 
 
