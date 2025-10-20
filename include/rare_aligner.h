@@ -119,7 +119,7 @@ public:
     
     ClusterVecPtrByStrandByQueryRefPtr filterPairSpeciesAnchors(SpeciesName query_name, MatchVec3DPtr& anchors, SeqPro::ManagerVariant& query_fasta_manager, RaMesh::RaMeshMultiGenomeGraph& graph, uint_t min_span);
 
-    AnchorPtrVecByStrandByQueryByRefPtr extendClusterToAnchorByChr(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster, bool is_first);
+    AnchorPtrVecByStrandByQueryByRefPtr extendClusterToAnchorByChr(SpeciesName query_name, SeqPro::ManagerVariant& query_seqpro_manager, ClusterVecPtrByStrandByQueryRefPtr cluster, ThreadPool& pool, bool is_first);
 
     void filterAnchorByDP(AnchorPtrVecByStrandByQueryByRefPtr anchor_map);
 
