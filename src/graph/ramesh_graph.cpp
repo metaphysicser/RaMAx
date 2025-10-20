@@ -3196,7 +3196,7 @@ void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
 
   // 优化每个物种图的采样表
   for (auto &[species, genome_graph] : species_graphs) {
-    std::shared_lock species_lock(genome_graph.rw);
+   // std::shared_lock species_lock(genome_graph.rw);
 
     for (auto &[chr, genome_end] : genome_graph.chr2end) {
       // 重建采样表以提高查询效率

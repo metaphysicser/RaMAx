@@ -616,7 +616,8 @@ starAlignment(
         spdlog::info("merge multiple genome graphs for {} done", ref_name);
         //multi_graph->verifyGraphCorrectness(true);
         multi_graph->optimizeGraphStructure();
-		multi_graph->markAllExtended();
+        spdlog::info("optimize graph genome graphs for {} done", ref_name);
+		//multi_graph->markAllExtended();
 
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(ref_name, true, false, false, true, false);

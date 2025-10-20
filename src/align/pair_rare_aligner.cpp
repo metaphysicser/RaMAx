@@ -771,14 +771,14 @@ static void filterChrByDP(
 				const auto& refs = queries.at(qry_idx);
 				if (id < refs.size()) {
 					const auto& anchors = refs[id];
-					AnchorPtrVec temp;
-					for (const auto& a : anchors) {
-						if (a->qry_selected) {
-							temp.push_back(a);
-						}
-					}
-					result.insert(result.end(), temp.begin(), temp.end());
-					//result.insert(result.end(), anchors.begin(), anchors.end());
+					// AnchorPtrVec temp;
+					// for (const auto& a : anchors) {
+					// 	if (a->qry_selected) {
+					// 		temp.push_back(a);
+					// 	}
+					// }
+					// result.insert(result.end(), temp.begin(), temp.end());
+					result.insert(result.end(), anchors.begin(), anchors.end());
 				}
 			}
 		}
