@@ -76,7 +76,17 @@ add_custom_command(TARGET hal_tools POST_BUILD
 
 # ============ 编译优化选项 ============
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mavx2")
+# ============ 编译优化选项 ============
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
+# 如果没有显式设置构建类型，默认使用 Release
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# 去掉符号表（减小二进制体积）
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-s")
+
 
 # ================= 子模块依赖 =================
 add_subdirectory("${SUBMODULE_DIR}/spdlog")
