@@ -446,12 +446,17 @@ namespace RaMesh {
 
             // 向左寻找“合适的”参考节点（与右扩扫右侧对称）
             SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
+            bool find = false;
             while (true) {
                 if (ref_left_node->isHead()) break;
                 if (ref_left_node->left_extend && ref_left_node->right_extend) break;
-                bool find = false;
+
                 for (const auto& [key, seg] : ref_left_node->parent_block->anchors) {
-                    if (key.first == query_name) { find = true; break; }
+                    if (key.second == query_chr_name)
+                    {
+                        find = true;
+                        break;
+                    }
                 }
                 if (find) break;
                 ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
@@ -465,7 +470,7 @@ namespace RaMesh {
             ref_cur_node->left_extend = true;
 
             // === 实际比对逻辑 ===
-            if (query_len > 0 && ref_len > 0) {
+            if (find && query_len > 0 && ref_len > 0) {
                 // 与右扩一致的长度上限保护
                 if (query_len > 10000 || ref_len > 10000) {
                     return;
@@ -562,14 +567,14 @@ namespace RaMesh {
             ChrName ref_chr_name = cur_block->ref_chr;
             SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
 
-
+            bool find = false;
             SegPtr ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
             while (true) {
 				if (ref_right_node->isTail()) break;
                 if (ref_right_node->left_extend && ref_right_node->right_extend) break;
-                bool find = false;
+
                 for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
-                    if (key.first == query_name) {
+                    if (key.second == query_chr_name) {
                         find = true;
                         break;
                     }
@@ -587,7 +592,7 @@ namespace RaMesh {
             ref_cur_node->right_extend = true;
 
             // === 实际比对逻辑 ===
-            if (query_len > 0 && ref_len > 0) {
+            if (find && query_len > 0 && ref_len > 0) {
 				if (query_len > 10000 || ref_len > 10000) {
                     return;
 					//std::cout << "Right extend too long: " << query_len << ", " << ref_len << "\n";
