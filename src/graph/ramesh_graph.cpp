@@ -463,7 +463,21 @@ void RaMeshMultiGenomeGraph::addVerificationError(
   }
 
   // 限制详细输出数量，但不影响错误统计
-  if (options.verbose && type_count < options.max_verbose_errors_per_type) {
+  bool is_high_severity = severity == ErrorSeverity::ERROR ||
+                          severity == ErrorSeverity::CRITICAL;
+  bool should_log = false;
+  if (options.verbose) {
+    if (is_high_severity) {
+      size_t severity_verbose_count =
+          result.getSeverityVerboseCount(type, severity);
+      should_log =
+          severity_verbose_count < options.max_verbose_errors_per_type;
+    } else {
+      should_log = type_count < options.max_verbose_errors_per_type;
+    }
+  }
+
+  if (should_log) {
     // 优化字符串拼接：使用预分配的字符串缓冲区
     std::string full_message;
     full_message.reserve(256); // 预分配合理大小
@@ -495,6 +509,10 @@ void RaMeshMultiGenomeGraph::addVerificationError(
     case ErrorSeverity::CRITICAL:
       spdlog::critical(full_message);
       break;
+    }
+
+    if (is_high_severity) {
+      result.incrementSeverityVerboseCount(type, severity);
     }
   }
 }
@@ -2387,14 +2405,13 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                       std::memory_order_acquire);
                   SegPtr qry_next = segment->primary_path.next.load(
                       std::memory_order_acquire);
-                  segment->primary_path.prev.store(nullptr,
-                                                   std::memory_order_release);
-                  segment->primary_path.next.store(nullptr,
-                                                   std::memory_order_release);
                   // 先找到一定存在的overlap_block
+                  bool matched = false;
                   for (const auto &[species_chr_overlap, segment_overlap] :
                        overlap_block->anchors) {
-                    if (species_chr_overlap.second == species_chr.second) {
+                    if (species_chr_overlap == species_chr) {
+                      matched = true;
+                      Segment::unlinkSegment(segment);
                       if (segment->strand == Strand::FORWARD) {
                         bool query_has_prefix = false;
                         bool query_has_suffix = false;
@@ -2402,8 +2419,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_prefix,
                                             segment_prefix] :
                                prefix_block->anchors) {
-                            if (species_chr_prefix.second ==
-                                species_chr.second) {
+                            if (species_chr_prefix == species_chr) {
                               query_has_prefix = true;
                               qry_prev->primary_path.next.store(
                                   segment_prefix, std::memory_order_release);
@@ -2432,8 +2448,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_suffix,
                                             segment_suffix] :
                                suffix_block->anchors) {
-                            if (species_chr_suffix.second ==
-                                species_chr.second) {
+                            if (species_chr_suffix == species_chr) {
                               query_has_suffix = true;
                               segment_overlap->primary_path.next.store(
                                   segment_suffix, std::memory_order_release);
@@ -2467,16 +2482,15 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_suffix,
                                             segment_suffix] :
                                suffix_block->anchors) {
-                            if (species_chr_suffix.second ==
-                                species_chr.second) {
+                            if (species_chr_suffix == species_chr) {
                               query_has_suffix = true;
-                              segment_suffix->primary_path.next.store(
-                                  segment_overlap, std::memory_order_release);
+                              qry_prev->primary_path.next.store(
+                                  segment_suffix, std::memory_order_release);
                               segment_suffix->primary_path.prev.store(
                                   qry_prev, std::memory_order_release);
+                              segment_suffix->primary_path.next.store(
+                                  segment_overlap, std::memory_order_release);
                               segment_overlap->primary_path.prev.store(
-                                  segment_suffix, std::memory_order_release);
-                              qry_prev->primary_path.next.store(
                                   segment_suffix, std::memory_order_release);
                               break;
                             }
@@ -2497,8 +2511,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_prefix,
                                             segment_prefix] :
                                prefix_block->anchors) {
-                            if (species_chr_prefix.second ==
-                                species_chr.second) {
+                            if (species_chr_prefix == species_chr) {
                               query_has_prefix = true;
                               segment_prefix->primary_path.prev.store(
                                   segment_overlap, std::memory_order_release);
@@ -2525,7 +2538,11 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                               segment_overlap, std::memory_order_release);
                         }
                       }
+                      break;
                     }
+                  }
+                  if (!matched) {
+                    continue;
                   }
                 }
               }
@@ -2536,14 +2553,13 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                       std::memory_order_acquire);
                   SegPtr qry_next = segment->primary_path.next.load(
                       std::memory_order_acquire);
-                  segment->primary_path.prev.store(nullptr,
-                                                   std::memory_order_release);
-                  segment->primary_path.next.store(nullptr,
-                                                   std::memory_order_release);
                   // 先找到一定存在的overlap_block
+                  bool matched = false;
                   for (const auto &[species_chr_overlap, segment_overlap] :
                        overlap_block->anchors) {
-                    if (species_chr_overlap.second == species_chr.second) {
+                    if (species_chr_overlap == species_chr) {
+                      matched = true;
+                      Segment::unlinkSegment(segment);
                       if (segment->strand == Strand::FORWARD) {
                         bool query_has_prefix = false;
                         bool query_has_suffix = false;
@@ -2551,8 +2567,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_prefix,
                                             segment_prefix] :
                                prefix_block->anchors) {
-                            if (species_chr_prefix.second ==
-                                species_chr.second) {
+                            if (species_chr_prefix == species_chr) {
                               query_has_prefix = true;
                               qry_prev->primary_path.next.store(
                                   segment_prefix, std::memory_order_release);
@@ -2581,8 +2596,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_suffix,
                                             segment_suffix] :
                                suffix_block->anchors) {
-                            if (species_chr_suffix.second ==
-                                species_chr.second) {
+                            if (species_chr_suffix == species_chr) {
                               query_has_suffix = true;
                               segment_overlap->primary_path.next.store(
                                   segment_suffix, std::memory_order_release);
@@ -2616,16 +2630,15 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_suffix,
                                             segment_suffix] :
                                suffix_block->anchors) {
-                            if (species_chr_suffix.second ==
-                                species_chr.second) {
+                            if (species_chr_suffix == species_chr) {
                               query_has_suffix = true;
-                              segment_suffix->primary_path.next.store(
-                                  segment_overlap, std::memory_order_release);
+                              qry_prev->primary_path.next.store(
+                                  segment_suffix, std::memory_order_release);
                               segment_suffix->primary_path.prev.store(
                                   qry_prev, std::memory_order_release);
+                              segment_suffix->primary_path.next.store(
+                                  segment_overlap, std::memory_order_release);
                               segment_overlap->primary_path.prev.store(
-                                  segment_suffix, std::memory_order_release);
-                              qry_prev->primary_path.next.store(
                                   segment_suffix, std::memory_order_release);
                               break;
                             }
@@ -2646,8 +2659,7 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                           for (const auto &[species_chr_prefix,
                                             segment_prefix] :
                                prefix_block->anchors) {
-                            if (species_chr_prefix.second ==
-                                species_chr.second) {
+                            if (species_chr_prefix == species_chr) {
                               query_has_prefix = true;
                               segment_prefix->primary_path.prev.store(
                                   segment_overlap, std::memory_order_release);
@@ -2674,7 +2686,11 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
                               segment_overlap, std::memory_order_release);
                         }
                       }
+                      break;
                     }
+                  }
+                  if (!matched) {
+                    continue;
                   }
                 }
               }

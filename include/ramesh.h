@@ -9,6 +9,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <array>
 #include <map>
 #include <shared_mutex>
 #include <chrono>
@@ -374,6 +375,8 @@ namespace RaMesh {
             mutable std::unordered_map<VerificationType, size_t> error_counts;
             mutable std::unordered_map<std::string,
                    std::unordered_map<VerificationType, size_t>> verbose_counts_by_species;
+            mutable std::unordered_map<VerificationType, std::array<size_t, 4>>
+                severity_verbose_counts;
 
             size_t getErrorCount(VerificationType type) const {
                 return std::count_if(errors.begin(), errors.end(),
@@ -404,6 +407,25 @@ namespace RaMesh {
             void incrementSpeciesVerboseCount(const std::string& species,
                                               VerificationType type) {
                 verbose_counts_by_species[species][type]++;
+            }
+
+            size_t getSeverityVerboseCount(VerificationType type,
+                                           ErrorSeverity severity) const {
+                auto it = severity_verbose_counts.find(type);
+                if (it == severity_verbose_counts.end()) {
+                    return 0;
+                }
+                auto idx = static_cast<size_t>(severity);
+                if (idx >= it->second.size()) {
+                    return 0;
+                }
+                return it->second[idx];
+            }
+
+            void incrementSeverityVerboseCount(VerificationType type,
+                                               ErrorSeverity severity) {
+                auto idx = static_cast<size_t>(severity);
+                severity_verbose_counts[type][idx]++;
             }
         };
 
