@@ -452,7 +452,7 @@ namespace RaMesh {
                 if (ref_left_node->left_extend && ref_left_node->right_extend) break;
 
                 for (const auto& [key, seg] : ref_left_node->parent_block->anchors) {
-                    if (key.second == query_chr_name)
+                    if (key.first == query_name)
                     {
                         find = true;
                         break;
@@ -574,7 +574,7 @@ namespace RaMesh {
                 if (ref_right_node->left_extend && ref_right_node->right_extend) break;
 
                 for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
-                    if (key.second == query_chr_name) {
+                    if (key.first == query_name) {
                         find = true;
                         break;
                     }
