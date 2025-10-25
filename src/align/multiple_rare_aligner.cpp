@@ -507,7 +507,7 @@ starAlignment(
     uint_t min_span)
 {
     std::vector<int> leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
-    //std::swap(leaf_vec.front(), leaf_vec.back());
+    // std::swap(leaf_vec.front(), leaf_vec.back());
 	uint_t leaf_num = leaf_vec.size();
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
@@ -559,10 +559,9 @@ starAlignment(
         constructMultipleGraphsByDp(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span, i==0);
 
-        if (true)
-        {
-            multi_graph->extendRefNodes(ref_name, seqpro_managers, thread_num);
-        }
+
+        multi_graph->extendRefNodes(ref_name, seqpro_managers, 200);
+
 
 
 
