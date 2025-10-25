@@ -566,10 +566,10 @@ starAlignment(
 
 
         multi_graph->optimizeGraphStructure();
-// #ifdef _DEBUG_
-//         multi_graph->verifyGraphCorrectness(ref_name, true);
-// #endif // _DEBUG_
+//#ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(ref_name, true);
+//#endif // _DEBUG_
+        //multi_graph->verifyGraphCorrectness(ref_name, true);
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
         // SpeciesName target_species = "simOrang";
@@ -617,7 +617,9 @@ starAlignment(
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
         spdlog::info("merge multiple genome graphs for {} done", ref_name);
+//#ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
+//#endif
         multi_graph->optimizeGraphStructure();
         spdlog::info("optimize graph genome graphs for {} done", ref_name);
 		multi_graph->markAllExtended();
@@ -1258,12 +1260,52 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
     std::map<SpeciesName, AnchorPtrVecByStrandByQueryByRefPtr> anchor_map;
 
     ThreadPool shared_pool(thread_num);
-    
+
+    std::mutex anchor_map_mutex;
+    std::vector<std::future<void>> species_futures;
+    species_futures.reserve(species_cluster_map.size());
+
     for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
-        // 为空跳过
         if (!cluster_ptr_3d) continue;
-        anchor_map[species_name] = pra.extendClusterToAnchorByChr(species_name, *seqpro_managers[species_name], cluster_ptr_3d, shared_pool, is_first);
+
+        // 为每个物种启动一个异步任务
+        species_futures.emplace_back(
+            std::async(
+                std::launch::async,
+                [&pra,
+                 &shared_pool,
+                 &anchor_map,
+                 &anchor_map_mutex,
+                 &seqpro_managers,
+                 species_name,
+                 cluster_ptr_3d,
+                 is_first]()
+                {
+                    // 1. 调用你现有的接口（保持原样，不加额外调试参数）
+                    auto result_ptr = pra.extendClusterToAnchorByChr(
+                        species_name,
+                        *seqpro_managers[species_name],
+                        cluster_ptr_3d,
+                        shared_pool,
+                        is_first
+                    );
+
+                    // 2. 把结果塞进 anchor_map（需要上锁防止并发写）
+                    {
+                        std::lock_guard<std::mutex> lock(anchor_map_mutex);
+                        anchor_map[species_name] = result_ptr;
+                    }
+                }
+            )
+        );
     }
+
+    // 等所有物种的 extendClusterToAnchorByChr() 都跑完
+    for (auto &f : species_futures) {
+        f.get();
+    }
+
+    // 保险：等线程池里还没取走的任务都跑完
     shared_pool.waitAllTasksDone();
     std::cout << "extend successfully with " << is_first << std::endl;
     

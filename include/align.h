@@ -238,8 +238,8 @@ static void init_simd_mat() {
 
 //------------------------------------------- 带宽估计
 inline int auto_band(int qlen, int tlen,
-    double indel_rate = 0.05,
-    int    margin = 300)           // 多一点保险
+    double indel_rate = 0.1,
+    int    margin = 200)           // 多一点保险
 {
     return margin + static_cast<int>(indel_rate * (qlen + tlen / 2));
 }
