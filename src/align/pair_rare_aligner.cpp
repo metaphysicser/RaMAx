@@ -760,12 +760,40 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	}
 
 	// 等待所有任务完成
-	for (auto& f : futures) f.get();
+	// 等待所有任务完成并按20%步进打印进度
+	{
+		const std::size_t total = futures.size();
+		std::size_t done = 0;
 
+		// 下一个需要汇报的百分比里程碑（20,40,60,80,100）
+		int next_milestone = 20;
 
+		for (auto& f : futures) {
+			f.get();
+			++done;
 
-    spdlog::info("extend cluster to anchor successfully for {}", query_name);
+			if (total > 0) {
+				// 当前完成百分比，整数除法，范围0~100
+				int pct = static_cast<int>((done * 100) / total);
+
+				// 如果已经达到/超过下一个里程碑，就打日志
+				while (pct >= next_milestone && next_milestone <= 100) {
+					spdlog::info(
+						"extend cluster progress for {}: {}% ({}/{})",
+						query_name,
+						next_milestone,
+						done,
+						total
+					);
+					next_milestone += 20;
+				}
+			}
+		}
+	}
+
+	spdlog::info("extend cluster to anchor successfully for {}", query_name);
 	return result;
+
 }
 
 static void filterChrByDP(
