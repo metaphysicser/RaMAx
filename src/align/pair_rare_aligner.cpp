@@ -709,61 +709,70 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
     bool is_first
 ) {
     // 输出结构
-    auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
+   auto result = std::make_shared<AnchorPtrVecByStrandByQueryByRef>();
 
-    std::vector<std::future<void>> futures;
-    std::atomic<std::size_t> done{0}; // 已完成任务计数
+	// 1. 先根据 cluster 的形状，把 result 完整 resize
+	result->resize(2); // 两个strand: 0和1
+	for (size_t strand = 0; strand < 2; ++strand) {
+	    const auto& byQueryRef = (*cluster)[strand];
+	    (*result)[strand].resize(byQueryRef.size());
 
-    for (size_t strand = 0; strand < 2; ++strand) {
-        const auto& byQueryRef = (*cluster)[strand];
-        result->emplace_back(); // 对应 strand
+	    for (size_t q = 0; q < byQueryRef.size(); ++q) {
+	        const auto& byRef = byQueryRef[q];
+	        (*result)[strand][q].resize(byRef.size());
 
-        for (size_t q = 0; q < byQueryRef.size(); ++q) {
-            const auto& byRef = byQueryRef[q];
-            (*result)[strand].emplace_back(); // 对应 query_chr
+	        // 现在 (*result)[strand][q][r] 已经是合法索引了
+	        // 里面可能是默认构造的空 AnchorPtrVec
+	    }
+	}
 
-            for (size_t r = 0; r < byRef.size(); ++r) {
-                MatchClusterVecPtr cluster_vec_ptr = byRef[r];
-                (*result)[strand][q].emplace_back(); // 对应 ref_chr
+	// 2. 现在才提交任务（不会再 emplace_back）
+	std::vector<std::future<void>> futures;
+	std::atomic<std::size_t> done{0};
+	for (size_t strand = 0; strand < 2; ++strand) {
+	    const auto& byQueryRef = (*cluster)[strand];
 
-                if (!cluster_vec_ptr) continue;
+	    for (size_t q = 0; q < byQueryRef.size(); ++q) {
+	        const auto& byRef = byQueryRef[q];
 
-                // 提交任务：处理一个 ClusterVec
-                futures.emplace_back(pool.enqueue(
-                    [&, strand, q, r, cluster_vec_ptr, is_first, &done]() {
-                        AnchorPtrVec anchors;
-                        anchors.reserve(1);
+	        for (size_t r = 0; r < byRef.size(); ++r) {
+	            MatchClusterVecPtr cluster_vec_ptr = byRef[r];
+	            if (!cluster_vec_ptr) continue;
 
-                        if (!is_first) {
-                            for (auto & c : (*cluster_vec_ptr)) {
-                                for (auto & sub_c : c) {
-                                    MatchVec mc;
-                                    mc.push_back(sub_c);
-                                    Anchor anchor = extendClusterToAnchor(mc, *ref_seqpro_manager, query_seqpro_manager);
-                                    AnchorPtr p = std::make_shared<Anchor>(std::move(anchor));
-                                    anchors.push_back(p);
-                                }
-                            }
-                        } else {
-                            for (auto & c : (*cluster_vec_ptr)) {
-                                Anchor anchor = extendClusterToAnchor(c, *ref_seqpro_manager, query_seqpro_manager);
-                                AnchorPtr p = std::make_shared<Anchor>(std::move(anchor));
-                                anchors.push_back(p);
-                            }
-                            linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
-                        }
+	            futures.emplace_back(pool.enqueue(
+	                [&, strand, q, r, cluster_vec_ptr, is_first]() {
+	                    AnchorPtrVec anchors;
+	                    anchors.reserve(1);
 
-                        if (!anchors.empty()) {
-                            (*result)[strand][q][r] = anchors;
-                        }
+	                    if (!is_first) {
+	                        for (auto & c : (*cluster_vec_ptr)) {
+	                            for (auto & sub_c : c) {
+	                                MatchVec mc;
+	                                mc.push_back(sub_c);
+	                                Anchor anchor = extendClusterToAnchor(mc, *ref_seqpro_manager, query_seqpro_manager);
+	                                anchors.push_back(std::make_shared<Anchor>(std::move(anchor)));
+	                            }
+	                        }
+	                    } else {
+	                        for (auto & c : (*cluster_vec_ptr)) {
+	                            Anchor anchor = extendClusterToAnchor(c, *ref_seqpro_manager, query_seqpro_manager);
+	                            anchors.push_back(std::make_shared<Anchor>(std::move(anchor)));
+	                        }
+	                        linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
+	                    }
 
-                        // 这个任务完成了，增加计数
-                        ++done;
-                    }
-                ));
-            }
-        }
-    }
+	                    if (!anchors.empty()) {
+	                        // 这里没有再扩容 vector，只是往既有槽位写入
+	                        (*result)[strand][q][r] = std::move(anchors);
+	                    }
+
+	                    ++done;
+	                }
+	            ));
+	        }
+	    }
+	}
+
 
     // ====== 进度监听部分（主线程轮询，而不是等到最后一口气） ======
 	int p = 10;

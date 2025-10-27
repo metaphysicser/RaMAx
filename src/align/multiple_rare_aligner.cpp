@@ -1324,6 +1324,7 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
 
     for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
         if (!cluster_ptr_3d) continue;
+        spdlog::info("begin extend for {}", species_name);
 
         // 为每个物种启动一个异步任务
         species_futures.emplace_back(
