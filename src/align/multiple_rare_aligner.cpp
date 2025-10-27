@@ -506,9 +506,68 @@ starAlignment(
     SeqPro::Length sampling_interval,
     uint_t min_span)
 {
-    std::vector<int> leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
-    std::swap(leaf_vec.front(), leaf_vec.back());
-	uint_t leaf_num = leaf_vec.size();
+
+    std::vector<std::pair<SpeciesName, SeqPro::Length>> species_sizes;
+    species_sizes.reserve(seqpro_managers.size());
+
+    for (const auto &entry : seqpro_managers) {
+        const SpeciesName &species_name = entry.first;
+        const SeqPro::SharedManagerVariant &shared_mgr_variant = entry.second;
+
+        if (!shared_mgr_variant) {
+            // 空指针就当长度=0
+            species_sizes.emplace_back(species_name, 0);
+            continue;
+        }
+
+        // 用 std::visit 取这个物种的 total length
+        SeqPro::Length total_len = std::visit(
+            [](auto const &mgrPtr) -> SeqPro::Length {
+                using ManagerPtrT = std::decay_t<decltype(mgrPtr)>;
+
+                if constexpr (std::is_same_v<ManagerPtrT, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return mgrPtr ? mgrPtr->getTotalLength() : 0;
+                } else if constexpr (std::is_same_v<ManagerPtrT, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgrPtr ? mgrPtr->getTotalLength() : 0;
+                } else {
+                    // 理论上不会到这里
+                    return 0;
+                }
+            },
+            *shared_mgr_variant // shared_ptr<variant<...>> => 解引用拿variant
+        );
+
+        species_sizes.emplace_back(species_name, total_len);
+    }
+
+    // 按碱基总数从大到小排序
+    std::sort(
+        species_sizes.begin(),
+        species_sizes.end(),
+        [](const auto &a, const auto &b) {
+            return a.second > b.second; // 降序
+        }
+    );
+
+    // 提取最终的物种顺序（只要名字）
+    std::vector<SpeciesName> species_order;
+    species_order.reserve(species_sizes.size());
+    for (const auto &p : species_sizes) {
+        species_order.push_back(p.first);
+    }
+    uint_t leaf_num = species_order.size();
+
+    // 打印 speicies order 信息
+    spdlog::info("Species processing order ({} total):", leaf_num);
+
+    for (size_t i = 0; i < species_order.size(); ++i) {
+        spdlog::info("  [{}] {}", i, species_order[i]);
+    }
+
+
+ //    std::vector<int> leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
+ //    //std::swap(leaf_vec.front(), leaf_vec.back());
+	// uint_t leaf_num = leaf_vec.size();
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
@@ -519,14 +578,16 @@ starAlignment(
     for (uint_t i = 0; i < leaf_num; i++) {
         //auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
         // 使用工具函数构建缓存
-        spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
-        SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
-		uint_t ref_id = leaf_vec[i];
-		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
+        SpeciesName ref_name = species_order[i];
+        spdlog::info("build ref global cache for {}", ref_name);
+        SequenceUtils::buildRefGlobalCache(seqpro_managers[ref_name], sampling_interval, ref_global_cache);
+		// uint_t ref_id = leaf_vec[i];
+		// SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
+
         std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
         for (uint_t j = i; j < leaf_num; j++) {
-            uint_t query_id = leaf_vec[j];
-			SpeciesName query_name = newick_tree.getNodes()[query_id].name;
+            // uint_t query_id = leaf_vec[j];
+			SpeciesName query_name = species_order[j];
             auto query_fasta_manager = seqpro_managers.at(query_name);
             species_fasta_manager_map.emplace(query_name, query_fasta_manager);
         }
@@ -561,9 +622,6 @@ starAlignment(
 
 
         multi_graph->extendRefNodes(ref_name, seqpro_managers, 200);
-
-
-
 
         multi_graph->optimizeGraphStructure();
 //#ifdef _DEBUG_
@@ -1249,9 +1307,6 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
 		return;
 	}
 
-    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
-        species_cluster_map.size());
-
     PairRareAligner pra(*this);
     pra.ref_name = ref_name;
     // 【修复】：设置ref_seqpro_manager，避免空指针
@@ -1264,6 +1319,8 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
     std::mutex anchor_map_mutex;
     std::vector<std::future<void>> species_futures;
     species_futures.reserve(species_cluster_map.size());
+    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
+    species_cluster_map.size());
 
     for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
         if (!cluster_ptr_3d) continue;
