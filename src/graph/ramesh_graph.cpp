@@ -3193,24 +3193,68 @@ size_t RaMeshMultiGenomeGraph::compactBlockPool() {
 }
 
 void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
+  size_t zero_length_removed = 0;
+  size_t detached_block_anchors = 0;
 
-  // 优化每个物种图的采样表
   for (auto &[species, genome_graph] : species_graphs) {
-   // std::shared_lock species_lock(genome_graph.rw);
+    std::unique_lock species_lock(genome_graph.rw);
 
     for (auto &[chr, genome_end] : genome_graph.chr2end) {
-      // 重建采样表以提高查询效率
-      genome_end.sample_vec.clear();
-      uint_t last_seg_end = 0;
+      std::unique_lock end_lock(genome_end.rw);
 
+      if (!genome_end.head || !genome_end.tail) {
+        genome_end.sample_vec.clear();
+        continue;
+      }
+
+      // 清理零长度 segment 并同步 block/采样状态
       SegPtr current =
           genome_end.head->primary_path.next.load(std::memory_order_acquire);
 
       while (current && !current->isTail()) {
-        genome_end.setToSampling(current);
-        current = current->primary_path.next.load(std::memory_order_acquire);
+        if (current->isSegment() && current->length == 0) {
+          SegPtr next_ptr =
+              current->primary_path.next.load(std::memory_order_acquire);
+
+          Segment::unlinkSegment(current);
+
+          if (auto block = current->parent_block) {
+            std::unique_lock block_lock(block->rw);
+            for (auto it = block->anchors.begin(); it != block->anchors.end();
+                 ++it) {
+              if (it->second == current) {
+                block->anchors.erase(it);
+                detached_block_anchors++;
+                break;
+              }
+            }
+          }
+
+          current->parent_block.reset();
+          zero_length_removed++;
+          current = next_ptr;
+          continue;
+        }
+
+        current =
+            current->primary_path.next.load(std::memory_order_acquire);
+      }
+
+      genome_end.sample_vec.clear();
+      SegPtr rebuild =
+          genome_end.head->primary_path.next.load(std::memory_order_acquire);
+      while (rebuild && !rebuild->isTail()) {
+        genome_end.setToSampling(rebuild);
+        rebuild =
+            rebuild->primary_path.next.load(std::memory_order_acquire);
       }
     }
+  }
+
+  if (zero_length_removed > 0 || detached_block_anchors > 0) {
+    spdlog::debug(
+        "optimizeGraphStructure: removed {} zero-length segments, detached {} block anchors",
+        zero_length_removed, detached_block_anchors);
   }
 }
 
@@ -3273,41 +3317,6 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
   size_t reference_overlap_counter = 0;
   bool reference_overlap_found = false;
   size_t reference_chr_visited = 0;
-
-  auto remove_zero_length_segment = [&](const GenomeEnd &genome_end_ref,
-                                        const SegPtr &segment) -> SegPtr {
-    if (!segment || segment->isHead() || segment->isTail()) {
-      return segment
-                 ? segment->primary_path.next.load(std::memory_order_acquire)
-                 : nullptr;
-    }
-
-    SegPtr next_ptr =
-        segment->primary_path.next.load(std::memory_order_acquire);
-    auto &genome_end_mut = const_cast<GenomeEnd &>(genome_end_ref);
-
-    {
-      std::unique_lock end_lock(genome_end_mut.rw);
-      Segment::unlinkSegment(segment);
-      uint_t start = segment->start;
-      uint_t end = start + std::max<uint_t>(segment->length, 1);
-      genome_end_mut.invalidateSampling(start, end);
-    }
-
-    if (auto block = segment->parent_block) {
-      std::unique_lock block_lock(block->rw);
-      for (auto it = block->anchors.begin(); it != block->anchors.end(); ++it) {
-        if (it->second == segment) {
-          block->anchors.erase(it);
-          break;
-        }
-      }
-    }
-
-    segment->parent_block.reset();
-
-    return next_ptr;
-  };
 
   for (const auto &[species_name, genome_graph] : species_graphs) {
     std::shared_lock species_lock(genome_graph.rw);
@@ -3409,13 +3418,11 @@ void RaMeshMultiGenomeGraph::verifyWithUnifiedTraversal(
               addVerificationError(
                   result, options, VerificationType::COORDINATE_OVERLAP,
                   ErrorSeverity::WARNING, species_name, chr_name, segment_count,
-                  current->start, "Zero-length segment removed automatically",
+                  current->start, "Zero-length segment detected",
                   "start=" + std::to_string(current->start));
 
-              current = remove_zero_length_segment(genome_end, current);
-              if (!current) {
-                break;
-              }
+              current =
+                  current->primary_path.next.load(std::memory_order_acquire);
               continue;
             }
 
