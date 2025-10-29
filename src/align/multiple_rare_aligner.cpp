@@ -596,7 +596,7 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
+            ACCURATE_SEARCH, fast_build, true, allow_short_mum, ref_global_cache, sampling_interval
         );
 //#ifdef _DEBUG_
 //        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);

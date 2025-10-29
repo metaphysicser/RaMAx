@@ -192,9 +192,10 @@ void groupMatchByQueryRef(
             ChrIndex rIdx = vec.front().ref_chr_index;
             if (rIdx == SeqPro::SequenceIndex::INVALID_ID) continue;
 
-            MatchVec& dest = (vec.size() == 1)
-                ? ensure_slot(unique_anchors, sIdx, qIdx, rIdx)
-                : ensure_slot(repeat_anchors, sIdx, qIdx, rIdx);
+            // MatchVec& dest = (vec.size() == 1)
+            //     ? ensure_slot(unique_anchors, sIdx, qIdx, rIdx)
+            //     : ensure_slot(repeat_anchors, sIdx, qIdx, rIdx);
+            MatchVec& dest = ensure_slot(unique_anchors, sIdx, qIdx, rIdx);
 
             if (dest.empty()) dest.reserve(vec.size()); // 减少后续扩容
 
