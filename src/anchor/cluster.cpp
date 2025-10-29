@@ -163,10 +163,11 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
     int_t      diagdiff,
     double     diagfactor)
 {
-    const uint_t N = static_cast<uint_t>(unique_match.size());
     MatchClusterVec clusters;
-    if (N < 2) {
-        if (N == 1) {
+
+    // 特殊情况：0 或 1 个元素，直接返回
+    if (unique_match.size() < 2) {
+        if (unique_match.size() == 1) {
             clusters.emplace_back();
             clusters.back().push_back(std::move(unique_match[0]));
         }
@@ -175,14 +176,27 @@ MatchClusterVec buildClusters(MatchVec& unique_match,
 
     const bool is_forward = (unique_match.front().strand() == FORWARD);
 
-
-    // 预排序：按ref起始位置排序，提升局部性
+    // 先排序
     std::sort(unique_match.begin(), unique_match.end(),
-        [](const Match& a, const Match& b) { 
-            return (start2(a) < start2(b) || ((start2(a) == start2(b) && start1(a) < start2(b))));
+        [](const Match& a, const Match& b) {
+            // 这里我也顺手修个小笔误，后面解释
+            if (start2(a) < start2(b)) return true;
+            if (start2(a) > start2(b)) return false;
+            return start1(a) < start1(b);
         });
 
-	filterAndMergeMatches(unique_match);
+    // 再合并压缩（可能会删元素、缩短 vector）
+    filterAndMergeMatches(unique_match);
+
+    // 现在重新拿 N
+    const uint_t N = static_cast<uint_t>(unique_match.size());
+    if (N < 2) {
+        if (N == 1) {
+            clusters.emplace_back();
+            clusters.back().push_back(std::move(unique_match[0]));
+        }
+        return clusters;
+    }
 
     UnionFind uf(N);
 
