@@ -596,7 +596,7 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            ACCURATE_SEARCH, fast_build, true, allow_short_mum, ref_global_cache, sampling_interval
+            ACCURATE_SEARCH, fast_build, false, allow_short_mum, ref_global_cache, sampling_interval
         );
 //#ifdef _DEBUG_
 //        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);
@@ -614,14 +614,35 @@ starAlignment(
         spdlog::info("construct multiple genome graphs for {}", ref_name);
 
 
-        //constructMultipleGraphsByGreedyByRef(
-        //    seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+        // constructMultipleGraphsByGreedyByRef(
+        //     seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
 
         constructMultipleGraphsByDp(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span, i==0);
 
 
         multi_graph->extendRefNodes(ref_name, seqpro_managers, 200);
+
+        SpeciesName target_species = "simOrang";
+        auto it = multi_graph->species_graphs.find(target_species);
+        if (it != multi_graph->species_graphs.end()) {
+            const auto& genome_graph = it->second;
+            spdlog::info("Checking unaligned regions for species {}", target_species);
+
+            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+                spdlog::info("Chromosome {}", chr_name);
+
+                // 直接调用前面定义的函数
+                RaMesh::reportUnalignedRegions(
+                    genome_end,
+                    seqpro_managers.at(target_species),
+                    chr_name
+                );
+            }
+        }
+        else {
+            spdlog::warn("Species {} not found in multi_graph", target_species);
+        }
 
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
@@ -630,8 +651,29 @@ starAlignment(
         //multi_graph->verifyGraphCorrectness(ref_name, true);
         spdlog::info("construct multiple genome graphs for {} done", ref_name);
 
-        // SpeciesName target_species = "simOrang";
-        // auto it = multi_graph->species_graphs.find(target_species);
+         // SpeciesName target_species = "simOrang";
+         // auto it = multi_graph->species_graphs.find(target_species);
+         // if (it != multi_graph->species_graphs.end()) {
+         //     const auto& genome_graph = it->second;
+         //     spdlog::info("Checking unaligned regions for species {}", target_species);
+         //
+         //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+         //         spdlog::info("Chromosome {}", chr_name);
+         //
+         //         // 直接调用前面定义的函数
+         //         RaMesh::reportUnalignedRegions(
+         //             genome_end,
+         //             seqpro_managers.at(target_species),
+         //             chr_name
+         //         );
+         //     }
+         // }
+         // else {
+         //     spdlog::warn("Species {} not found in multi_graph", target_species);
+         // }
+
+        // target_species = "simGorilla";
+        // it = multi_graph->species_graphs.find(target_species);
         // if (it != multi_graph->species_graphs.end()) {
         //     const auto& genome_graph = it->second;
         //     spdlog::info("Checking unaligned regions for species {}", target_species);
@@ -650,27 +692,6 @@ starAlignment(
         // else {
         //     spdlog::warn("Species {} not found in multi_graph", target_species);
         // }
-
-        //target_species = "simGorilla";
-        //it = multi_graph->species_graphs.find(target_species);
-        //if (it != multi_graph->species_graphs.end()) {
-        //    const auto& genome_graph = it->second;
-        //    spdlog::info("Checking unaligned regions for species {}", target_species);
-
-        //    for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-        //        spdlog::info("Chromosome {}", chr_name);
-
-        //        // 直接调用前面定义的函数
-        //        RaMesh::reportUnalignedRegions(
-        //            genome_end,
-        //            seqpro_managers.at(target_species),
-        //            chr_name
-        //        );
-        //    }
-        //}
-        //else {
-        //    spdlog::warn("Species {} not found in multi_graph", target_species);
-        //}
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);

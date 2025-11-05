@@ -1418,16 +1418,16 @@ void linkClusters(AnchorPtrVec& anchors,
     AnchorPtrVec linked;
     if (anchors.empty()) return;
 	Strand strand = anchors[0]->strand;
-    if (strand == FORWARD) {
-        std::sort(anchors.begin(), anchors.end(),
-            [](auto& a, auto& b) { return a->qry_start < b->qry_start; });
-    }
-    else {
-        std::sort(anchors.begin(), anchors.end(),
-            [](auto& a, auto& b) { return a->qry_start > b->qry_start; });
-    }
-    //std::sort(anchors.begin(), anchors.end(),
-    //    [](auto& a, auto& b) { return a->ref_start < b->ref_start; });
+    // if (strand == FORWARD) {
+    //     std::sort(anchors.begin(), anchors.end(),
+    //         [](auto& a, auto& b) { return a->qry_start < b->qry_start; });
+    // }
+    // else {
+    //     std::sort(anchors.begin(), anchors.end(),
+    //         [](auto& a, auto& b) { return a->qry_start > b->qry_start; });
+    // }
+    std::sort(anchors.begin(), anchors.end(),
+        [](auto& a, auto& b) { return a->ref_start < b->ref_start; });
 
 
     const int K = 2000; // 最多向前看 50 个 anchor
@@ -1497,106 +1497,106 @@ void linkClusters(AnchorPtrVec& anchors,
             }
         }
 
-        if (best == anchors.end()) {
-            ++curr;
-            continue;
-        }
-
-        // ========== 提取 gap 序列 ==========
-        Coord_t ref_gap_beg = (*curr)->ref_start + (*curr)->ref_len;
-        Coord_t ref_gap_len = (*best)->ref_start - ref_gap_beg;
-        //ref_gap_len = std::min(ref_gap_len, (Coord_t)10000);
-
-        Coord_t qry_gap_beg, qry_gap_len;
-        if ((*curr)->strand == FORWARD) {
-            qry_gap_beg = (*curr)->qry_start + (*curr)->qry_len;
-            qry_gap_len = (*best)->qry_start - qry_gap_beg;
-        }
-        else { // REVERSE
-            qry_gap_beg = (*best)->qry_start + (*best)->qry_len;
-            qry_gap_len = (*curr)->qry_start - qry_gap_beg;
-        }
-        //qry_gap_len = std::min(qry_gap_len, (Coord_t)10000);
-
-   //     if (ref_gap_len > 30000 || qry_gap_len > 30000) {
-			//(*curr)->is_linked = true;
-   //         linked.push_back(*curr);
-   //         curr++;
-   //         continue;
-   //     }
-
-        std::string ref_gap_seq = std::visit([&](auto& p) {
-            using T = std::decay_t<decltype(p)>;
-            if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-                return p->getSubSequence((*curr)->ref_chr_index, ref_gap_beg, ref_gap_len);
-            }
-            else {
-                return p->getOriginalManager().getSubSequence((*curr)->ref_chr_index, ref_gap_beg, ref_gap_len);
-            }
-            }, ref_mgr);
-
-        std::string qry_gap_seq = std::visit([&](auto& p) {
-            using T = std::decay_t<decltype(p)>;
-            if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
-                return p->getSubSequence((*curr)->qry_chr_index, qry_gap_beg, qry_gap_len);
-            }
-            else {
-                return p->getOriginalManager().getSubSequence((*curr)->qry_chr_index, qry_gap_beg, qry_gap_len);
-            }
-            }, qry_mgr);
-
-        if ((*curr)->strand == REVERSE) {
-            reverseComplement(qry_gap_seq); // 保证方向一致
-        }
         bool reach = false;
-        uint_t ref_len = 0;
-        uint_t qry_len = 0;
-        Cigar_t gap_cigar;
-        if (qry_gap_len > 10000 || ref_gap_len > 10000) {
-            reach = false;
-        }
-        else {
-            //gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
-            gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 2 * break_len);
-            //gap_cigar = extendAlignWFA2(ref_gap_seq, qry_gap_seq, break_len);
-            ref_len = countRefLength(gap_cigar);
-            qry_len = countQryLength(gap_cigar);
-        }
-        // ========== 调用 WFA 进行 gap 比对 ==========
+        if (best != anchors.end()) {
+             // ========== 提取 gap 序列 ==========
+            Coord_t ref_gap_beg = (*curr)->ref_start + (*curr)->ref_len;
+            Coord_t ref_gap_len = (*best)->ref_start - ref_gap_beg;
+            //ref_gap_len = std::min(ref_gap_len, (Coord_t)10000);
 
-        //if (checkGapCigarQuality(gap_cigar, ref_gap_len, qry_gap_len, 0.6)){
-        if (ref_len == ref_gap_len && qry_len == qry_gap_len) {
-			reach = true;
-            // ---- 更新 curr 坐标 ----
-            (*curr)->ref_len = ((*best)->ref_start + (*best)->ref_len) - (*curr)->ref_start;
-
+            Coord_t qry_gap_beg, qry_gap_len;
             if ((*curr)->strand == FORWARD) {
-                (*curr)->qry_len = ((*best)->qry_start + (*best)->qry_len) - (*curr)->qry_start;
-                appendCigar((*curr)->cigar, gap_cigar);
-                appendCigar((*curr)->cigar, (*best)->cigar);
+                qry_gap_beg = (*curr)->qry_start + (*curr)->qry_len;
+                qry_gap_len = (*best)->qry_start - qry_gap_beg;
+            }
+            else { // REVERSE
+                qry_gap_beg = (*best)->qry_start + (*best)->qry_len;
+                qry_gap_len = (*curr)->qry_start - qry_gap_beg;
+            }
+            //qry_gap_len = std::min(qry_gap_len, (Coord_t)10000);
+
+       //     if (ref_gap_len > 30000 || qry_gap_len > 30000) {
+			    //(*curr)->is_linked = true;
+       //         linked.push_back(*curr);
+       //         curr++;
+       //         continue;
+       //     }
+
+            std::string ref_gap_seq = std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return p->getSubSequence((*curr)->ref_chr_index, ref_gap_beg, ref_gap_len);
+                }
+                else {
+                    return p->getOriginalManager().getSubSequence((*curr)->ref_chr_index, ref_gap_beg, ref_gap_len);
+                }
+                }, ref_mgr);
+
+            std::string qry_gap_seq = std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return p->getSubSequence((*curr)->qry_chr_index, qry_gap_beg, qry_gap_len);
+                }
+                else {
+                    return p->getOriginalManager().getSubSequence((*curr)->qry_chr_index, qry_gap_beg, qry_gap_len);
+                }
+                }, qry_mgr);
+
+            if ((*curr)->strand == REVERSE) {
+                reverseComplement(qry_gap_seq); // 保证方向一致
+            }
+
+            uint_t ref_len = 0;
+            uint_t qry_len = 0;
+            Cigar_t gap_cigar;
+            if (qry_gap_len > 10000 || ref_gap_len > 10000) {
+                reach = false;
             }
             else {
-                (*curr)->qry_len = (*curr)->qry_start + (*curr)->qry_len - (*best)->qry_start;
-				(*curr)->qry_start = (*best)->qry_start; // 反向链，更新起点
-                Cigar_t c1 = gap_cigar;
-                //std::reverse(c1.begin(), c1.end());
-                Cigar_t c2 = (*best)->cigar;
-                Cigar_t c3 = (*curr)->cigar;
-                //std::reverse(c2.begin(), c2.end());
-                (*curr)->cigar = c3;
-
-                appendCigar((*curr)->cigar, c1);
-                appendCigar((*curr)->cigar, c2);
+                //gap_cigar = globalAlignKSW2_2(ref_gap_seq, qry_gap_seq);
+                gap_cigar = extendAlignKSW2(ref_gap_seq, qry_gap_seq, 2 * break_len);
+                //gap_cigar = extendAlignWFA2(ref_gap_seq, qry_gap_seq, break_len);
+                ref_len = countRefLength(gap_cigar);
+                qry_len = countQryLength(gap_cigar);
             }
+            // ========== 调用 WFA 进行 gap 比对 ==========
 
-            (*curr)->alignment_length += (*best)->alignment_length + countAlignmentLength(gap_cigar);
-            (*curr)->aligned_base += countMatchOperations(gap_cigar) + (*best)->aligned_base;
+            //if (checkGapCigarQuality(gap_cigar, ref_gap_len, qry_gap_len, 0.6)){
+            if (ref_len == ref_gap_len && qry_len == qry_gap_len) {
+			    reach = true;
+                // ---- 更新 curr 坐标 ----
+                (*curr)->ref_len = ((*best)->ref_start + (*best)->ref_len) - (*curr)->ref_start;
 
-            (*best)->is_linked = true;
-		}
-		else {
-			reach = false;
-		}
+                if ((*curr)->strand == FORWARD) {
+                    (*curr)->qry_len = ((*best)->qry_start + (*best)->qry_len) - (*curr)->qry_start;
+                    appendCigar((*curr)->cigar, gap_cigar);
+                    appendCigar((*curr)->cigar, (*best)->cigar);
+                }
+                else {
+                    (*curr)->qry_len = (*curr)->qry_start + (*curr)->qry_len - (*best)->qry_start;
+				    (*curr)->qry_start = (*best)->qry_start; // 反向链，更新起点
+                    Cigar_t c1 = gap_cigar;
+                    //std::reverse(c1.begin(), c1.end());
+                    Cigar_t c2 = (*best)->cigar;
+                    Cigar_t c3 = (*curr)->cigar;
+                    //std::reverse(c2.begin(), c2.end());
+                    (*curr)->cigar = c3;
+
+                    appendCigar((*curr)->cigar, c1);
+                    appendCigar((*curr)->cigar, c2);
+                }
+
+                (*curr)->alignment_length += (*best)->alignment_length + countAlignmentLength(gap_cigar);
+                (*curr)->aligned_base += countMatchOperations(gap_cigar) + (*best)->aligned_base;
+
+                (*best)->is_linked = true;
+		    }
+		    else {
+			    reach = false;
+		    }
+        }
+
+
 
         if(reach == false) {
             // ========== 在 push_back 前，尝试与 linked.back() 的 gap 比对 ==========
@@ -1754,31 +1754,43 @@ void linkClusters(AnchorPtrVec& anchors,
             // 将新的cur设置为和老cur不冲突的anchor
             // TODO考虑反向链
 
+            // curr_qry_end = (*curr)->qry_start + (*curr)->qry_len;
+            // curr_ref_end = (*curr)->ref_start + (*curr)->ref_len;
+            // int_t cur_qry_start = (*curr)->qry_start;
+            // //curr = best;
+            // while (true) {
+            //     if (strand == FORWARD) {
+            //         //if (!(*curr)->is_linked && (*curr)->qry_start >= curr_qry_end && (*curr)->ref_start >= curr_ref_end) {
+            //         //    break;
+            //         //}
+            //         if (!(*curr)->is_linked && (*curr)->qry_start >= curr_qry_end) {
+            //             break;
+            //         }
+            //     }
+            //     else {
+            //         //if (!(*curr)->is_linked && (*curr)->qry_start + (*curr)->qry_len <= cur_qry_start && (*curr)->ref_start >= curr_ref_end) {
+            //         //    break;
+            //         //}
+            //         if (!(*curr)->is_linked && (*curr)->qry_start + (*curr)->qry_len <= cur_qry_start) {
+            //             break;
+            //         }
+            //     }
+            //
+            //     ++curr;
+            // }
+            //++curr;
+
             curr_qry_end = (*curr)->qry_start + (*curr)->qry_len;
             curr_ref_end = (*curr)->ref_start + (*curr)->ref_len;
             int_t cur_qry_start = (*curr)->qry_start;
             //curr = best;
-            while (true) {
-                if (strand == FORWARD) {
-                    //if (!(*curr)->is_linked && (*curr)->qry_start >= curr_qry_end && (*curr)->ref_start >= curr_ref_end) {
-                    //    break;
-                    //}
-                    if (!(*curr)->is_linked && (*curr)->qry_start >= curr_qry_end) {
-                        break;
-                    }
-                }
-                else {
-                    //if (!(*curr)->is_linked && (*curr)->qry_start + (*curr)->qry_len <= cur_qry_start && (*curr)->ref_start >= curr_ref_end) {
-                    //    break;
-                    //}
-                    if (!(*curr)->is_linked && (*curr)->qry_start + (*curr)->qry_len <= cur_qry_start) {
-                        break;
-                    }
+            while (curr != anchors.end()) {
+                if (!(*curr)->is_linked && (*curr)->ref_start >= curr_ref_end) {
+                    break;
                 }
 
                 ++curr;
             }
-
             std::cout << "";
             // it = curr + 1;
         }
