@@ -1330,12 +1330,12 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	                            }
 	                        }
 	                    } else {
-	                        for (auto & c : (*cluster_vec_ptr)) {
-	                            Anchor anchor = extendClusterToAnchor(c, *ref_seqpro_manager, query_seqpro_manager);
-	                            anchors.push_back(std::make_shared<Anchor>(std::move(anchor)));
-	                        }
-	                        linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
-	                    	//anchors = extendClustersToAnchors(cluster_vec_ptr, *ref_seqpro_manager, query_seqpro_manager);
+	                        // for (auto & c : (*cluster_vec_ptr)) {
+	                        //     Anchor anchor = extendClusterToAnchor(c, *ref_seqpro_manager, query_seqpro_manager);
+	                        //     anchors.push_back(std::make_shared<Anchor>(std::move(anchor)));
+	                        // }
+	                        // linkClusters(anchors, *ref_seqpro_manager, query_seqpro_manager);
+	                    	anchors = linkClusters(*cluster_vec_ptr, *ref_seqpro_manager, query_seqpro_manager);
 	                    }
 
 	                    if (!anchors.empty()) {

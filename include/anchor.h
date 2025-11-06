@@ -489,4 +489,8 @@ ValidationResult validateAnchorsCorrectness(
 void linkClusters(AnchorPtrVec& anchors,
     const SeqPro::ManagerVariant& ref_mgr,
     const SeqPro::ManagerVariant& qry_mgr);
+
+AnchorPtrVec linkClusters(MatchClusterVec& clusters,
+                          const SeqPro::ManagerVariant& ref_mgr,
+                          const SeqPro::ManagerVariant& qry_mgr);
 #endif // ANCHOR_H

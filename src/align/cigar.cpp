@@ -449,10 +449,6 @@ bool checkGapCigarQuality(const Cigar_t& cigar,
         else if (op == 'I' || op == 'D') {
             aln_len += len;
             max_gap_run += len;
-        	if (len > 200)
-        	{
-        		return false;
-        	}
 
         }
         else {
