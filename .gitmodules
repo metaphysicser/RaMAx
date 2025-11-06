@@ -10,10 +10,6 @@
 	path = src/align/WFA2-lib
 	url = https://github.com/smarco/WFA2-lib
 	ignore = all
-[submodule "submodule/WFA2-lib"]
-	path = submodule/WFA2-lib
-	url = https://github.com/smarco/WFA2-lib.git
-	ignore = all
 [submodule "submodule/spdlog"]
 	path = submodule/spdlog
 	url = https://github.com/gabime/spdlog.git
