@@ -2843,7 +2843,8 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
   TimePoint batch_deletion_start = HighResClock::now();
 
   if (!blocks_to_delete.empty()) {
-    spdlog::info("开始批量删除 {} 个Block...", blocks_to_delete.size());
+    spdlog::info("Starting batch deletion of {} blocks...", blocks_to_delete.size());
+
 
     // 升级为写锁以进行删除操作
     graph_lock.unlock();
@@ -3273,7 +3274,7 @@ void RaMeshMultiGenomeGraph::optimizeGraphStructure() {
   }
 
   if (zero_length_removed > 0 || detached_block_anchors > 0) {
-    spdlog::debug(
+    spdlog::info(
         "optimizeGraphStructure: removed {} zero-length segments, detached {} block anchors",
         zero_length_removed, detached_block_anchors);
   }
