@@ -215,7 +215,7 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
         auto masked_intervals = masked_manager.getMaskIntervals(seq_name);
         
         if (masked_intervals.empty()) {
-            spdlog::debug("No masked intervals for sequence {}, using normal chunking", seq_name);
+            //spdlog::debug("No masked intervals for sequence {}, using normal chunking", seq_name);
             normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0, seq_manager);
             return;
         }

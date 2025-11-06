@@ -1581,6 +1581,7 @@ static void filterChrByDP(
 	// ----------------------------------------------------
 // 检查选中的比对是否存在重叠
 // ----------------------------------------------------
+#ifdef _DEBUG_
 	bool hasOverlap = false;
 
 	// 收集所有选中的 index
@@ -1631,6 +1632,7 @@ static void filterChrByDP(
 		std::cout << "✅ No overlaps detected in final selection.\n";
 	else
 		std::cerr << "❌ Overlaps found in final selection!\n";
+#endif
 }
 
 void PairRareAligner::filterAnchorByDP(AnchorPtrVecByStrandByQueryByRefPtr anchor_map) {

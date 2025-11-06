@@ -1505,13 +1505,22 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
       double percentage_diff =
           std::abs(overall_percentage - last_logged_percentage);
 
-      if (percentage_diff >= 1.0 || time_diff >= 5) {
-        spdlog::info("合并进度: {:.1f}% ({:.1f}MB/{:.1f}MB) 染色体: {}/{} "
-                     "当前: {}.{} ({:.1f}%) 位置: {} 合并: {}",
-                     overall_percentage, processed_genomic_length / 1000000.0,
-                     total_genomic_length / 1000000.0, completed_chromosomes,
-                     total_chromosomes, current_species, current_chromosome,
-                     chr_percentage, current_position, completed_merges);
+      if (percentage_diff >= 5.0 || time_diff >= 5) {
+        spdlog::info(
+            "Merge progress: {:.1f}% ({:.1f} MB/{:.1f} MB) Chromosomes: {}/{} "
+            "Current: {}.{} ({:.1f}%) Position: {} Merges: {}",
+            overall_percentage,
+            processed_genomic_length / 1000000.0,
+            total_genomic_length / 1000000.0,
+            completed_chromosomes,
+            total_chromosomes,
+            current_species,
+            current_chromosome,
+            chr_percentage,
+            current_position,
+            completed_merges
+        );
+
 
         last_log_time = now;
         last_logged_percentage = overall_percentage;
@@ -1527,8 +1536,11 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
       current_chr_processed = 0;
       current_position = 0;
 
-      spdlog::info("开始处理染色体: {}.{} (长度: {:.1f}MB)", species,
-                   chromosome, chr_length / 1000000.0);
+      spdlog::info("Starting to process chromosome: {}.{} (Length: {:.1f} MB)",
+                   species,
+                   chromosome,
+                   chr_length / 1000000.0);
+
       displayProgress();
     }
 
@@ -1553,9 +1565,12 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
       }
 
       completed_chromosomes++;
-      spdlog::info("完成染色体: {}.{} ({}/{})", current_species,
-                   current_chromosome, completed_chromosomes,
+      spdlog::info("Completed chromosome: {}.{} ({}/{})",
+                   current_species,
+                   current_chromosome,
+                   completed_chromosomes,
                    total_chromosomes);
+
       displayProgress();
     }
 
@@ -1564,10 +1579,14 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
 
     // 完成所有处理
     void finish() {
-      spdlog::info("合并完成！总共处理了 {} 个染色体，{:.1f}MB "
-                   "基因组数据，执行了 {} 次合并操作",
-                   total_chromosomes, total_genomic_length / 1000000.0,
-                   completed_merges);
+      spdlog::info(
+          "Merge completed! Processed a total of {} chromosomes, {:.1f} MB of "
+          "genomic data, with {} merge operations executed.",
+          total_chromosomes,
+          total_genomic_length / 1000000.0,
+          completed_merges
+      );
+
     }
   };
 
@@ -1653,10 +1672,11 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
     }
   }
 
-  spdlog::info("开始合并多基因组图，参考物种: {}", ref_name);
-  spdlog::info("总共需要处理 {} 个染色体，{:.1f}MB 基因组数据",
+  spdlog::info("Starting to merge multi-genome graph, reference species: {}", ref_name);
+  spdlog::info("A total of {} chromosomes ({:.1f} MB of genomic data) will be processed",
                progress.total_chromosomes,
                progress.total_genomic_length / 1000000.0);
+
   progress.displayProgress();
 
   // ═══════════════════════════════════════════════════════════
@@ -2884,8 +2904,9 @@ void RaMeshMultiGenomeGraph::mergeMultipleGraphs(const SpeciesName &ref_name,
   TimePoint function_end_time = HighResClock::now();
   Duration total_function_time =
       duration_cast<Duration>(function_end_time - function_start_time);
-
+#ifdef _DEBUG_
   perf_stats.logFinalReport(total_function_time);
+#endif
   // // 收集所有物种的segment详细信息
   // debug_all_species_segments.clear();
   // for (const auto &[species_name, genome_graph]: species_graphs) {

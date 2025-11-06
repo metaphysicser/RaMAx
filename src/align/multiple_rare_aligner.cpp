@@ -620,29 +620,29 @@ starAlignment(
         constructMultipleGraphsByDp(
             seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span, i==0);
 
-
+        spdlog::info("begin to extend nodes for {}", ref_name);
         multi_graph->extendRefNodes(ref_name, seqpro_managers, 200);
 
-        SpeciesName target_species = "simOrang";
-        auto it = multi_graph->species_graphs.find(target_species);
-        if (it != multi_graph->species_graphs.end()) {
-            const auto& genome_graph = it->second;
-            spdlog::info("Checking unaligned regions for species {}", target_species);
-
-            for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
-                spdlog::info("Chromosome {}", chr_name);
-
-                // 直接调用前面定义的函数
-                RaMesh::reportUnalignedRegions(
-                    genome_end,
-                    seqpro_managers.at(target_species),
-                    chr_name
-                );
-            }
-        }
-        else {
-            spdlog::warn("Species {} not found in multi_graph", target_species);
-        }
+        // SpeciesName target_species = "simOrang";
+        // auto it = multi_graph->species_graphs.find(target_species);
+        // if (it != multi_graph->species_graphs.end()) {
+        //     const auto& genome_graph = it->second;
+        //     spdlog::info("Checking unaligned regions for species {}", target_species);
+        //
+        //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //         spdlog::info("Chromosome {}", chr_name);
+        //
+        //         // 直接调用前面定义的函数
+        //         RaMesh::reportUnalignedRegions(
+        //             genome_end,
+        //             seqpro_managers.at(target_species),
+        //             chr_name
+        //         );
+        //     }
+        // }
+        // else {
+        //     spdlog::warn("Species {} not found in multi_graph", target_species);
+        // }
 
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
@@ -832,7 +832,7 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 
     /* ---------- 7. 保存到文件 ---------- */
     // saveSpeciesMatchMap(anchor_file, result_map);
-    spdlog::info("[alignMultipleQuerys] all species done. Saved to {}", anchor_file.string());
+    //spdlog::info("[alignMultipleQuerys] all species done. Saved to {}", anchor_file.string());
 
     //{
     //    SpeciesName target_species = "simOrang";
@@ -1324,7 +1324,7 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
     RaMesh::RaMeshMultiGenomeGraph& graph,
     uint_t min_span, bool is_first) {
 	if (species_cluster_map.empty()) {
-		spdlog::warn("[constructMultipleGraphsByGreedy] Empty cluster map, nothing to process.");
+		spdlog::warn("[constructMultipleGraphsByDP] Empty cluster map, nothing to process.");
 		return;
 	}
 
@@ -1340,7 +1340,7 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
     std::mutex anchor_map_mutex;
     std::vector<std::future<void>> species_futures;
     species_futures.reserve(species_cluster_map.size());
-    spdlog::info("[constructMultipleGraphsByGreedy] Processing {} species clusters",
+    spdlog::info("[constructMultipleGraphsByDP] Processing {} species clusters",
     species_cluster_map.size());
 
     for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
@@ -1386,11 +1386,13 @@ void MultipleRareAligner::constructMultipleGraphsByDp(
 
     // 保险：等线程池里还没取走的任务都跑完
     shared_pool.waitAllTasksDone();
-    std::cout << "extend successfully with " << is_first << std::endl;
+    //std::cout << "extend successfully with " << is_first << std::endl;
+    spdlog::info("[constructMultipleGraphsByDP] All species extended successfully");
     
     for (auto& [species_name, anchor_ptr] : anchor_map) {
         pra.filterAnchorByDP(anchor_ptr);
-		std::cout << "filter successfully for " << species_name << " with " << anchor_ptr->size() << std::endl;
+        spdlog::info("filter successfully for {}", species_name);
+		//std::cout << "filter successfully for " << species_name << " with " << anchor_ptr->size() << std::endl;
 		pra.constructGraphByDP(species_name, *seqpro_managers[species_name], anchor_ptr, graph);
     }
 }
