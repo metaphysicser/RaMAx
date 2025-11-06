@@ -37,24 +37,6 @@ struct CommonArgs {
     bool verbose = false;                      // 详细输出模式
     bool quiet = false;                        // 静默模式
 
-    // 内存控制参数
-    std::string memory_limit = "";             // 内存使用限制
-    uint_t cache_size = 0;                     // 缓存大小
-
-    // 输出控制参数
-    bool keep_temp = false;                    // 保留临时文件
-    bool compress_output = false;              // 压缩输出文件
-    bool show_progress = false;                // 显示进度条
-
-    // 质量控制参数
-    float min_identity = 0.0;                  // 最小序列相似度
-    uint_t max_gaps = 0;                       // 最大gap数量
-    uint_t filter_short = 0;                   // 过滤短比对
-
-    // 并行化控制参数
-    int io_threads = 0;                        // IO专用线程数
-    int index_threads = 0;                     // 索引构建专用线程数
-    int align_threads = 0;                     // 比对专用线程数
 
     // HAL root name
     std::string root_name = "root";
@@ -80,18 +62,7 @@ struct CommonArgs {
             CEREAL_NVP(log_level),
             CEREAL_NVP(verbose),
             CEREAL_NVP(quiet),
-            CEREAL_NVP(memory_limit),
-            CEREAL_NVP(cache_size),
-            CEREAL_NVP(keep_temp),
-            CEREAL_NVP(compress_output),
-            CEREAL_NVP(show_progress),
-            CEREAL_NVP(min_identity),
-            CEREAL_NVP(max_gaps),
-            CEREAL_NVP(filter_short),
-            CEREAL_NVP(io_threads),
-            CEREAL_NVP(index_threads),
-            CEREAL_NVP(align_threads)
-            , CEREAL_NVP(root_name)
+            CEREAL_NVP(root_name)
         );
     }
 };
@@ -126,55 +97,24 @@ inline void printRunConfiguration(const CommonArgs& args) {
     spdlog::info("  Allow MEM             : {}", args.allow_MEM ? "Enabled" : "Disabled");
     spdlog::info("  Fast build            : {}", args.fast_build ? "Enabled" : "Disabled");
     spdlog::info("  Sampling interval     : {}", args.sampling_interval);
-    spdlog::info("  Min span              : {}", args.min_span);
+    spdlog::info("  Cluster Min span      : {}", args.min_span);
     spdlog::info("  Repeat masking        : {}", args.enable_repeat_masking ? "Enabled" : "Disabled");
     spdlog::info("  Tree root             ：{}", args.root_name);
     spdlog::info("");
 
-    // Quality control section
-    spdlog::info("Quality Control:");
-    if (args.min_identity > 0.0) {
-        spdlog::info("  Min identity          : {:.2f}", args.min_identity);
-    }
-    if (args.max_gaps > 0) {
-        spdlog::info("  Max gaps              : {}", args.max_gaps);
-    }
-    if (args.filter_short > 0) {
-        spdlog::info("  Filter short          : {}", args.filter_short);
-    }
-
-    spdlog::info("");
 
     // Performance section
     spdlog::info("Performance:");
     spdlog::info("  Thread count          : {}", args.thread_num);
-    if (args.io_threads > 0) {
-        spdlog::info("  IO threads            : {}", args.io_threads);
-    }
-    if (args.index_threads > 0) {
-        spdlog::info("  Index threads         : {}", args.index_threads);
-    }
-    if (args.align_threads > 0) {
-        spdlog::info("  Align threads         : {}", args.align_threads);
-    }
     spdlog::info("  Restart mode          : {}", args.restart ? "Enabled" : "Disabled");
-    if (!args.memory_limit.empty()) {
-        spdlog::info("  Memory limit          : {}", args.memory_limit);
-    }
-    if (args.cache_size > 0) {
-        spdlog::info("  Cache size            : {}", args.cache_size);
-    }
+
 
     spdlog::info("");
 
     // Output control section
     spdlog::info("Output Control:");
     spdlog::info("  Log level             : {}", args.log_level);
-    spdlog::info("  Verbose mode          : {}", args.verbose ? "Enabled" : "Disabled");
-    spdlog::info("  Quiet mode            : {}", args.quiet ? "Enabled" : "Disabled");
-    spdlog::info("  Keep temp files       : {}", args.keep_temp ? "Enabled" : "Disabled");
-    spdlog::info("  Compress output       : {}", args.compress_output ? "Enabled" : "Disabled");
-    spdlog::info("  Show progress         : {}", args.show_progress ? "Enabled" : "Disabled");
+
 
     spdlog::info("============================================================");
     spdlog::info("");
@@ -295,27 +235,6 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
         "Enable repeat sequence masking.")
         ->group("Software Parameters");
 
-    // 质量控制参数
-    auto* min_identity_opt = cmd->add_option("--min-identity", args.min_identity,
-        "Minimum sequence identity threshold (0.0-1.0).")
-        ->group("Quality Control")
-        ->check(CLI::Range(0.0, 1.0))
-        ->type_name("<float>")
-        ->transform(trim_whitespace);
-
-    auto* max_gaps_opt = cmd->add_option("--max-gaps", args.max_gaps,
-        "Maximum number of gaps allowed.")
-        ->group("Quality Control")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
-
-    auto* filter_short_opt = cmd->add_option("--filter-short", args.filter_short,
-        "Filter alignments shorter than specified length.")
-        ->group("Quality Control")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
 
     // 性能参数
     auto* threads_opt = cmd->add_option("-t,--threads", args.thread_num,
@@ -327,39 +246,7 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
         ->check(CLI::Range(1, std::numeric_limits<int>::max()))
         ->type_name("<int>")->transform(trim_whitespace);
 
-    auto* io_threads_opt = cmd->add_option("--io-threads", args.io_threads,
-        "Number of threads dedicated to I/O operations.")
-        ->group("Performance")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
 
-    auto* index_threads_opt = cmd->add_option("--index-threads", args.index_threads,
-        "Number of threads dedicated to index building.")
-        ->group("Performance")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
-
-    auto* align_threads_opt = cmd->add_option("--align-threads", args.align_threads,
-        "Number of threads dedicated to alignment.")
-        ->group("Performance")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
-
-    auto* memory_limit_opt = cmd->add_option("--memory-limit", args.memory_limit,
-        "Memory usage limit (e.g., 8G, 16G).")
-        ->group("Performance")
-        ->type_name("<size>")
-        ->transform(trim_whitespace);
-
-    auto* cache_size_opt = cmd->add_option("--cache-size", args.cache_size,
-        "Cache size limit.")
-        ->group("Performance")
-        ->check(CLI::Range(0, std::numeric_limits<int>::max()))
-        ->type_name("<int>")
-        ->transform(trim_whitespace);
 
     auto* restart_flag = cmd->add_flag("--restart", args.restart,
         "Restart the alignment process by skipping the existing index files.")
@@ -388,17 +275,6 @@ inline void setupCommonOptions(CLI::App* cmd, CommonArgs& args) {
         "Enable quiet mode (only errors).")
         ->group("Output Control");
 
-    auto* keep_temp_flag = cmd->add_flag("--keep-temp", args.keep_temp,
-        "Keep temporary files for debugging.")
-        ->group("Output Control");
-
-    auto* compress_output_flag = cmd->add_flag("--compress-output", args.compress_output,
-        "Compress output files.")
-        ->group("Output Control");
-
-    auto* show_progress_flag = cmd->add_flag("--progress", args.show_progress,
-        "Show progress bar.")
-        ->group("Output Control");
 
 
     // Set dependencies and exclusions
