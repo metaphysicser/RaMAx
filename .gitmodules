@@ -14,10 +14,6 @@
 	path = submodule/spdlog
 	url = https://github.com/gabime/spdlog.git
 	ignore = all
-[submodule "submodule/parlaylib"]
-	path = submodule/parlaylib
-	url = https://github.com/cmuparlay/parlaylib.git
-	ignore = all
 [submodule "submodule/xxHash"]
 	path = submodule/xxHash
 	url = https://github.com/Cyan4973/xxHash.git
