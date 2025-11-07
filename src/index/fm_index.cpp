@@ -454,93 +454,159 @@ MatchVec2DPtr FM_Index::findAnchorsFast(ChrIndex query_chr_index, std::string qu
 // -------------------------------------------------------------
 // Middle-Search：先 fast，后区间二分补搜
 // -------------------------------------------------------------
-MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index,
-    std::string query, Strand strand,
-    bool allow_MEM, uint_t query_offset,
+//MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index,
+//    std::string query, Strand strand,
+//    bool allow_MEM, uint_t query_offset,
+//    uint_t min_anchor_length,
+//    bool allow_short_mum,
+//    uint_t max_anchor_frequency,
+//    sdsl::int_vector<0>& ref_global_cache,
+//    SeqPro::Length sampling_interval) {
+//    MatchVec2DPtr out = std::make_shared<MatchVec2D>();
+//
+//    uint_t query_length = query.length();
+//
+//    /* ---------- STEP-0：先跑 Fast 拿到顶层 MUM ---------- */
+//    MatchVec2DPtr fast_mums =
+//        findAnchorsFast(query_chr_index, query, strand, allow_MEM, query_offset,
+//            min_anchor_length, max_anchor_frequency, allow_short_mum, ref_global_cache, sampling_interval);
+//
+//    if (fast_mums->empty())
+//        return out;
+//
+//    /* ---------- 方向处理，与 fast 保持一致 ---------- */
+//    if (strand == Strand::FORWARD)
+//        std::reverse(query.begin(), query.end());
+//    else
+//        for (char& ch : query)
+//            ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
+//
+//    out->reserve(fast_mums->size());
+//
+//    uint_t count;
+//    for (const auto& lst : *fast_mums) {
+//        bool left_is_mum = (lst.size() == 1);
+//
+//        const Match& a = lst.front();
+//        // start = query_length - match_length - total_length + query_offset
+//        // total_length = query_length - match_length - start + query_offset
+//        uint_t L = query_length - a.match_len() - a.qry_start +
+//            query_offset;
+//        uint_t n = a.match_len();
+//        uint_t R = L + n;
+//
+//        out->push_back(lst); // fast 结果入库
+//
+//        // 右端位置（R-1）再做一次搜索，作为 bisect 的 right 端点
+//        uint_t right_pos = R - 1;
+//        RegionVec regs;
+//        uint_t right_len = findSubSeqAnchors(
+//            query.c_str() + right_pos, query_length - right_pos, allow_MEM, regs,
+//            min_anchor_length, allow_short_mum, max_anchor_frequency, ref_global_cache, sampling_interval);
+//
+//        if (!regs.empty()) {
+//
+//            Coord_t qry_start;
+//            if (strand == Strand::FORWARD) {
+//                qry_start = query_length - right_pos - right_len + query_offset;
+//            }
+//            else {
+//                qry_start = query_offset + right_pos;
+//            }
+//
+//
+//            MatchVec anchor_ptr_list;
+//            anchor_ptr_list.reserve(regs.size());
+//            for (uint_t i = 0; i < regs.size(); i++) {
+//                Match match(regs[i].chr_index, regs[i].start, query_chr_index, qry_start, right_len, strand);
+//                /*Score_t score = caculateMatchScore(query.c_str() + right_pos,
+//                right_len); Cigar_t cigar; cigar.push_back(cigarToInt('=', right_len));
+//                Anchor p = Anchor(match, right_len, cigar, score);*/
+//                anchor_ptr_list.push_back(match);
+//            }
+//            if (!anchor_ptr_list.empty())
+//                out->push_back(anchor_ptr_list);
+//        }
+//
+//        bool right_is_mum = (regs.size() == 1);
+//
+//        // 调用成员函数递归补搜
+//        bisectAnchors(query, query_chr_index, strand, allow_MEM, query_offset,
+//            query_length, min_anchor_length, allow_short_mum, max_anchor_frequency,
+//            { L, n, left_is_mum }, { right_pos, right_len, right_is_mum },
+//            *out, ref_global_cache, sampling_interval);
+//        count++;
+//    }
+//    out->shrink_to_fit();
+//    return out;
+//}
+MatchVec2DPtr FM_Index::findAnchorsAccurate(ChrIndex query_chr_index, std::string query,
+    Strand strand, bool allow_MEM,
+    uint_t query_offset,
     uint_t min_anchor_length,
     bool allow_short_mum,
     uint_t max_anchor_frequency,
     sdsl::int_vector<0>& ref_global_cache,
     SeqPro::Length sampling_interval) {
-    MatchVec2DPtr out = std::make_shared<MatchVec2D>();
-
-    uint_t query_length = query.length();
-
-    /* ---------- STEP-0：先跑 Fast 拿到顶层 MUM ---------- */
-    MatchVec2DPtr fast_mums =
-        findAnchorsFast(query_chr_index, query, strand, allow_MEM, query_offset,
-            min_anchor_length, max_anchor_frequency, allow_short_mum, ref_global_cache, sampling_interval);
-
-    if (fast_mums->empty())
-        return out;
-
-    /* ---------- 方向处理，与 fast 保持一致 ---------- */
-    if (strand == Strand::FORWARD)
+    if (strand == Strand::FORWARD) {
         std::reverse(query.begin(), query.end());
-    else
-        for (char& ch : query)
+    }
+    else {
+        for (char& ch : query) {
             ch = BASE_COMPLEMENT[static_cast<unsigned char>(ch)];
+        }
+    }
 
-    out->reserve(fast_mums->size());
+    MatchVec2DPtr anchor_ptr_list_vec = std::make_shared<MatchVec2D>();
 
-    uint_t count;
-    for (const auto& lst : *fast_mums) {
-        bool left_is_mum = (lst.size() == 1);
+    uint_t total_length = 0;
+    uint_t query_length = query.length();
+    uint_t last_pos = 0;
 
-        const Match& a = lst.front();
-        // start = query_length - match_length - total_length + query_offset
-        // total_length = query_length - match_length - start + query_offset
-        uint_t L = query_length - a.match_len() - a.qry_start +
-            query_offset;
-        uint_t n = a.match_len();
-        uint_t R = L + n;
+    while (total_length < query_length) {
+        RegionVec region_vec;
+        uint_t match_length = findSubSeqAnchors(
+            query.c_str() + total_length, query_length - total_length, allow_MEM,
+            region_vec, min_anchor_length, allow_short_mum, max_anchor_frequency, ref_global_cache, sampling_interval);
 
-        out->push_back(lst); // fast 结果入库
-
-        // 右端位置（R-1）再做一次搜索，作为 bisect 的 right 端点
-        uint_t right_pos = R - 1;
-        RegionVec regs;
-        uint_t right_len = findSubSeqAnchors(
-            query.c_str() + right_pos, query_length - right_pos, allow_MEM, regs,
-            min_anchor_length, allow_short_mum, max_anchor_frequency, ref_global_cache, sampling_interval);
-
-        if (!regs.empty()) {
-
-            Coord_t qry_start;
-            if (strand == Strand::FORWARD) {
-                qry_start = query_length - right_pos - right_len + query_offset;
-            }
-            else {
-                qry_start = query_offset + right_pos;
-            }
-
+        Coord_t qry_start;
+        if (strand == Strand::FORWARD) {
+            qry_start = query_length - match_length - total_length + query_offset;
+        }
+        else {
+            qry_start = total_length + query_offset;
+        }
+        if (!region_vec.empty()) {
 
             MatchVec anchor_ptr_list;
-            anchor_ptr_list.reserve(regs.size());
-            for (uint_t i = 0; i < regs.size(); i++) {
-                Match match(regs[i].chr_index, regs[i].start, query_chr_index, qry_start, right_len, strand);
-                /*Score_t score = caculateMatchScore(query.c_str() + right_pos,
-                right_len); Cigar_t cigar; cigar.push_back(cigarToInt('=', right_len));
-                Anchor p = Anchor(match, right_len, cigar, score);*/
-                anchor_ptr_list.push_back(match);
+            anchor_ptr_list.reserve(region_vec.size());
+            uint_t ref_end_pos = region_vec[0].start;
+
+            // 仅当与上一段区域不重复时才添加
+            if (ref_end_pos != last_pos) {
+                for (uint_t i = 0; i < region_vec.size(); i++) {
+                    Match match(region_vec[i].chr_index, region_vec[i].start, query_chr_index, qry_start, match_length, strand);
+                    //Match match(region_vec[i], query_region, strand);
+                    /* Score_t score = caculateMatchScore(query.c_str() + total_length,
+                     match_length); Cigar_t cigar; cigar.push_back(cigarToInt('=',
+                     match_length)); Anchor p = Anchor(match, match_length, cigar,
+                     score);*/
+                    anchor_ptr_list.push_back(match);
+                    //if(match.qry_chr_index ==1 && match.ref_chr_index == 1 && match.ref_start > 54614009 && match.ref_start + match_length < 54636058){
+                    //    std::cout << "";
+                    //}
+                }
+                if (!anchor_ptr_list.empty())
+                    anchor_ptr_list_vec->push_back(anchor_ptr_list);
             }
-            if (!anchor_ptr_list.empty())
-                out->push_back(anchor_ptr_list);
+            last_pos = ref_end_pos;
         }
-
-        bool right_is_mum = (regs.size() == 1);
-
-        // 调用成员函数递归补搜
-        bisectAnchors(query, query_chr_index, strand, allow_MEM, query_offset,
-            query_length, min_anchor_length, allow_short_mum, max_anchor_frequency,
-            { L, n, left_is_mum }, { right_pos, right_len, right_is_mum },
-            *out, ref_global_cache, sampling_interval);
-        count++;
+        total_length += 1;
     }
-    out->shrink_to_fit();
-    return out;
-}
+    anchor_ptr_list_vec->shrink_to_fit();
 
+    return anchor_ptr_list_vec;
+}
 // -------------------------------------------------------------
 // 递归二分：把 (left.pos, right.pos) 区间彻底搜索干净
 // -------------------------------------------------------------
@@ -614,6 +680,7 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
     SAInterval next_I = { 0, total_size - 1 };
 
     while (match_length < query_length) {
+        if (query[match_length] == 'N' || query[match_length] == 'n') break;
         next_I = backwardExtend(I, query[match_length]);
         if (next_I.l == next_I.r) break;
         match_length++;
@@ -627,7 +694,12 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
         return 1;
     }
 
-    if (match_length < min_anchor_length && allow_short_mum == false) {
+    //if (match_length < min_anchor_length && allow_short_mum == false) {
+    //    return 1;
+    //}
+
+
+    if (match_length < min_anchor_length) {
         return 1;
     }
     //if (frequency > max_anchor_frequency) {
@@ -645,52 +717,61 @@ uint_t FM_Index::findSubSeqAnchors(const char* query, uint_t query_length,
                 SeqPro::SequenceId seq_id = SeqPro::SequenceIndex::INVALID_ID;
                 SeqPro::Position local_pos = 0;
                 // TODO 用的时候得加个验证看你要转的global坐标和这条染色体的起始全局坐标的差是否小于这条染色体的长度，如果大于的话得切到下一条染色体
-                // TODO 尝试使用缓存快速获取序列ID，避免二分搜索
-                // if (cache_size > 0) {
-                //     auto cache_index = ref_global_pos / sampling_interval;
+                if (cache_size > 0) {
+                    auto cache_index = ref_global_pos / sampling_interval + 1;
 
-                //     if (cache_index < cache_size) {
-                //         auto candidate_seq_id = ref_global_cache[cache_index];
+                    if (cache_index < cache_size) {
+                        auto candidate_seq_id = ref_global_cache[cache_index];
 
-                //         if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
-                //             // 获取候选序列的信息进行快速验证
-                //             using PtrType = std::decay_t<decltype(manager_ptr)>;
-                //             const SeqPro::SequenceInfo *candidate_info = nullptr;
+                        if (candidate_seq_id != SeqPro::SequenceIndex::INVALID_ID) {
+                            // 获取候选序列的信息进行快速验证
+                            using PtrType = std::decay_t<decltype(manager_ptr)>;
+                            const SeqPro::SequenceInfo *candidate_info = nullptr;
 
-                //             if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                //                 candidate_info = manager_ptr->getIndex().getSequenceInfo(candidate_seq_id);
-                //             } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-                //                 SeqPro::MaskedSequenceManager> >) {
-                //                 candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(
-                //                     candidate_seq_id);
-                //             }
+                            if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                candidate_info = manager_ptr->getIndex().getSequenceInfo(candidate_seq_id);
+                            } else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                SeqPro::MaskedSequenceManager> >) {
+                                candidate_info = manager_ptr->getOriginalManager().getIndex().getSequenceInfo(
+                                    candidate_seq_id);
+                            }
 
-                //             // 快速验证：检查全局坐标是否在该序列范围内
-                //             if (candidate_info &&
-                //                 ref_global_pos >= candidate_info->global_start_pos &&
-                //                 ref_global_pos < candidate_info->global_start_pos + candidate_info->length) {
-                //                 // 缓存命中！直接计算局部坐标
-                //                 seq_id = candidate_seq_id;
-                //                 //local_pos = ref_global_pos - candidate_info->global_start_pos;
+                            // 快速验证：检查全局坐标是否在该序列范围内
+                            if (candidate_info &&
+                                ref_global_pos >= candidate_info->masked_global_start_pos &&
+                                ref_global_pos < candidate_info->masked_global_start_pos + candidate_info->masked_length) {
+                                // 缓存命中！直接计算局部坐标
+                                seq_id = candidate_seq_id;
+                                //local_pos = ref_global_pos - candidate_info->global_start_pos;
 
-                //                 if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
-                //                     auto [id, pos] = manager_ptr->globalToLocal(ref_global_pos);
-                //                     local_pos = pos;
-                //                     region_vec.emplace_back(candidate_info->name, local_pos, match_length);
-                //                 }
-                //                 else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
-                //                     SeqPro::MaskedSequenceManager> >) {
-                //                     auto [fallback_seq_name, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
-                //                     region_vec.emplace_back(fallback_seq_name, fallback_local_pos, match_length);
-                //                 }
+                                if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
+                                    auto [id, pos] = manager_ptr->globalToLocal(ref_global_pos);
+                                    local_pos = pos;
+                                    region_vec.emplace_back(id, local_pos, match_length);
+                                }
+                                else if constexpr (std::is_same_v<PtrType, std::unique_ptr<
+                                    SeqPro::MaskedSequenceManager> >) {
+                                        local_pos = ref_global_pos - candidate_info->masked_global_start_pos;
+                                        local_pos = manager_ptr->toOriginalPositionSeparated(seq_id,local_pos);
+                                        region_vec.emplace_back(seq_id,local_pos,match_length);
+                                    // if (manager_ptr->getMaskManager().hasData() == false) {
+                                    //     local_pos = ref_global_pos - candidate_info->global_start_pos - seq_id;
+                                    //     region_vec.emplace_back(seq_id,local_pos,match_length);
+                                    // }
+                                    // else {
+                                    //     local_pos = ref_global_pos - candidate_info->global_start_pos - seq_id;
+                                    //     auto [fallback_seq_id, fallback_local_pos] = manager_ptr->globalToLocalSeparated(ref_global_pos);
+                                    //     region_vec.emplace_back(fallback_seq_id, fallback_local_pos, match_length);
+                                    // }
+                                }
 
-                //             }
-                //         }
-                //     }
-                // }
-
+                            }
+                        }
+                    }
+                }
                 // 如果缓存未命中，回退到原始的二分搜索
                 if (seq_id == SeqPro::SequenceIndex::INVALID_ID) {
+                    // std::cout<<"test";
                     using PtrType = std::decay_t<decltype(manager_ptr)>;
                     if constexpr (std::is_same_v<PtrType, std::unique_ptr<SeqPro::SequenceManager> >) {
                         const SeqPro::SequenceInfo* candidate_info = nullptr;

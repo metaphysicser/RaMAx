@@ -215,12 +215,12 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
         auto masked_intervals = masked_manager.getMaskIntervals(seq_name);
         
         if (masked_intervals.empty()) {
-            spdlog::debug("No masked intervals for sequence {}, using normal chunking", seq_name);
+            //spdlog::debug("No masked intervals for sequence {}, using normal chunking", seq_name);
             normalSizeBasedChunking(chunks, seq_name, seq_length, chunk_size, overlap_size, 0, seq_manager);
             return;
         }
         
-        spdlog::debug("Processing {} masked intervals for sequence {}", masked_intervals.size(), seq_name);
+        spdlog::info("Processing {} masked intervals for sequence {}", masked_intervals.size(), seq_name);
         
         // // 按起始位置排序遮蔽区间
         // std::sort(masked_intervals.begin(), masked_intervals.end(),
@@ -258,7 +258,7 @@ void splitByMaskedRegions(RegionVec& chunks, const std::string& seq_name,
             chunkUnmaskedRegion(chunks, seq_name, current_pos, seq_length, chunk_size, overlap_size, seq_manager);
         }
         
-        spdlog::debug("Generated {} chunks for sequence {} with masked region pre-splitting", 
+        spdlog::info("Generated {} chunks for sequence {} with masked region pre-splitting",
                      chunks.size(), seq_name);
                      
     } catch (const std::exception& e) {

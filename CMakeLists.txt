@@ -1,6 +1,9 @@
 ﻿cmake_minimum_required(VERSION 3.10)
 
 project("RaMAx")
+if(POLICY CMP0048)
+    cmake_policy(SET CMP0048 NEW)
+endif()
 
 # MSVC 热重载支持
 if(POLICY CMP0141)
@@ -10,8 +13,8 @@ if(POLICY CMP0141)
     "$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-# 设置 C++20 标准
-set(CMAKE_CXX_STANDARD 20)
+# 设置 C++23 标准
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -40,25 +43,25 @@ find_program(MAKE_EXE NAMES make gmake REQUIRED)
 # ================= HAL tools =================
 # 只要 maf2hal / hal2fasta 缺失或过期，就重新 make -C hal
 add_custom_command(
-    OUTPUT ${SONLIB_DIR}/lib/sonLib.h
+    OUTPUT ${SONLIB_DIR}/lib/sonLib.h ${SONLIB_DIR}/lib/sonLib.a
     COMMAND ${MAKE_EXE} -C ${SONLIB_DIR} -j
     WORKING_DIRECTORY ${SONLIB_DIR}
     COMMENT "Building sonLib…"
 )
 
 add_custom_target(sonLib_build
-    DEPENDS ${SONLIB_DIR}/lib/sonLib.h
+    DEPENDS ${SONLIB_DIR}/lib/sonLib.a
 )
 
 add_custom_command(
-    OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
+    OUTPUT ${HAL_MAF2HAL} ${HAL_HAL2FASTA} ${HAL_DIR}/lib/libHal.a
     COMMAND ${MAKE_EXE} -C ${HAL_DIR} -j
     WORKING_DIRECTORY ${HAL_DIR}
     COMMENT "Building HAL tools…"
 )
 
 add_custom_target(hal_tools
-    DEPENDS ${HAL_MAF2HAL} ${HAL_HAL2FASTA}
+    DEPENDS ${HAL_DIR}/lib/libHal.a
 )
 
 add_dependencies(hal_tools sonLib_build)
@@ -73,13 +76,25 @@ add_custom_command(TARGET hal_tools POST_BUILD
 
 # ============ 编译优化选项 ============
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mavx2")
+# ============ 编译优化选项 ============
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
+# 如果没有显式设置构建类型，默认使用 Release
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# 去掉符号表（减小二进制体积）
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-s")
+
 
 # ================= 子模块依赖 =================
 add_subdirectory("${SUBMODULE_DIR}/spdlog")
 # add_subdirectory("${SUBMODULE_DIR}/CLI11")
 # add_subdirectory("${SUBMODULE_DIR}/sdsl-lite")
-add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
+#set(WFA_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+#set(WFA_BUILD_STATIC ON CACHE BOOL "" FORCE)
+# add_subdirectory("${SUBMODULE_DIR}/WFA2-lib")
 # 已经 add_subdirectory(...) 产生了目标 "divsufsort"
 set(BUILD_DIVSUFSORT64 ON CACHE BOOL "" FORCE)
 add_subdirectory("${SUBMODULE_DIR}/libdivsufsort")
@@ -90,11 +105,11 @@ find_package(ZLIB REQUIRED)
 find_package(OpenMP)
 find_package(Threads REQUIRED)
 find_package(TBB REQUIRED)
+find_package(HDF5 REQUIRED COMPONENTS CXX)
 
 # ================= 公共源文件 =================
 set(RAMA_COMMON_SOURCES
     "${PREPROCESS_DIR}/raw_data_process.cpp"
-    "${PREPROCESS_DIR}/fasta_manager.cpp"
     "${PREPROCESS_DIR}/newick_tree.cpp"
     "${PREPROCESS_DIR}/sequence_utils.cpp"
     "${PREPROCESS_DIR}/SeqPro.cpp"
@@ -106,7 +121,6 @@ set(RAMA_COMMON_SOURCES
     "${SUFFIX_ARRAY_DIR}/gsa/gsacak.c"
     "${SUFFIX_ARRAY_DIR}/CaPS-SA/Suffix_Array.cpp"
     "${ANCHOR_DIR}/anchor.cpp"
-    "${ANCHOR_DIR}/anchor_io.cpp"
     "${ANCHOR_DIR}/anchor_chunk.cpp"
     "${ANCHOR_DIR}/cluster.cpp"
     "${ALIGN_DIR}/align.cpp"
@@ -117,6 +131,7 @@ set(RAMA_COMMON_SOURCES
     "${GRAPH_DIR}/ramesh_node.cpp"
     "${GRAPH_DIR}/ramesh_graph.cpp"
     "${GRAPH_DIR}/ramesh_export.cpp"
+    "${GRAPH_DIR}/hal_converter.cpp"
 )
 
 # ================= 主程序入口文件 =================
@@ -134,8 +149,11 @@ set(RAMA_INCLUDE_DIRS
     # "${SUBMODULE_DIR}/sdsl-lite/include"
     # "${SUBMODULE_DIR}/sdsl-lite/external/libdivsufsort/include"
     "${CMAKE_BINARY_DIR}/submodule/libdivsufsort/include"
-    "${SUBMODULE_DIR}/WFA2-lib"
+    # "${SUBMODULE_DIR}/WFA2-lib"
     "${SUBMODULE_DIR}/parlaylib/include"
+    "${HAL_DIR}/api/inc"
+    "${SONLIB_DIR}/C/inc"
+    ${HDF5_CXX_INCLUDE_DIRS}
 )
 
 # ================= 编译配置函数 =================
@@ -151,9 +169,12 @@ function(configure_rama_target target)
         divsufsort
         divsufsort64
         Threads::Threads
-        wfa2cpp_static
+        #wfa2cpp_static
         TBB::tbb
         OpenMP::OpenMP_CXX
+        ${HAL_DIR}/lib/libHal.a
+        ${SONLIB_DIR}/lib/sonLib.a
+        ${HDF5_CXX_LIBRARIES}
     )
 
     # 确保在构建目标前先构建libdivsufsort（生成头文件）

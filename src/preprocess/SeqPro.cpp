@@ -161,7 +161,7 @@ Position MaskManager::mapToOriginalPositionSeparated(SequenceId seq_id, Position
 
   Position origin_pos = masked_pos;
   
-  size_t accumulated_unmasked = 0;
+  long long accumulated_unmasked = 0;
   if (intervals.size() > 0 && intervals[0].start == 0) {
       accumulated_unmasked = -1;
   }
@@ -569,7 +569,7 @@ void SequenceManager::buildIndex() {
     if (current_line_length > 0 && file_data[line_start] == '>') {
       // 保存前一个序列
       if (!current_name.empty()) {
-        SequenceInfo info(seq_id++, current_name, current_length, global_offset,
+        SequenceInfo info(seq_id++, current_name, current_length, global_offset,global_offset,
                           sequence_start_offset, line_width, line_bytes);
         sequence_index_.addSequence(info);
         global_offset += current_length;
@@ -606,7 +606,7 @@ void SequenceManager::buildIndex() {
 
   // 保存最后一个序列
   if (!current_name.empty()) {
-    SequenceInfo info(seq_id, current_name, current_length, global_offset,
+    SequenceInfo info(seq_id, current_name, current_length, global_offset,global_offset,
                       sequence_start_offset, line_width, line_bytes);
     sequence_index_.addSequence(info);
   }
@@ -709,7 +709,12 @@ std::vector<std::string> SequenceManager::getSequenceNames() const {
 std::string SequenceManager::getSequenceName(const uint32_t& seq_id) const {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     const auto* info = sequence_index_.getSequenceInfo(seq_id);
-    return info->name;
+    if (info) {
+        return info->name;
+    }
+    else {
+		throw SequenceException("Invalid sequence ID: " + std::to_string(seq_id));
+    }
 }
 
 Length SequenceManager::getSequenceLength(const std::string &seq_name) const {
@@ -896,6 +901,11 @@ std::vector<SequenceManager::Result> SequenceManager::batchQuery(const std::vect
 
 void SequenceManager::setMaxThreads(size_t max_threads) {
   max_threads_ = std::max(size_t(1), max_threads);
+}
+
+void SequenceManager::clearMaskedRegions() {
+  // 对于SequenceManager，这是一个空操作
+  // 因为它不处理遮蔽区间
 }
 
 // ========================
@@ -1554,6 +1564,28 @@ void MaskedSequenceManager::finalizeMaskIntervals() {
   for (SequenceId seq_id : sequences_to_finalize) {
     finalizeMaskIntervals(seq_id);
   }
+  Position current_masked_pos = 0;
+  auto seq_names = getSequenceNames();
+
+  for (size_t i = 0; i < seq_names.size(); ++i) {
+    SequenceId seq_id = getSequenceId(seq_names[i]);
+
+    // 获取序列信息并更新masked_global_start_pos
+    auto *seq_info = const_cast<SequenceInfo *>(
+        original_manager_->getIndex().getSequenceInfo(seq_id));
+    if (seq_info) {
+      seq_info->masked_global_start_pos = current_masked_pos;
+      seq_info->masked_length = getSequenceLengthWithSeparators(seq_id);
+    }
+
+    // 累加当前序列的遮蔽后长度（包含间隔符）
+    current_masked_pos += getSequenceLengthWithSeparators(seq_id);
+
+    // 添加染色体间间隔符（除了最后一个序列）
+    if (i < seq_names.size() - 1) {
+      current_masked_pos += 1;
+    }
+  }
 }
 
 void MaskedSequenceManager::finalizeMaskIntervals(const std::string &seq_name) {
@@ -1582,6 +1614,14 @@ void MaskedSequenceManager::clearMaskIntervals(SequenceId seq_id) {
   mask_manager_.clearMaskIntervals(seq_id);
   unfinalized_sequences_.erase(seq_id);
   cache_valid_ = false;
+}
+
+void MaskedSequenceManager::clearMaskedRegions() {
+  // 清除所有序列的遮蔽区间
+  std::vector<std::string> seq_names = getSequenceNames();
+  for (const auto& seq_name : seq_names) {
+    clearMaskIntervals(seq_name);
+  }
 }
 
 bool MaskedSequenceManager::hasUnfinalizedIntervals() const {

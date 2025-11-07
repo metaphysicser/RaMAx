@@ -3,11 +3,11 @@
 
 #include "ksw2.h"
 #include "config.hpp"              // 包含基本类型定义，如 int_t、uint_t 等
-#include "bindings/cpp/WFAligner.hpp"
-extern "C" {
-#include "alignment/cigar.h" 
-#include "wavefront/wavefront_align.h"
-}
+// #include "bindings/cpp/WFAligner.hpp"
+// extern "C" {
+// #include "alignment/cigar.h"
+// #include "wavefront/wavefront_align.h"
+// }
 // ------------------------------------------------------------------
 // 类型定义
 // ------------------------------------------------------------------
@@ -78,11 +78,24 @@ inline constexpr std::array<char, 256> BASE_COMPLEMENT = [] {
     return m;
     }();
 
-inline void reverseComplement(std::string& seq) {
-    for (char& c : seq)
+// 互补
+inline void baseComplement(std::string& seq) {
+    for (char& c : seq) {
         c = BASE_COMPLEMENT[static_cast<unsigned char>(c)];
+    }
+}
+
+// 反转
+inline void reverseSeq(std::string& seq) {
     std::reverse(seq.begin(), seq.end());
 }
+
+// 先取反，再反转
+inline void reverseComplement(std::string& seq) {
+    baseComplement(seq);
+    reverseSeq(seq);
+}
+
 
 // ------------------------------------------------------------------
 // CIGAR 表示与转换
@@ -124,6 +137,8 @@ Score_t caculateMatchScore(const char* match, uint_t length);
  *  @param src  待追加的 CIGAR 片段
  * ------------------------------------------------------------------*/
 void appendCigar(Cigar_t& dst, const Cigar_t& src);
+
+void prependCigar(Cigar_t& dst, const Cigar_t& src);
 /* ------------------------------------------------------------------
  *  追加单个 CIGAR 操作；若与 dst 最后一个操作码一致则合并
  * ------------------------------------------------------------------*/
@@ -178,6 +193,24 @@ uint32_t countMatchOperations(const Cigar_t& cigar);
 // ------------------------------------------------------------------
 uint32_t countNonDeletionOperations(const Cigar_t& cigar);
 
+uint32_t countAlignmentLength(const Cigar_t& cigar);
+
+bool checkGapCigarQuality(const Cigar_t& cigar,
+    size_t ref_len,
+    size_t qry_len,
+    double min_identity);
+
+struct AlignCount {
+    size_t ref_bases = 0;
+    size_t query_bases = 0;
+};
+
+AlignCount countAlignedBases(const Cigar_t& cigar);
+uint32_t countQryLength(const Cigar_t& cigar);
+uint32_t countRefLength(const Cigar_t& cigar);
+
+
+
 
 
 struct KSW2AlignConfig {
@@ -188,7 +221,7 @@ struct KSW2AlignConfig {
     int end_bonus;                     // 末端奖励分
     int zdrop = 100;                   // Z-drop 剪枝参数
     int band_width = -1;               // -1 表示全矩阵
-    int flag = KSW_EZ_GENERIC_SC;      // 默认使用全替换矩阵
+    int flag = 0;      // 默认使用全替换矩阵
 };
 
 static int8_t dna5_simd_mat[25];
@@ -205,13 +238,10 @@ static void init_simd_mat() {
 
 //------------------------------------------- 带宽估计
 inline int auto_band(int qlen, int tlen,
-    double indel_rate = 0.05,
-    int    margin = 16)           // 多一点保险
+    double indel_rate = 0.1,
+    int    margin = 200)           // 多一点保险
 {
-    int diff = std::abs(qlen - tlen);
-    int extra = static_cast<int>(indel_rate * std::min(qlen, tlen));
-    int w = diff + extra + margin;
-    return (w + 15) / 16 * 16;                         // 向上取 16 的倍数
+    return margin + static_cast<int>(indel_rate * (qlen + tlen / 2));
 }
 
 /// \brief 生成 KSW2 的对齐配置
@@ -231,6 +261,9 @@ inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
 {
     init_simd_mat();                          // 确保 scoring matrix 已准备好
 
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
     int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
         KSW_EZ_APPROX_DROP |          // 近似最大 drop
         KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
@@ -249,12 +282,72 @@ inline KSW2AlignConfig makeTurboKSW2Config(int qlen, int tlen,
     };
 }
 
+inline KSW2AlignConfig makeTurboKSW2Config2(int qlen, int tlen,
+    bool rev_cigar = false,
+    double indel_rate = 0.05,
+    bool eqx_cigar = false)      // ← 新增
+{
+    init_simd_mat();                          // 确保 scoring matrix 已准备好
+
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
+    int flags = KSW_EZ_APPROX_MAX;
+        
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
+    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+
+    return {
+        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
+        .alphabet_size = 5,
+        .gap_open = 5,                                     // -8 -1 model
+        .gap_extend = 2,
+        .end_bonus = 0,
+        .zdrop = -1,
+        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
+        .flag = flags
+    };
+}
+
+inline KSW2AlignConfig makeTurboKSW2Config3(int qlen, int tlen,
+    bool rev_cigar = false,
+    double indel_rate = 0.05,
+    bool eqx_cigar = false)      // ← 新增
+{
+    init_simd_mat();                          // 确保 scoring matrix 已准备好
+
+    //int flags = KSW_EZ_APPROX_MAX |           // 近似最大分数
+    //    KSW_EZ_APPROX_DROP |          // 近似最大 drop
+    //    KSW_EZ_RIGHT;                 // 从右端开始回溯（更快）
+    int flags = 0;
+
+    if (rev_cigar) flags |= KSW_EZ_REV_CIGAR; // 需要时再加
+    if (eqx_cigar) flags |= KSW_EZ_EQX;       // 只有用户要求时才拆分 M
+
+    return {
+        .mat = dna5_simd_mat,                         // A/C/G/T/N 5×5
+        .alphabet_size = 5,
+        .gap_open = 5,                                     // -8 -1 model
+        .gap_extend = 2,
+        .end_bonus = 0,
+        .zdrop = -1,
+        .band_width = auto_band(qlen, tlen, indel_rate),     // 根据 indel 率自动
+        .flag = flags
+    };
+}
 
 KSW2AlignConfig makeDefaultKSW2Config();
 
 Cigar_t globalAlignKSW2(const std::string& ref, const std::string& query);
-Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
+Cigar_t globalAlignKSW2_2(const std::string& ref, const std::string& query);
+// Cigar_t globalAlignWFA2(const std::string& ref, const std::string& query);
+//
+// Cigar_t extendAlignWFA2(const std::string& ref,
+//     const std::string& query, int zdrop = 200);
 
+Cigar_t extendAlignKSW2(const std::string& ref,
+    const std::string& query,
+    int zdrop = 200);
 
 /* ────────────────────────────────────────────────────────────
  * 主函数：就地合并

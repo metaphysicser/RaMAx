@@ -27,6 +27,7 @@ namespace RaMesh {
         // list pointers – initialise nullptr
         s->primary_path.next.store(nullptr, std::memory_order_relaxed);
         s->primary_path.prev.store(nullptr, std::memory_order_relaxed);
+
         return std::shared_ptr<Segment>(s);
     }
 
@@ -387,6 +388,454 @@ namespace RaMesh {
         }
     }
 
+    void RaMesh::GenomeEnd::alignInterval(const SpeciesName ref_name,
+        const SpeciesName query_name,
+        const ChrName query_chr_name,
+        SegPtr cur_node,
+        std::map<SpeciesName, SeqPro::SharedManagerVariant> managers,
+        bool is_left_extend, int_t zdrop) {
+        if (cur_node == head || cur_node == tail || cur_node == NULL) return;
+		//if (cur_node->right_extend) return; // 已经扩展过了
+        if (cur_node->right_extend && cur_node->left_extend) return; // 已经扩展过了
+        auto fetchSeq = [](const SeqPro::ManagerVariant& mv,
+            const ChrName& chr, Coord_t b, Coord_t l) {
+                return std::visit([&](auto& p) {
+                    using T = std::decay_t<decltype(p)>;
+                    if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>)
+                        return p->getSubSequence(chr, b, l);
+                    else
+                        return p->getOriginalManager().getSubSequence(chr, b, l);
+                    }, mv);
+            };
+
+        auto getChrLen = [](const SeqPro::ManagerVariant& mv, const ChrName& chr) {
+            return std::visit([&](auto& p) {
+                using T = std::decay_t<decltype(p)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<SeqPro::SequenceManager>>)
+                    return p->getSequenceLength(chr);
+                else
+                    return p->getOriginalManager().getSequenceLength(chr);
+                }, mv);
+            };
+
+        // ---------------- 左扩展 ----------------
+        if (is_left_extend && cur_node->left_extend == false) {
+
+            int_t  query_len = 0;
+            Strand strand = cur_node->strand;
+            int_t  query_start = 0;
+
+            // 计算 query 侧左侧可扩区间（与右扩对称）
+            if (strand == FORWARD) {
+                SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+                query_start = (!query_left_node->isHead()) ? (query_left_node->start + query_left_node->length) : 0;
+                query_len = (int_t)cur_node->start - (int_t)query_start;
+            }
+            else { // REVERSE
+                SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                query_start = cur_node->start + cur_node->length;
+                if (!query_right_node->isTail())
+                    query_len = (int_t)query_right_node->start - (int_t)query_start;
+                else
+                    query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
+            }
+
+            BlockPtr cur_block = cur_node->parent_block;
+            ChrName  ref_chr_name = cur_block->ref_chr;
+            SegPtr   ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+            // 向左寻找“合适的”参考节点（与右扩扫右侧对称）
+            SegPtr ref_left_node = ref_cur_node->primary_path.prev.load(std::memory_order_acquire);
+            bool find = false;
+            while (true) {
+                if (ref_left_node->isHead()) break;
+                if (ref_left_node->left_extend && ref_left_node->right_extend) break;
+
+                for (const auto& [key, seg] : ref_left_node->parent_block->anchors) {
+                    if (key.first == query_name)
+                    {
+                        find = true;
+                        break;
+                    }
+                }
+                if (find) break;
+                ref_left_node = ref_left_node->primary_path.prev.load(std::memory_order_acquire);
+            }
+
+            int_t ref_start = (!ref_left_node->isHead()) ? (ref_left_node->start + ref_left_node->length) : 0;
+            int_t ref_len = (int_t)ref_cur_node->start - (int_t)ref_start;
+
+            // 与右扩一致：先标记，再进行比对（避免重复进入）
+            // cur_node->left_extend = true;
+            // ref_cur_node->left_extend = true;
+
+            // === 实际比对逻辑 ===
+            if (find && query_len > 0 && ref_len > 0) {
+                // 与右扩一致的长度上限保护
+                if (query_len > 10000 || ref_len > 10000) {
+                    return;
+                    // std::cout << "Left extend too long: " << query_len << ", " << ref_len << "\n";
+                }
+
+                std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
+                std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
+
+                // 把“左扩”转换成“向右比对”
+                // 1) 反转 query（统一向右延伸）
+                std::reverse(ref_seq.begin(), ref_seq.end());
+                // 2) 参考端与右扩保持相同的链向处理习惯：
+                //    - FORWARD：反转 ref 左段
+                //    - REVERSE：仅做互补（等价于 reverse(RC(left_ref))）
+                if (strand == FORWARD) {
+                    std::reverse(query_seq.begin(), query_seq.end());
+                }
+                else { // REVERSE
+                    baseComplement(query_seq);
+                    // 如无 baseComplement，可用：reverseComplement(ref_seq); std::reverse(ref_seq.begin(), ref_seq.end());
+                }
+
+                // 与右扩统一：使用 KSW2 延伸
+                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, zdrop);
+
+                // 将 CIGAR 恢复到原坐标方向，再拼到左侧
+                std::reverse(result.begin(), result.end());
+
+                // 与右扩一致：此处质量判定留“true”或接入同一套检查
+                if (true /* checkGapCigarQuality(result, ref_len, query_len, 0.6) */) {
+                    AlignCount cnt = countAlignedBases(result);
+
+                    // 更新 query 段坐标（左扩：FORWARD 才需要移动 start）
+                    if (strand == FORWARD) {
+                        cur_node->start -= cnt.query_bases;
+                    }
+                    cur_node->length += cnt.query_bases;
+
+                    // 更新 ref 段坐标（左扩需要移动 ref_start）
+                    ref_cur_node->start -= cnt.ref_bases;
+                    ref_cur_node->length += cnt.ref_bases;
+
+                    // 拼到“左侧”
+                    prependCigar(cur_node->cigar, result);
+                }
+                else {
+                    // std::cout << "Bad left extend cigar: " << ref_len << ", " << query_len << "\n";
+                }
+
+                // 如需去掉左端首个 I/D，可用下面这段（与右扩中注释块一致，默认不启用）
+                /*
+                while (!result.empty()) {
+                    char op; uint32_t len;
+                    intToCigar(result.front(), op, len);
+                    if (op == 'I' || op == 'D') result.erase(result.begin());
+                    else break;
+                }
+                */
+            }
+        }
+
+
+
+        // ---------------- 右扩展 ----------------
+        if (!is_left_extend && cur_node->right_extend == false) {
+            int_t query_len = 0;
+            Strand strand = cur_node->strand;
+            int_t query_start = 0;
+
+            if (strand == FORWARD) {
+                SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+                query_start = cur_node->start + cur_node->length;
+                if (!query_right_node->isTail()) {
+                    query_len = (int_t)query_right_node->start - (int_t)query_start;
+                }
+                else {
+                    query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
+                }
+            }
+            else {
+                SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+                if (!query_left_node->isHead()) {
+                    query_start = query_left_node->start + query_left_node->length;
+                    query_len = cur_node->start - query_start;
+                }
+                else {
+                    query_start = 0;
+                    query_len = cur_node->start;
+                }
+            }
+
+            BlockPtr cur_block = cur_node->parent_block;
+            ChrName ref_chr_name = cur_block->ref_chr;
+            SegPtr ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+            bool find = false;
+            SegPtr ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
+            while (true) {
+				if (ref_right_node->isTail()) break;
+                if (ref_right_node->left_extend && ref_right_node->right_extend) break;
+
+                for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
+                    if (key.first == query_name) {
+                        find = true;
+                        break;
+                    }
+                }
+                if (find) {
+                    break;
+                }
+                ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
+            }
+
+            int_t ref_start = ref_cur_node->start + ref_cur_node->length;
+            int_t ref_len = (!ref_right_node->isTail()) ? (int_t)ref_right_node->start - (int_t)ref_start : (int_t)getChrLen(*managers[ref_name], cur_block->ref_chr) - (int_t)ref_start;
+
+            // cur_node->right_extend = true;
+            // ref_cur_node->right_extend = true;
+
+            // === 实际比对逻辑 ===
+            if (find && query_len > 0 && ref_len > 0) {
+				if (query_len > 10000 || ref_len > 10000) {
+                    return;
+					//std::cout << "Right extend too long: " << query_len << ", " << ref_len << "\n";
+				}
+                std::string query_seq = fetchSeq(*managers[query_name], query_chr_name, query_start, query_len);
+                std::string ref_seq = fetchSeq(*managers[ref_name], cur_block->ref_chr, ref_start, ref_len);
+
+                // TODO: 在这里执行右扩展比对
+                if (strand == FORWARD) {
+                }
+                else {
+					reverseComplement(query_seq);
+                }
+
+                // Cigar_t result = globalAlignWFA2(ref_seq, query_seq);
+                Cigar_t result = extendAlignKSW2(ref_seq, query_seq, zdrop);
+
+                //Cigar_t result = globalAlignKSW2_2(ref_seq, query_seq);
+				//if (checkGapCigarQuality(result, ref_len, query_len, 0.6)){
+                if (true) {
+                    AlignCount cnt = countAlignedBases(result);
+                    if (strand == REVERSE) {
+                        //std::reverse(result.begin(), result.end());
+                        cur_node->start -= cnt.query_bases;
+                    }
+                    else {
+
+                    }
+
+                    cur_node->length += cnt.query_bases;
+
+                    ref_cur_node->length += cnt.ref_bases;
+                    appendCigar(cur_node->cigar, result);
+                }
+                else {
+					std::cout << "Bad right extend cigar: " << ref_len << ", " << query_len << "\n";
+                }
+                //while (!result.empty()) {
+                //    char op; uint32_t len;
+                //    intToCigar(result.back(), op, len);
+                //    if (op == 'I' || op == 'D') {
+                //        // 如果是 indel，则直接丢弃该操作
+                //        result.erase(result.end());
+                //    }
+                //    else {
+                //        // 第一个合法操作符是 M/=/X 等时，停止
+                //        break;
+                //    }
+                //}
+
+
+            }
+            //else {
+            //     === 有重叠：回退对齐直到两侧长度都恢复到非负 ===
+            //     query_len <= 0 / ref_len <= 0 表示需要回退的“重叠量”（取相反数）
+            //    int_t need_q = (query_len < 0) ? -query_len : 0;  // 需要从 qry 侧回退的碱基数
+            //    int_t need_r = (ref_len < 0) ? -ref_len : 0;  // 需要从 ref 侧回退的碱基数
+
+            //     几何更新：按“回退方向”对 query/ref 的 start/length 做同步调整
+            //    auto apply_trim = [&](int_t take_q, int_t take_r) {
+            //         更新 query 侧
+            //        if (take_q > 0) {
+            //            if (strand == FORWARD) {
+            //                 右端回退
+            //                cur_node->length = (cur_node->length >= (uint_t)take_q)
+            //                    ? (cur_node->length - (uint_t)take_q) : 0;
+            //            }
+            //            else { // REVERSE：右扩展对应 query 左端
+            //                cur_node->start += (uint_t)take_q;  // 左端右移
+            //                cur_node->length = (cur_node->length >= (uint_t)take_q)
+            //                    ? (cur_node->length - (uint_t)take_q) : 0;
+            //            }
+            //        }
+            //         更新 ref 侧（右端回退）
+            //        if (take_r > 0) {
+            //            ref_cur_node->length = (ref_cur_node->length >= (uint_t)take_r)
+            //                ? (ref_cur_node->length - (uint_t)take_r) : 0;
+            //        }
+            //        };
+
+            //     取一个 CIGAR 单元（从尾或从头）
+            //    auto get_cigar_unit = [&](char& op, uint32_t& len) {
+            //        if (strand == FORWARD) {
+            //            intToCigar(cur_node->cigar.back(), op, len);
+            //        }
+            //        else {
+            //            intToCigar(cur_node->cigar.front(), op, len);
+            //        }
+            //        };
+
+            //     写回一个 CIGAR 单元（缩短或删除）
+            //    auto shrink_or_pop = [&](char op, uint32_t old_len, uint32_t take_len) {
+            //        uint32_t left_len = old_len - take_len;
+            //        if (strand == FORWARD) {
+            //            if (left_len == 0) cur_node->cigar.pop_back();
+            //            else               cur_node->cigar.back() = cigarToInt(op, left_len);
+            //        }
+            //        else {
+            //            if (left_len == 0) cur_node->cigar.erase(cur_node->cigar.begin());
+            //            else               cur_node->cigar.front() = cigarToInt(op, left_len);
+            //        }
+            //        };
+
+            //    while ((need_q > 0 || need_r > 0) && !cur_node->cigar.empty()) {
+            //        char op; uint32_t len;
+            //        get_cigar_unit(op, len);
+
+            //         计算当前单元可回退量
+            //        int_t take_q = 0, take_r = 0;
+            //        switch (op) {
+            //        case 'M': case '=': case 'X': {
+            //             同时消耗两侧：尽量满足两侧中较大的需求
+            //            int_t want = std::max(need_q, need_r);
+            //            int_t take = std::min<int_t>(len, want);
+            //            take_q = take_r = take;
+            //            break;
+            //        }
+            //        case 'I': case 'S': case 'H': case 'P': { // 只影响 query（末端剪切/硬剪切/padding 视作不影响 ref）
+            //             若 need_q>0，优先使用以满足 query 回退；否则穿过这些操作以到达能消耗 ref 的单元
+            //            take_q = std::min<int_t>(len, (need_q > 0 ? need_q : (int_t)len));
+            //            break;
+            //        }
+            //        case 'D': { // 只影响 ref
+            //             若 need_r>0，优先使用以满足 ref 回退；否则穿过以到达能消耗 query 的单元
+            //            take_r = std::min<int_t>(len, (need_r > 0 ? need_r : (int_t)len));
+            //            break;
+            //        }
+
+            //        }
+
+            //         应用几何更新
+            //        apply_trim(take_q, take_r);
+
+            //         更新需求
+            //        need_q = std::max<int_t>(0, need_q - take_q);
+            //        need_r = std::max<int_t>(0, need_r - take_r);
+
+            //         更新 CIGAR（从尾/头缩短或弹出）
+            //        uint32_t take_len = (uint32_t)std::max(take_q, take_r);
+            //        shrink_or_pop(op, len, take_len);
+            //    }
+
+            //}
+
+            //query_len = 0;
+            //strand = cur_node->strand;
+            //query_start = 0;
+
+            //if (strand == FORWARD) {
+            //    SegPtr query_right_node = cur_node->primary_path.next.load(std::memory_order_acquire);
+            //    query_start = cur_node->start + cur_node->length;
+            //    if (!query_right_node->isTail()) {
+            //        query_len = (int_t)query_right_node->start - (int_t)query_start;
+            //    }
+            //    else {
+            //        query_len = (int_t)getChrLen(*managers[query_name], query_chr_name) - (int_t)query_start;
+            //    }
+            //}
+            //else {
+            //    SegPtr query_left_node = cur_node->primary_path.prev.load(std::memory_order_acquire);
+            //    if (!query_left_node->isHead()) {
+            //        query_start = query_left_node->start + query_left_node->length;
+            //        query_len = cur_node->start - query_start;
+            //    }
+            //    else {
+            //        query_start = 0;
+            //        query_len = cur_node->start;
+            //    }
+            //}
+
+            //cur_block = cur_node->parent_block;
+            //ref_chr_name = cur_block->ref_chr;
+            //ref_cur_node = cur_block->anchors[{ ref_name, cur_block->ref_chr }];
+
+
+            //ref_right_node = ref_cur_node->primary_path.next.load(std::memory_order_acquire);
+            //while (true) {
+            //    if (ref_right_node->isTail()) break;
+            //    if (ref_right_node->left_extend && ref_right_node->right_extend) break;
+            //    bool find = false;
+            //    for (const auto& [key, seg] : ref_right_node->parent_block->anchors) {
+            //        if (key.first == query_name) {
+            //            find = true;
+            //            break;
+            //        }
+            //    }
+            //    if (find) {
+            //        break;
+            //    }
+            //    ref_right_node = ref_right_node->primary_path.next.load(std::memory_order_acquire);
+            //}
+
+            //ref_start = ref_cur_node->start + ref_cur_node->length;
+            //ref_len = (!ref_right_node->isTail()) ? (int_t)ref_right_node->start - (int_t)ref_start : (int_t)getChrLen(*managers[ref_name], cur_block->ref_chr) - (int_t)ref_start;
+            //if (ref_len < 0 || query_len < 0) {
+            //    std::cout << "111";
+            //}
+        }
+    }
+
+    // 串行重新排序：按照 start 坐标
+    void GenomeEnd::resortSegments() {
+        std::vector<SegPtr> segs;
+        SegPtr cur = head->primary_path.next.load(std::memory_order_acquire);
+        while (cur && !cur->isTail()) {
+            segs.push_back(cur);
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+
+        if (segs.empty()) return;
+
+        // 按 start 排序
+        std::sort(segs.begin(), segs.end(), [](const SegPtr& a, const SegPtr& b) {
+            return a->start < b->start;
+            });
+
+        // 重新链接：head -> segs[0] -> ... -> segs[n-1] -> tail
+        Segment::linkChain(segs);
+        head->primary_path.next.store(segs.front(), std::memory_order_release);
+        segs.front()->primary_path.prev.store(head, std::memory_order_release);
+
+        tail->primary_path.prev.store(segs.back(), std::memory_order_release);
+        segs.back()->primary_path.next.store(tail, std::memory_order_release);
+
+#ifdef _DEBUG_
+        cur = head->primary_path.next.load(std::memory_order_acquire);
+        uint_t prev_start = 0;
+        bool first = true;
+        while (cur && !cur->isTail()) {
+            if (!first && cur->start < prev_start) {
+                std::cerr << "[GenomeEnd::resortSegments] ERROR: "
+                    << "segment order invalid: "
+                    << cur->start << " < " << prev_start << std::endl;
+                break; // 发现问题就退出
+            }
+            prev_start = cur->start;
+            first = false;
+            cur = cur->primary_path.next.load(std::memory_order_acquire);
+        }
+#endif
+    }
+
+
     /* -------------------------------------------------------------
      *  移除同一染色体链表中的重叠 Segment
      *  规则：两条 Segment 区间有任何交叠时，删除 length 较小者
@@ -408,9 +857,7 @@ namespace RaMesh {
             SegPtr next = cur;
             uint_t prev_end = prev->start + prev->length;
             uint_t cur_start = cur->start;
-            if (cur_start == 1286480 || cur_start == 1429536) {
-                std::cout << "";
-            }
+ 
             /* -------- 检测交叠 -------- */
             while (prev_end > cur_start && cur && cur != tail && next && next != tail)
             {

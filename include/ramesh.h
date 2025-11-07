@@ -8,16 +8,17 @@
 #include <atomic>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <map>
 #include <shared_mutex>
-#include <iostream>
 #include <chrono>
 #include <algorithm>
 
 #include "config.hpp"
 #include "anchor.h"
+
+// 前向声明：NewickParser 位于全局命名空间（见 data_process.h）
+class NewickParser;
 
 namespace RaMesh {
 
@@ -76,6 +77,8 @@ namespace RaMesh {
         RaMeshPath  primary_path;
         BlockPtr   parent_block;
 
+        bool left_extend{ false };
+		bool right_extend{ false };
         mutable std::shared_mutex rw;        // guards non‑list fields
 
         // ――― predicates ―――
@@ -166,6 +169,10 @@ namespace RaMesh {
         void removeBatch(const std::vector<SegPtr>& segments);
         void invalidateSampling(uint_t start, uint_t end);
 
+        void resortSegments();
+
+        void alignInterval(const SpeciesName ref_name, const SpeciesName query_name, const ChrName query_chr_name, SegPtr cur_node, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, bool is_left_extend, int_t zdrop);
+
         void removeOverlap(bool if_ref);
 
         SegPtr head{ nullptr };
@@ -225,10 +232,38 @@ namespace RaMesh {
 
         void insertAnchorIntoGraph(SeqPro::ManagerVariant& ref_mgr, SeqPro::ManagerVariant& qry_mgr, SpeciesName ref_name, SpeciesName qry_name, const Anchor& anchor, bool isMultiple=false);
 
+        void markAllExtended() {
+            std::unique_lock lock(rw); // 锁保护整个 species_graphs
+            for (auto& [species, genome_graph] : species_graphs) {
+                std::shared_lock g_lock(genome_graph.rw);
+                for (auto& [chr, end] : genome_graph.chr2end) {
+                    std::shared_lock e_lock(end.rw);
+
+                    SegPtr cur = end.head;
+                    while (cur) {
+                        if (!cur->isHead() && !cur->isTail()) {
+                            std::unique_lock s_lock(cur->rw);
+                            cur->left_extend = true;
+                            cur->right_extend = true;
+                        }
+                        cur = cur->primary_path.next.load(std::memory_order_acquire);
+                    }
+                }
+            }
+        };
+
+
+		void extendRefNodes(const SpeciesName& ref_name, std::map<SpeciesName, SeqPro::SharedManagerVariant> managers, int_t zdrop);
         void debugPrint(bool show_detail) const;
         
         // 图正确性验证函数
         bool verifyGraphCorrectness(bool verbose = false, bool show_detailed_segments = false) const;
+        bool verifyGraphCorrectness(const SpeciesName& reference_species,
+                                    bool verbose = false,
+                                    bool show_detailed_segments = false,
+                                    bool require_reference_overlap = true,
+                                    bool forbid_non_reference_overlap = true,
+                                    bool allow_reference_overlap = true) const;
 
         // ――― Enhanced verification system ―――
         enum class VerificationType : uint32_t {
@@ -267,7 +302,7 @@ namespace RaMesh {
         };
 
         struct VerificationOptions {
-            uint32_t enabled_checks = 0xFFFFFFFF;  // 默认启用所有检查
+            uint32_t enabled_checks = 0;          // 默认按需启用检查
             bool verbose = false;
             size_t max_errors_per_type = 100000;   // 完整统计所有错误
             size_t max_total_errors = 500000;      // 完整统计所有错误
@@ -276,15 +311,30 @@ namespace RaMesh {
             bool include_performance_checks = false;
             bool show_detailed_segments = false;   // 是否显示详细的段信息调试日志
 
+            struct ReferenceOverlapPolicy {
+                bool enabled = false;
+                SpeciesName reference_species;
+                bool allow_reference_overlap = true;
+                bool require_reference_overlap = false;
+                bool forbid_non_reference_overlap = true;
+
+                void reset() {
+                    enabled = false;
+                    reference_species.clear();
+                    allow_reference_overlap = true;
+                    require_reference_overlap = false;
+                    forbid_non_reference_overlap = true;
+                }
+            };
+
+            ReferenceOverlapPolicy reference_policy;
+
             VerificationOptions() {
-                // 默认启用所有基本检查
+                // 默认启用关键的结构与坐标检查
                 enable(VerificationType::POINTER_VALIDITY);
                 enable(VerificationType::LINKED_LIST_INTEGRITY);
                 enable(VerificationType::COORDINATE_OVERLAP);
                 enable(VerificationType::COORDINATE_ORDERING);
-                disable(VerificationType::BLOCK_CONSISTENCY);
-                enable(VerificationType::MEMORY_INTEGRITY);
-                enable(VerificationType::THREAD_SAFETY);
             }
 
             void enable(VerificationType type) {
@@ -298,6 +348,21 @@ namespace RaMesh {
             bool isEnabled(VerificationType type) const {
                 return (enabled_checks & static_cast<uint32_t>(type)) != 0;
             }
+
+            void enableReferenceOverlapPolicy(const SpeciesName& ref,
+                                              bool allow_reference_overlap = true,
+                                              bool require_reference_overlap = false,
+                                              bool forbid_non_reference_overlap = true) {
+                reference_policy.enabled = true;
+                reference_policy.reference_species = ref;
+                reference_policy.allow_reference_overlap = allow_reference_overlap;
+                reference_policy.require_reference_overlap = require_reference_overlap;
+                reference_policy.forbid_non_reference_overlap = forbid_non_reference_overlap;
+            }
+
+            void disableReferenceOverlapPolicy() {
+                reference_policy.reset();
+            }
         };
 
         struct VerificationResult {
@@ -307,6 +372,8 @@ namespace RaMesh {
 
             // 优化的错误计数器：避免每次都遍历整个错误向量
             mutable std::unordered_map<VerificationType, size_t> error_counts;
+            mutable std::unordered_map<std::string,
+                   std::unordered_map<VerificationType, size_t>> verbose_counts_by_species;
 
             size_t getErrorCount(VerificationType type) const {
                 return std::count_if(errors.begin(), errors.end(),
@@ -325,6 +392,19 @@ namespace RaMesh {
             void incrementErrorCount(VerificationType type) {
                 error_counts[type]++;
             }
+
+            size_t getSpeciesVerboseCount(const std::string& species,
+                                           VerificationType type) const {
+                auto sit = verbose_counts_by_species.find(species);
+                if (sit == verbose_counts_by_species.end()) return 0;
+                auto tit = sit->second.find(type);
+                return tit != sit->second.end() ? tit->second : 0;
+            }
+
+            void incrementSpeciesVerboseCount(const std::string& species,
+                                              VerificationType type) {
+                verbose_counts_by_species[species][type]++;
+            }
         };
 
         VerificationResult verifyGraphCorrectness(const VerificationOptions& options) const;
@@ -342,6 +422,19 @@ namespace RaMesh {
         void exportToMafWithoutReverse(const FilePath& maf_path, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
 
         void exportToMultipleMaf(const std::vector<std::pair<SpeciesName, FilePath>>& outs, const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seq_mgrs, bool only_primary, bool pairwise_mode) const;
+
+        void exportToHal(const FilePath& hal_path,
+                        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                        const std::string& newick_tree = "",
+                        bool only_primary = true,
+                        const std::string& root_name = "root") const;
+
+        // 重载：直接复用已解析的 NewickParser，避免重复读取导致子树选择失效
+        void exportToHal(const FilePath& hal_path,
+                        const std::map<SpeciesName, SeqPro::SharedManagerVariant>& seqpro_managers,
+                        const NewickParser& parser,
+                        bool only_primary = true,
+                        const std::string& root_name = "root") const;
 
         
         // ――― high-performance deletion methods ―――
@@ -392,6 +485,10 @@ namespace RaMesh {
         // 优化的统一遍历函数
         void verifyWithUnifiedTraversal(VerificationResult& result, const VerificationOptions& options) const;
     };
+
+    void reportUnalignedRegions(const GenomeEnd& end,
+        const SeqPro::SharedManagerVariant& mgr,
+		const ChrName& chr_name);
 
 } // namespace RaMesh
 

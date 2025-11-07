@@ -317,9 +317,10 @@ void addAlignedRegionsAsMask(
         return;
     }
     
+    #ifdef _DEBUG_
     spdlog::info("[addAlignedRegionsAsMask] Extracting aligned regions as mask intervals from {} blocks", 
                  graph.blocks.size());
-    
+    #endif
     // 按物种和染色体分组收集区间
     std::unordered_map<SpeciesName, std::unordered_map<ChrName, std::vector<SeqPro::MaskInterval>>> 
         species_chr_intervals;
@@ -358,10 +359,10 @@ void addAlignedRegionsAsMask(
             total_intervals++;
         }
     }
-    
+    #ifdef _DEBUG_
     spdlog::info("[addAlignedRegionsAsMask] Collected {} intervals from {} valid blocks across {} species", 
                  total_intervals, valid_blocks, species_chr_intervals.size());
-    
+    #endif
     // 为每个物种批量添加遮蔽区间
     for (auto& [species_name, chr_intervals] : species_chr_intervals) {
         try {
@@ -387,9 +388,10 @@ void addAlignedRegionsAsMask(
                 // 批量添加区间（segment中的坐标是遮蔽后的坐标，需要转换为原始坐标）
                 masked_manager->addMaskIntervals(seq_name, intervals);
                 species_total_intervals += intervals.size();
-                
+                #ifdef _DEBUG_
                 spdlog::debug("[addAlignedRegionsAsMask] Added {} intervals for {}:{}", 
                              intervals.size(), species_name, seq_name);
+                #endif
             }
             
             // 定案该物种的所有遮蔽区间
@@ -504,26 +506,88 @@ starAlignment(
     SeqPro::Length sampling_interval,
     uint_t min_span)
 {
-    std::vector leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
-	uint_t leaf_num = leaf_vec.size();
+
+    std::vector<std::pair<SpeciesName, SeqPro::Length>> species_sizes;
+    species_sizes.reserve(seqpro_managers.size());
+
+    for (const auto &entry : seqpro_managers) {
+        const SpeciesName &species_name = entry.first;
+        const SeqPro::SharedManagerVariant &shared_mgr_variant = entry.second;
+
+        if (!shared_mgr_variant) {
+            // 空指针就当长度=0
+            species_sizes.emplace_back(species_name, 0);
+            continue;
+        }
+
+        // 用 std::visit 取这个物种的 total length
+        SeqPro::Length total_len = std::visit(
+            [](auto const &mgrPtr) -> SeqPro::Length {
+                using ManagerPtrT = std::decay_t<decltype(mgrPtr)>;
+
+                if constexpr (std::is_same_v<ManagerPtrT, std::unique_ptr<SeqPro::SequenceManager>>) {
+                    return mgrPtr ? mgrPtr->getTotalLength() : 0;
+                } else if constexpr (std::is_same_v<ManagerPtrT, std::unique_ptr<SeqPro::MaskedSequenceManager>>) {
+                    return mgrPtr ? mgrPtr->getTotalLength() : 0;
+                } else {
+                    // 理论上不会到这里
+                    return 0;
+                }
+            },
+            *shared_mgr_variant // shared_ptr<variant<...>> => 解引用拿variant
+        );
+
+        species_sizes.emplace_back(species_name, total_len);
+    }
+
+    // 按碱基总数从大到小排序
+    std::sort(
+        species_sizes.begin(),
+        species_sizes.end(),
+        [](const auto &a, const auto &b) {
+            return a.second > b.second; // 降序
+        }
+    );
+
+    // 提取最终的物种顺序（只要名字）
+    std::vector<SpeciesName> species_order;
+    species_order.reserve(species_sizes.size());
+    for (const auto &p : species_sizes) {
+        species_order.push_back(p.first);
+    }
+    uint_t leaf_num = species_order.size();
+
+    // 打印 speicies order 信息
+    spdlog::info("Species processing order ({} total):", leaf_num);
+
+    for (size_t i = 0; i < species_order.size(); ++i) {
+        spdlog::info("  [{}] {}", i, species_order[i]);
+    }
+
+
+ //    std::vector<int> leaf_vec = newick_tree.orderLeavesGreedyMinSum(tree_root);
+ //    //std::swap(leaf_vec.front(), leaf_vec.back());
+	// uint_t leaf_num = leaf_vec.size();
     // 初始化Ref缓存
     sdsl::int_vector<0> ref_global_cache;
     // 创建共享线程池，供比对和过滤过程共同使用
     // uint_t count = 0;
     // 创建当前迭代的多基因组图
     auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
-    //for (uint_t i = 0; i < 1; i++) { 
+    //for (uint_t i = 0; i < 1; i++) {
     for (uint_t i = 0; i < leaf_num; i++) {
         //auto multi_graph = std::make_unique<RaMesh::RaMeshMultiGenomeGraph>(seqpro_managers);
         // 使用工具函数构建缓存
-        spdlog::info("build ref global cache for {}", newick_tree.getNodes()[leaf_vec[i]].name);
-        SequenceUtils::buildRefGlobalCache(seqpro_managers[newick_tree.getNodes()[leaf_vec[i]].name], sampling_interval, ref_global_cache);
-		uint_t ref_id = leaf_vec[i];
-		SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
+        SpeciesName ref_name = species_order[i];
+        spdlog::info("build ref global cache for {}", ref_name);
+        SequenceUtils::buildRefGlobalCache(seqpro_managers[ref_name], sampling_interval, ref_global_cache);
+		// uint_t ref_id = leaf_vec[i];
+		// SpeciesName ref_name = newick_tree.getNodes()[ref_id].name;
+
         std::unordered_map<SpeciesName, SeqPro::SharedManagerVariant> species_fasta_manager_map;
         for (uint_t j = i; j < leaf_num; j++) {
-            uint_t query_id = leaf_vec[j];
-			SpeciesName query_name = newick_tree.getNodes()[query_id].name;
+            // uint_t query_id = leaf_vec[j];
+			SpeciesName query_name = species_order[j];
             auto query_fasta_manager = seqpro_managers.at(query_name);
             species_fasta_manager_map.emplace(query_name, query_fasta_manager);
         }
@@ -532,11 +596,11 @@ starAlignment(
         // TODO 不同模式下最小长度要不同
         SpeciesMatchVec3DPtrMapPtr match_ptr = alignMultipleGenome(
             ref_name, species_fasta_manager_map,
-            i > 0 ? MIDDLE_SEARCH : ACCURATE_SEARCH, fast_build, allow_MEM, allow_short_mum, ref_global_cache, sampling_interval
+            ACCURATE_SEARCH, fast_build, false, allow_short_mum, ref_global_cache, sampling_interval
         );
-#ifdef _DEBUG_
-        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);
-#endif
+//#ifdef _DEBUG_
+//        compareMatchedSequences(match_ptr, species_fasta_manager_map, ref_name);
+//#endif
         spdlog::info("align multiple genome for {} done", ref_name);
 
 
@@ -548,25 +612,101 @@ starAlignment(
 
         // 并行构建多个比对结果图，共用线程池
         spdlog::info("construct multiple genome graphs for {}", ref_name);
-        //constructMultipleGraphsByGreedy(
-        //   seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
 
-        constructMultipleGraphsByGreedyByRef(
-            seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+
+        // constructMultipleGraphsByGreedyByRef(
+        //     seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span);
+
+        constructMultipleGraphsByDp(
+            seqpro_managers, ref_name, *cluster_map, *multi_graph, min_span, i==0);
+
+        spdlog::info("begin to extend nodes for {}", ref_name);
+        multi_graph->extendRefNodes(ref_name, seqpro_managers, 200);
+
+        // SpeciesName target_species = "simOrang";
+        // auto it = multi_graph->species_graphs.find(target_species);
+        // if (it != multi_graph->species_graphs.end()) {
+        //     const auto& genome_graph = it->second;
+        //     spdlog::info("Checking unaligned regions for species {}", target_species);
+        //
+        //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //         spdlog::info("Chromosome {}", chr_name);
+        //
+        //         // 直接调用前面定义的函数
+        //         RaMesh::reportUnalignedRegions(
+        //             genome_end,
+        //             seqpro_managers.at(target_species),
+        //             chr_name
+        //         );
+        //     }
+        // }
+        // else {
+        //     spdlog::warn("Species {} not found in multi_graph", target_species);
+        // }
+
         multi_graph->optimizeGraphStructure();
 #ifdef _DEBUG_
-        multi_graph->verifyGraphCorrectness(true);
+        multi_graph->verifyGraphCorrectness(ref_name, true);
 #endif // _DEBUG_
-		spdlog::info("construct multiple genome graphs for {} done", ref_name);
+        //multi_graph->verifyGraphCorrectness(ref_name, true);
+        spdlog::info("construct multiple genome graphs for {} done", ref_name);
+
+         // SpeciesName target_species = "simOrang";
+         // auto it = multi_graph->species_graphs.find(target_species);
+         // if (it != multi_graph->species_graphs.end()) {
+         //     const auto& genome_graph = it->second;
+         //     spdlog::info("Checking unaligned regions for species {}", target_species);
+         //
+         //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+         //         spdlog::info("Chromosome {}", chr_name);
+         //
+         //         // 直接调用前面定义的函数
+         //         RaMesh::reportUnalignedRegions(
+         //             genome_end,
+         //             seqpro_managers.at(target_species),
+         //             chr_name
+         //         );
+         //     }
+         // }
+         // else {
+         //     spdlog::warn("Species {} not found in multi_graph", target_species);
+         // }
+
+        // target_species = "simGorilla";
+        // it = multi_graph->species_graphs.find(target_species);
+        // if (it != multi_graph->species_graphs.end()) {
+        //     const auto& genome_graph = it->second;
+        //     spdlog::info("Checking unaligned regions for species {}", target_species);
+        //
+        //     for (const auto& [chr_name, genome_end] : genome_graph.chr2end) {
+        //         spdlog::info("Chromosome {}", chr_name);
+        //
+        //         // 直接调用前面定义的函数
+        //         RaMesh::reportUnalignedRegions(
+        //             genome_end,
+        //             seqpro_managers.at(target_species),
+        //             chr_name
+        //         );
+        //     }
+        // }
+        // else {
+        //     spdlog::warn("Species {} not found in multi_graph", target_species);
+        // }
 
         spdlog::info("merge multiple genome graphs for {}", ref_name);
         multi_graph->mergeMultipleGraphs(ref_name, thread_num);
-        multi_graph->optimizeGraphStructure();
-
+        spdlog::info("merge multiple genome graphs for {} done", ref_name);
 #ifdef _DEBUG_
         multi_graph->verifyGraphCorrectness(true);
+#endif
+        multi_graph->optimizeGraphStructure();
+        spdlog::info("optimize graph genome graphs for {} done", ref_name);
+		multi_graph->markAllExtended();
+
+#ifdef _DEBUG_
+        multi_graph->verifyGraphCorrectness(ref_name, true, false, false, true, false);
 #endif // _DEBUG_
-		spdlog::info("merge multiple genome graphs for {} done", ref_name);
+
 
         // 将当前轮次的比对结果作为遮蔽区间添加到 SeqPro managers 中
         // 这样后续轮次就不会重复比对已经成功比对的区间
@@ -692,7 +832,69 @@ SpeciesMatchVec3DPtrMapPtr MultipleRareAligner::alignMultipleGenome(
 
     /* ---------- 7. 保存到文件 ---------- */
     // saveSpeciesMatchMap(anchor_file, result_map);
-    spdlog::info("[alignMultipleQuerys] all species done. Saved to {}", anchor_file.string());
+    //spdlog::info("[alignMultipleQuerys] all species done. Saved to {}", anchor_file.string());
+
+    //{
+    //    SpeciesName target_species = "simOrang";
+    //    //int qry_chr_index = 1;
+    //    //int_t region_start = 54620705;
+    //    //int_t region_end = 54636058;
+  
+    //    int qry_chr_index = 1;
+    //    int_t region_start = 54320705;
+    //    int_t region_end = 54336058;
+
+    //    std::vector<Match> matched_vec; // 先收集
+
+    //    auto it = result_map->find(target_species);
+    //    if (it != result_map->end()) {
+    //        auto match3d_ptr = it->second;
+    //        if (match3d_ptr) {
+    //            for (const auto& by_ref : *match3d_ptr) {
+    //                for (const auto& by_qry : by_ref) {
+    //                    for (const auto& m : by_qry) {
+    //                        if (m.qry_chr_index == qry_chr_index) {
+    //                            Coord_t m_start = m.ref_start;
+    //                            Coord_t m_end = m.ref_start + m.match_len();
+    //                            if (m_end > region_start && m_start < region_end) {
+    //                                matched_vec.push_back(m);
+    //                            }
+    //                        }
+    //                    }
+    //                }
+    //            }
+    //        }
+    //    }
+    //    else {
+    //        spdlog::warn("Species {} not found in result_map", target_species);
+    //    }
+
+    //    if (!matched_vec.empty()) {
+    //        std::sort(matched_vec.begin(), matched_vec.end(),
+    //            [](const Match& a, const Match& b) {
+    //                return a.ref_start < b.ref_start;
+    //            });
+
+    //        for (const auto& m : matched_vec) {
+    //            spdlog::info(
+    //                "[{}] chr={} 区间 [{}, {}) match: "
+    //                "ref_chr={} ref_start={} len={} strand={}",
+    //                target_species,
+    //                m.qry_chr_index,
+    //                m.qry_start,
+    //                m.qry_start + m.match_len(),
+    //                m.ref_chr_index,
+    //                m.ref_start,
+    //                m.match_len(),
+    //                (m.strand() == Strand::FORWARD ? "FORWARD" : "REVERSE")
+    //            );
+    //        }
+    //    }
+    //    else {
+    //        spdlog::info("[{}] chr={} 区间 [{}, {}) 没有任何 match",
+    //            target_species, qry_chr_index, region_start, region_end);
+    //    }
+    //}
 
     return result_map;
 }
@@ -759,22 +961,22 @@ SpeciesClusterMapPtr MultipleRareAligner::filterMultipeSpeciesAnchors(
     spdlog::info("Group Match By Query and Ref Done");
 
 
-    /*========================= Phase-2  : sort ======================*/
-	spdlog::info("Sort Match By Query Start...");   
-    for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
-        MatchByStrandByQueryRefPtr u_ptr = it->second;
-        shared_pool.enqueue([u_ptr, &shared_pool]() mutable {
-            sortMatchByQueryStart(u_ptr, shared_pool);
-            });
-    }
-    for (auto it = repeat_map.begin(); it != repeat_map.end(); ++it) {
-        MatchByStrandByQueryRefPtr r_ptr = it->second;
-        shared_pool.enqueue([r_ptr, &shared_pool]() mutable {
-            sortMatchByQueryStart(r_ptr, shared_pool);
-            });
-    }
-    shared_pool.waitAllTasksDone();                          // —— Phase-2 完
-	spdlog::info("Sort Match By Query Done");
+ //   /*========================= Phase-2  : sort ======================*/
+	//spdlog::info("Sort Match By Query Start...");   
+ //   for (auto it = unique_map.begin(); it != unique_map.end(); ++it) {
+ //       MatchByStrandByQueryRefPtr u_ptr = it->second;
+ //       shared_pool.enqueue([u_ptr, &shared_pool]() mutable {
+ //           sortMatchByQueryStart(u_ptr, shared_pool);
+ //           });
+ //   }
+ //   for (auto it = repeat_map.begin(); it != repeat_map.end(); ++it) {
+ //       MatchByStrandByQueryRefPtr r_ptr = it->second;
+ //       shared_pool.enqueue([r_ptr, &shared_pool]() mutable {
+ //           sortMatchByQueryStart(r_ptr, shared_pool);
+ //           });
+ //   }
+ //   shared_pool.waitAllTasksDone();                          // —— Phase-2 完
+	//spdlog::info("Sort Match By Query Done");
 
     /*========================= Phase-3  :  ===================*/
 	spdlog::info("Cluster All Chr Match Start...");
@@ -1087,13 +1289,13 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
             //    pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
             //        graph, pool, min_span);
             //    });
-            for (auto& cluster : *cluster_ptr) {
-                pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
+            
+            pra.constructGraphByGreedyByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                     graph, min_span, false);
 
                 //pra.constructGraphByDpByRef(species_name, *seqpro_managers[species_name], cluster_ptr,
                 //    graph, pool, thread_num, min_span, false);
-            }
+            
         }
     }
     pool.waitAllTasksDone();
@@ -1112,4 +1314,85 @@ void MultipleRareAligner::constructMultipleGraphsByGreedyByRef(
     pool.waitAllTasksDone();
 
     spdlog::info("[constructMultipleGraphsByGreedy] All species graphs constructed successfully");
+}
+
+
+void MultipleRareAligner::constructMultipleGraphsByDp(
+    std::map<SpeciesName, SeqPro::SharedManagerVariant> seqpro_managers,
+    SpeciesName ref_name,
+    const SpeciesClusterMap& species_cluster_map,
+    RaMesh::RaMeshMultiGenomeGraph& graph,
+    uint_t min_span, bool is_first) {
+	if (species_cluster_map.empty()) {
+		spdlog::warn("[constructMultipleGraphsByDP] Empty cluster map, nothing to process.");
+		return;
+	}
+
+    PairRareAligner pra(*this);
+    pra.ref_name = ref_name;
+    // 【修复】：设置ref_seqpro_manager，避免空指针
+    pra.ref_seqpro_manager = &(*seqpro_managers.at(ref_name));
+
+    std::map<SpeciesName, AnchorPtrVecByStrandByQueryByRefPtr> anchor_map;
+
+    ThreadPool shared_pool(thread_num);
+
+    std::mutex anchor_map_mutex;
+    std::vector<std::future<void>> species_futures;
+    species_futures.reserve(species_cluster_map.size());
+    spdlog::info("[constructMultipleGraphsByDP] Processing {} species clusters",
+    species_cluster_map.size());
+
+    for (const auto& [species_name, cluster_ptr_3d] : species_cluster_map) {
+        if (!cluster_ptr_3d) continue;
+        spdlog::info("begin extend for {}", species_name);
+
+        // 为每个物种启动一个异步任务
+        species_futures.emplace_back(
+            std::async(
+                std::launch::async,
+                [&pra,
+                 &shared_pool,
+                 &anchor_map,
+                 &anchor_map_mutex,
+                 &seqpro_managers,
+                 species_name,
+                 cluster_ptr_3d,
+                 is_first]()
+                {
+                    // 1. 调用你现有的接口（保持原样，不加额外调试参数）
+                    auto result_ptr = pra.extendClusterToAnchorByChr(
+                        species_name,
+                        *seqpro_managers[species_name],
+                        cluster_ptr_3d,
+                        shared_pool,
+                        is_first
+                    );
+
+                    // 2. 把结果塞进 anchor_map（需要上锁防止并发写）
+                    {
+                        std::lock_guard<std::mutex> lock(anchor_map_mutex);
+                        anchor_map[species_name] = result_ptr;
+                    }
+                }
+            )
+        );
+    }
+
+    // 等所有物种的 extendClusterToAnchorByChr() 都跑完
+    for (auto &f : species_futures) {
+        f.get();
+    }
+
+    // 保险：等线程池里还没取走的任务都跑完
+    shared_pool.waitAllTasksDone();
+    //std::cout << "extend successfully with " << is_first << std::endl;
+    spdlog::info("[constructMultipleGraphsByDP] All species extended successfully");
+    
+    for (auto& [species_name, anchor_ptr] : anchor_map) {
+        pra.filterAnchorByDP(anchor_ptr);
+        spdlog::info("filter successfully for {}", species_name);
+		//std::cout << "filter successfully for " << species_name << " with " << anchor_ptr->size() << std::endl;
+		pra.constructGraphByDP(species_name, *seqpro_managers[species_name], anchor_ptr, graph);
+    }
 }
