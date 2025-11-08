@@ -12,7 +12,7 @@ RaMAx aligns multiple genomes and produces whole‑genome alignments in standard
 
 Install the following packages first:
 
-```bash
+```bash 
 sudo apt update
 sudo apt install -y \
     build-essential \
