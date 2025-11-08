@@ -6,6 +6,12 @@
 #include <sstream>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <zlib.h>
+#include <stdio.h>
+#include "kseq.h"
+
+// 初始化 kseq，用于读取 gzFile 类型的文件
+KSEQ_INIT(gzFile, gzread)
 
 namespace SeqPro {
 
@@ -1751,53 +1757,42 @@ namespace utils {
 std::filesystem::path cleanFastaFile(const std::filesystem::path &input_fasta,
                                               const std::filesystem::path &output_fasta,
                                               uint64_t line_width) {
-  std::ifstream input(input_fasta);
+  gzFile fp; // 文件指针
+  kseq_t *seq; // 序列结构体
+  int l; // 用于存储读取序列的长度
   std::ofstream output(output_fasta);
-  
-  if (!input.is_open() || !output.is_open()) {
+
+  fp = gzopen(input_fasta.c_str(), "r");
+  if (fp == NULL) {
     throw FileException("Cannot open input or output file");
   }
 
-  std::string line;
-  std::string current_sequence;
-  std::string current_header;
-  
-  while (std::getline(input, line)) {
-    if (line.empty()) continue;
-    
-    if (line[0] == '>') {
-      // 处理前一个序列
-      if (!current_header.empty() && !current_sequence.empty()) {
-        output << current_header << "\n";
-        for (size_t i = 0; i < current_sequence.length(); i += line_width) {
-          size_t chunk_size = std::min(line_width, current_sequence.length() - i);
-          output << current_sequence.substr(i, chunk_size) << "\n";
-        }
-      }
-      
-      current_header = line;
-      current_sequence.clear();
-    } else {
-      // 清理序列行：转大写，移除非法字符
-      for (char c : line) {
-        char upper_c = std::toupper(c);
-        if (upper_c == 'A' || upper_c == 'T' || upper_c == 'G' || upper_c == 'C') {
+  seq = kseq_init(fp);
+  while ((l = kseq_read(seq)) >= 0) {
+    std::string line;
+    std::string current_sequence;
+    std::string current_header;
+    line = seq->seq.s;
+    current_header = seq->name.s;
+    for (char c : line)
+    {
+      char upper_c = std::toupper(c);
+
+      if (upper_c == 'A' || upper_c == 'T' || upper_c == 'G' || upper_c == 'C') {
           current_sequence += upper_c;
-        } else if (std::isalpha(c)) {
+        } else {
           current_sequence += 'N'; // 非法字符转为N
         }
-      }
     }
+    output << '>' << current_header << "\n";
+    output << current_sequence << "\n";
+
   }
-  
-  // 处理最后一个序列
-  if (!current_header.empty() && !current_sequence.empty()) {
-    output << current_header << "\n";
-    for (size_t i = 0; i < current_sequence.length(); i += line_width) {
-      size_t chunk_size = std::min(line_width, current_sequence.length() - i);
-      output << current_sequence.substr(i, chunk_size) << "\n";
-    }
-  }
+  // 释放 kseq 结构体
+  kseq_destroy(seq);
+
+  // 关闭文件
+  gzclose(fp);
 
   return output_fasta;
 }
