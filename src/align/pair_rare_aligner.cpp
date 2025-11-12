@@ -1299,6 +1299,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	    }
 	}
 
+
 	// 2. 现在才提交任务（不会再 emplace_back）
 	std::vector<std::future<void>> futures;
 	std::atomic<std::size_t> done{0};
@@ -1316,10 +1317,7 @@ AnchorPtrVecByStrandByQueryByRefPtr PairRareAligner::extendClusterToAnchorByChr(
 	                [&, strand, q, r, cluster_vec_ptr, is_first]() {
 	                    AnchorPtrVec anchors;
 	                    anchors.reserve(1);
-						if (q ==1 && r==1 && strand == 1)
-						{
-							std::cout << "";
-						}
+
 	                    if (!is_first) {
 	                        for (auto & c : (*cluster_vec_ptr)) {
 	                            for (auto & sub_c : c) {
