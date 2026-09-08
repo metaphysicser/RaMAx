@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Write HAL in-process, removing the external `halAppendCactusSubtree`
+  dependency.
+- Reduce MAF/HAL export memory use through shared preparation and incremental
+  processing; accelerate HAL compression and writing.
+- Preserve existing outputs on export failure and reject directory destinations
+  without moving their contents.
+- Fix HAL cleanup after write failures and sequence-name compatibility with
+  modern HDF5 readers.
+- Allow source builds without a bundled `bin/` directory, retaining external
+  tool overrides and runtime lookup.
+
 ## 1.0.9 - 2026-08-30
 
 - Improved end-to-end performance across anchor processing, cluster extension,

@@ -6,7 +6,6 @@
 .codex-staging
 
 bin/*
-!bin/halAppendCactusSubtree
 benchmark
 recipe
 scripts
