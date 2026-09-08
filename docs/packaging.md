@@ -16,13 +16,14 @@ wfmash     0.14.0=h11f254b_0 (v0.14.0-0-g517e1bc)
 Samtools   1.23.1=ha83d96e_0
 HTSlib     1.23.1=h633afcb_0
 minipoa    1.4.2=hd5d28ae_0
-Cactus     cactus-bin-v2.9.9 halAppendCactusSubtree
 ```
 
 Mash build `hb105d93_9` and wfmash 0.14 use the same GSL 2.7 series.
 Samtools/HTSlib 1.23.1 is the exact pair used by the wfmash routing stage.
 The Conda recipe uses HDF5 1.14, while the Ubuntu 22.04 Docker builder uses
 the distribution HDF5 development package.
+HAL export uses the linked HAL/HDF5 libraries; no Cactus append executable is
+required.
 
 Packaging validation establishes that the binaries build, start, resolve their
 runtime libraries, and report the expected versions. It is not evidence of
@@ -36,7 +37,6 @@ Run release commands from the intended release checkout:
 cd /mnt/d/code/RaMAx
 
 test "$(sed -n 's/^project(RaMAx VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)" = "1.0.9"
-test -x bin/halAppendCactusSubtree
 git status --short
 git rev-parse HEAD
 ```
@@ -129,10 +129,9 @@ new environment before declaring the Conda release complete.
 
 ## Build the Docker image
 
-The Dockerfile copies the bundled `bin/halAppendCactusSubtree` and installs the
-exact companion-tool builds into `/opt/ramax`. It uses the local Docker
-frontend and does not require named build contexts or user-supplied integrity
-arguments.
+The Dockerfile installs the exact companion-tool builds into `/opt/ramax` and
+links HAL storage into `ramax`. It uses the local Docker frontend and does not
+require named build contexts or user-supplied integrity arguments.
 
 ```bash
 cd /mnt/d/code/RaMAx
@@ -174,9 +173,8 @@ mash --version
 wfmash --version
 samtools --version | head -n 2
 minipoa -v
-command -v halAppendCactusSubtree
 
-for executable in ramax wfmash minipoa halAppendCactusSubtree; do
+for executable in ramax wfmash minipoa; do
     report="$(ldd "$(command -v "$executable")" 2>&1 || true)"
     printf "%s\n" "$report"
     if printf "%s\n" "$report" | grep -q "not found"; then
